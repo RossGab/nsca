@@ -629,7 +629,7 @@ import {
 import { getStorage, ref as sRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js";
 import { increment } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
   
-const VERSION = "V.R.0.0.16.1.3.9";
+const VERSION = "V.R.0.0.16.1.4.0";
 const BILLING_CACHE = {};
 window.BILLING_CACHE = BILLING_CACHE;
 const DRIVER_UI_CACHE = {};
@@ -832,9 +832,10 @@ console.log(
 );
 
 const DB_NAME = "driver_uploads";
-const DB_VERSION = 5; // ⬅️ bump version ONCE
+const DB_VERSION = 6;
 const STORE = "photos";
 const TASK_STORE = "tasks";
+const META_STORE = "meta";
 let FORCE_REDOWNLOAD = false;
 
 function openDB() {
@@ -852,6 +853,10 @@ function openDB() {
       // task cache store
       if (!db.objectStoreNames.contains(TASK_STORE)) {
         db.createObjectStore(TASK_STORE, { keyPath: "_key" });
+      }
+
+      if (!db.objectStoreNames.contains(META_STORE)) {
+        db.createObjectStore(META_STORE, { keyPath: "key" });
       }
     };
 
@@ -1535,6 +1540,83 @@ const offlineBanner = document.getElementById("offlineBanner");
 const cameraInput = document.getElementById("cameraInput");
 
 const STORAGE_WARNING_THRESHOLD_MB = 400; // warn below 300 MB
+const STORAGE_WARNINGS = new Map();
+
+function renderStorageWarnings() {
+  const banner = document.getElementById("storageBanner");
+  if (!banner) return;
+  const messages = [...STORAGE_WARNINGS.values()];
+  banner.style.display = messages.length ? "block" : "none";
+  banner.innerText = messages.join("\n");
+  banner.style.whiteSpace = "pre-line";
+}
+
+function setStorageWarning(key, message) {
+  if (message) STORAGE_WARNINGS.set(key, message);
+  else STORAGE_WARNINGS.delete(key);
+  renderStorageWarnings();
+}
+
+async function requestPersistentStorage() {
+  if (!navigator.storage?.persist) {
+    setStorageWarning("persistence", "Storage protection is unavailable in this browser. Do not clear browser data.");
+    return false;
+  }
+
+  try {
+    const alreadyPersistent = navigator.storage.persisted
+      ? await navigator.storage.persisted()
+      : false;
+    const granted = alreadyPersistent || await navigator.storage.persist();
+    setStorageWarning(
+      "persistence",
+      granted ? "" : "Offline storage is not protected from automatic cleanup. Keep free space and disable browser/app cleanup."
+    );
+    return granted;
+  } catch (error) {
+    console.warn("Persistent storage request failed", error);
+    setStorageWarning("persistence", "Could not protect offline storage. Do not clear browser data.");
+    return false;
+  }
+}
+
+async function verifyOfflineDatabase() {
+  try {
+    const database = await openDB();
+    const result = await new Promise((resolve, reject) => {
+      const tx = database.transaction([TASK_STORE, STORE, META_STORE], "readwrite");
+      const taskRequest = tx.objectStore(TASK_STORE).count();
+      const photoRequest = tx.objectStore(STORE).count();
+      tx.objectStore(META_STORE).put({
+        key: "lastIntegrityCheck",
+        checkedAt: Date.now(),
+        version: DB_VERSION
+      });
+
+      tx.oncomplete = () => resolve({
+        tasks: taskRequest.result || 0,
+        photos: photoRequest.result || 0
+      });
+      tx.onerror = () => reject(tx.error || new Error("IndexedDB check failed"));
+      tx.onabort = () => reject(tx.error || new Error("IndexedDB check aborted"));
+    });
+
+    database.close();
+    setStorageWarning("database", "");
+    console.log("Offline database healthy:", result);
+    return result;
+  } catch (error) {
+    console.error("Offline database integrity check failed", error);
+    setStorageWarning("database", "Offline database problem detected. Back up existing work and reload the app before capturing more photos.");
+    return null;
+  }
+}
+
+async function initializeOfflineStorageProtection() {
+  await requestPersistentStorage();
+  await verifyOfflineDatabase();
+  await checkStorageQuota();
+}
 
 async function checkStorageQuota() {
   // Storage API not supported → silently ignore
@@ -1545,16 +1627,13 @@ async function checkStorageQuota() {
     if (!quota || !usage) return;
 
     const freeMB = (quota - usage) / (1024 * 1024);
-    const banner = document.getElementById("storageBanner");
-
-    if (!banner) return;
-
     if (freeMB < STORAGE_WARNING_THRESHOLD_MB) {
-      banner.style.display = "block";
-      banner.innerText =
-        `⚠ Low storage (${Math.round(freeMB)} MB left) — please free space to avoid upload issues`;
+      setStorageWarning(
+        "quota",
+        `Low storage (${Math.round(freeMB)} MB left) - free space to protect offline tasks and photos.`
+      );
     } else {
-      banner.style.display = "none";
+      setStorageWarning("quota", "");
     }
   } catch (e) {
     console.warn("Storage check failed", e);
@@ -3747,7 +3826,7 @@ async function preloadDriverUIConfig(tasks) {
   );
 }
   
-checkStorageQuota();
+initializeOfflineStorageProtection();
 setInterval(checkStorageQuota, 60_000); // every 60 seconds
 
 // =====================================================

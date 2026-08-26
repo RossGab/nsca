@@ -1,4 +1,4 @@
-const CACHE_VERSION = "v18-offline-install";
+const CACHE_VERSION = "v19-persistent-storage";
 const CACHE_NAME = `field-task-app-${CACHE_VERSION}`;
 
 const BASE_PATH = "/nsca/";
