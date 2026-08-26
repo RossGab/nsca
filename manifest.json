@@ -1,19 +1,19 @@
 {
   "name": "Driver Task App",
   "short_name": "DriverTasks",
-  "start_url": "/driva-pwa/driver.html",
-  "scope": "/driva-pwa/",
+  "start_url": "/nsca/driver.html",
+  "scope": "/nsca/",
   "display": "standalone",
   "background_color": "#222222",
   "theme_color": "#222222",
   "icons": [
     {
-      "src": "/driva-pwa/icon-192.png",
+      "src": "/nsca/icon-192.png",
       "sizes": "192x192",
       "type": "image/png"
     },
     {
-      "src": "/driva-pwa/icon-512.png",
+      "src": "/nsca/icon-512.png",
       "sizes": "512x512",
       "type": "image/png"
     }
