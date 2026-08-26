@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Task Report V5</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<style>
+body{font-family:Arial,sans-serif;background:#f3f3f3;padding:12px}
+h2{text-align:center}
+.filters{background:#fff;padding:12px;border-radius:8px;box-shadow:0 0 4px rgba(0,0,0,.1);margin-bottom:12px;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+select,input,button{padding:8px;border-radius:6px;border:1px solid #ccc}
+button{background:#007bff;color:#fff;border:none;cursor:pointer}
+button:hover{background:#0056b3}
+button:disabled{background:#999;cursor:not-allowed}
+.note{text-align:center;font-size:12px;color:#555}
+#progressBox{background:#fff;padding:10px;margin-bottom:10px;border-radius:6px;text-align:center;font-size:13px;font-weight:bold;display:none}
+#dataStatus{text-align:center;font-size:12px;color:#555;margin:8px}
+.error{color:#b00020;font-weight:bold}
+</style>
+</head>
+<body>
+
+<h2>📊 Task Report V.R.0.0.1</h2>
+
+<button onclick="location.href='admin.html'" style="margin:10px 0 14px;padding:10px;width:100%;background:#444;color:#fff;border:none;border-radius:6px;font-size:14px;cursor:pointer">
+⬅ Back to Dashboard
+</button>
+
+<div class="filters">
+<select id="statusFilter">
+<option value="">All Status</option>
+<option value="PENDING">PENDING</option>
+<option value="COMPLETED">COMPLETED</option>
+</select>
+
+<select id="jobTypeFilter"><option value="">All Job Types</option></select>
+<select id="baFilter"><option value="">All BA</option></select>
+<select id="dmzFilter"><option value="">All DMZ</option></select>
+
+<input type="date" id="dateFrom">
+<input type="date" id="dateTo">
+
+<button id="loadButton" onclick="loadTasksForSelectedDates()">🔄 Load Firestore</button>
+<button id="exportButton" onclick="generateReport()" disabled>⬇ Export XLSX</button>
+</div>
+
+<p class="note">Date range is based on <b>Created Date</b> using Philippine time.</p>
+<div id="dataStatus">☁ Firestore</div>
+<div id="progressBox"></div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-app.js";
+import {
+  initializeFirestore,
+  collection,
+  query,
+  where,
+  getDocs,
+  Timestamp
+} from "https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js";
+
+const firebaseConfig={
+  apiKey:"AIzaSyDFW61pnwLvh6HGKWt10zLYNr860fI8vkg",
+  authDomain:"driva-pwa.firebaseapp.com",
+  projectId:"driva-pwa",
+  storageBucket:"driva-pwa.firebasestorage.app",
+  messagingSenderId:"299138219722",
+  appId:"1:299138219722:web:623ff6b0a067ea822dfe33"
+};
+
+const app=initializeApp(firebaseConfig);
+
+/* Same named Firestore database used by the Admin Dashboard */
+const db=initializeFirestore(app,{}, "drver-task");
+const TASK_COLLECTION="TASK";
+
+let ALL_TASKS=[];
+
+const dateFrom=document.getElementById("dateFrom");
+const dateTo=document.getElementById("dateTo");
+const statusFilter=document.getElementById("statusFilter");
+const jobTypeFilter=document.getElementById("jobTypeFilter");
+const baFilter=document.getElementById("baFilter");
+const dmzFilter=document.getElementById("dmzFilter");
+const loadButton=document.getElementById("loadButton");
+const exportButton=document.getElementById("exportButton");
+const progressBox=document.getElementById("progressBox");
+const dataStatus=document.getElementById("dataStatus");
+
+function getTodayPH(){
+  return new Date().toLocaleDateString("en-CA",{timeZone:"Asia/Manila"});
+}
+
+function getPHStartOfDay(s){
+  const [y,m,d]=s.split("-").map(Number);
+  return new Date(Date.UTC(y,m-1,d,-8,0,0,0));
+}
+
+function getPHEndOfDay(s){
+  const [y,m,d]=s.split("-").map(Number);
+  return new Date(Date.UTC(y,m-1,d,15,59,59,999));
+}
+
+function dayCount(from,to){
+  return Math.floor(
+    (new Date(to+"T00:00:00")-new Date(from+"T00:00:00"))/86400000
+  )+1;
+}
+
+function toJSDate(value){
+  if(!value)return null;
+  if(typeof value==="object" && typeof value.toDate==="function")return value.toDate();
+  if(typeof value==="object" && typeof value.seconds==="number"){
+    return new Date(value.seconds*1000+Math.floor((value.nanoseconds||0)/1000000));
+  }
+  if(value instanceof Date)return value;
+  const d=new Date(value);
+  return isNaN(d.getTime())?null:d;
+}
+
+function toPHDateTime(value){
+  const d=toJSDate(value);
+  if(!d)return "";
+  return d.toLocaleString("en-GB",{
+    timeZone:"Asia/Manila",
+    year:"numeric",month:"2-digit",day:"2-digit",
+    hour:"2-digit",minute:"2-digit",second:"2-digit",hour12:false
+  });
+}
+
+function normalizeStatus(value){
+  const v=String(value||"").trim().toUpperCase();
+  if(v==="COMPLETED")return "COMPLETED";
+  if(v==="PENDING"||v==="OPEN")return "PENDING";
+  return v;
+}
+
+function normalizeTask(docSnap){
+  const raw=docSnap.data()||{};
+  return {
+    _key:docSnap.id,
+    ...raw,
+
+    driverId:raw.driverId??raw.agentId??"",
+    JOBTYPE:raw.JOBTYPE??raw.jobType??"",
+    BA:raw.BA??raw.ba??"",
+    DMZ:raw.DMZ??raw.dmz??"",
+    MRU:raw.MRU??raw.mru??"",
+    SEQUENCE:raw.SEQUENCE??raw.sequence??"",
+    METERNUMBER:raw.METERNUMBER??raw.meterNumber??"",
+    ACCOUNTNUMBER:raw.ACCOUNTNUMBER??raw.accountNumber??"",
+    CUSTOMERNAME:raw.CUSTOMERNAME??raw.customerName??"",
+    ADDRESS:raw.ADDRESS??raw.address??"",
+    ZIPCODE:raw.ZIPCODE??raw.zipCode??"",
+    LATITUDE:raw.LATITUDE??raw.latitude??null,
+    LONGITUDE:raw.LONGITUDE??raw.longitude??null,
+    deliveryType:raw.deliveryType??"",
+    status:normalizeStatus(raw.status??raw.workStatus)
+  };
+}
+
+async function fetchTasks(from,to){
+  const q=query(
+    collection(db,TASK_COLLECTION),
+    where("createdAt",">=",Timestamp.fromDate(getPHStartOfDay(from))),
+    where("createdAt","<=",Timestamp.fromDate(getPHEndOfDay(to)))
+  );
+
+  const snap=await getDocs(q);
+  const tasks=[];
+
+  snap.forEach(docSnap=>tasks.push(normalizeTask(docSnap)));
+
+  tasks.sort((a,b)=>{
+    const da=toJSDate(a.createdAt)?.getTime()||0;
+    const db=toJSDate(b.createdAt)?.getTime()||0;
+    return da-db;
+  });
+
+  return tasks;
+}
+
+function setLoading(on,text=""){
+  loadButton.disabled=on;
+  exportButton.disabled=on||ALL_TASKS.length===0;
+  progressBox.style.display=on?"block":"none";
+  if(on)progressBox.textContent=text;
+}
+
+window.loadTasksForSelectedDates=async function(){
+  const from=dateFrom.value;
+  const to=dateTo.value;
+
+  if(!from||!to){
+    alert("Please select both From and To dates.");
+    return;
+  }
+
+  if(from>to){
+    alert("Date From cannot be later than Date To.");
+    return;
+  }
+
+  if(dayCount(from,to)>180){
+    alert("Maximum date range is 180 days.");
+    return;
+  }
+
+  setLoading(true,"☁ Loading tasks directly from Firestore...");
+
+  try{
+    ALL_TASKS=await fetchTasks(from,to);
+    buildFilterOptions();
+    exportButton.disabled=ALL_TASKS.length===0;
+
+    dataStatus.textContent=
+      `☁ Firestore — ${ALL_TASKS.length.toLocaleString()} task(s) loaded`;
+
+    if(!ALL_TASKS.length){
+      dataStatus.textContent=
+        "☁ Firestore — No tasks found for the selected Created Date range.";
+    }
+  }catch(error){
+    console.error("Firestore report load failed:",error);
+    ALL_TASKS=[];
+    exportButton.disabled=true;
+    dataStatus.innerHTML=
+      `<span class="error">❌ Firestore load failed: ${escapeHtml(error.message||String(error))}</span>`;
+    alert("Failed to load tasks from Firestore. Check the browser console.");
+  }finally{
+    setLoading(false);
+  }
+};
+
+function buildFilterOptions(){
+  fillSelect("jobTypeFilter","JOBTYPE","Job Types");
+  fillSelect("baFilter","BA","BA");
+  fillSelect("dmzFilter","DMZ","DMZ");
+}
+
+function fillSelect(id,field,label){
+  const select=document.getElementById(id);
+  const previous=select.value;
+  select.innerHTML=`<option value="">All ${label}</option>`;
+
+  const values=[...new Set(
+    ALL_TASKS.map(t=>t[field])
+      .filter(v=>v!==undefined&&v!==null&&v!=="")
+      .map(String)
+  )].sort((a,b)=>a.localeCompare(b,undefined,{numeric:true,sensitivity:"base"}));
+
+  values.forEach(v=>{
+    const opt=document.createElement("option");
+    opt.value=v;
+    opt.textContent=v;
+    select.appendChild(opt);
+  });
+
+  if(values.includes(previous))select.value=previous;
+}
+
+function getFilteredTasks(){
+  const status=statusFilter.value;
+  const jobType=jobTypeFilter.value;
+  const ba=baFilter.value;
+  const dmz=dmzFilter.value;
+
+  return ALL_TASKS.filter(task=>{
+    if(status&&normalizeStatus(task.status)!==status)return false;
+    if(jobType&&String(task.JOBTYPE||"")!==jobType)return false;
+    if(ba&&String(task.BA||"")!==ba)return false;
+    if(dmz&&String(task.DMZ||"")!==dmz)return false;
+    return true;
+  });
+}
+
+function flattenTaskForReport(task){
+  const row={TASK_ID:task._key||""};
+
+  for(const key in task){
+    if(key==="_key")continue;
+
+    const value=task[key];
+    const col=key.toUpperCase();
+
+    if(
+      key==="createdAt"||
+      key==="updatedAt"||
+      key==="completedAt"||
+      key==="uploadedAt"||
+      key==="reopenedAt"
+    ){
+      row[col]=toPHDateTime(value);
+      continue;
+    }
+
+    if(typeof value==="object"&&value!==null){
+      if(typeof value.toDate==="function"){
+        row[col]=toPHDateTime(value);
+      }else{
+        try{row[col]=JSON.stringify(value);}
+        catch{row[col]=String(value);}
+      }
+      continue;
+    }
+
+    row[col]=value??"";
+  }
+
+  return row;
+}
+
+function escapeHtml(value){
+  return String(value??"")
+    .replace(/&/g,"&amp;")
+    .replace(/</g,"&lt;")
+    .replace(/>/g,"&gt;")
+    .replace(/"/g,"&quot;")
+    .replace(/'/g,"&#039;");
+}
+
+window.generateReport=async function(){
+  const from=dateFrom.value;
+  const to=dateTo.value;
+  const filtered=getFilteredTasks();
+
+  if(!filtered.length){
+    alert("No data found for the selected filters.");
+    return;
+  }
+
+  progressBox.style.display="block";
+  progressBox.textContent="🔍 Preparing Firestore data...";
+
+  const rows=[];
+  const headerSet=new Set();
+
+  for(let i=0;i<filtered.length;i++){
+    const row=flattenTaskForReport(filtered[i]);
+    Object.keys(row).forEach(k=>headerSet.add(k));
+    rows.push(row);
+
+    if(i%500===0){
+      progressBox.textContent=
+        `🔍 Preparing report... ${i.toLocaleString()} / ${filtered.length.toLocaleString()}`;
+      await new Promise(r=>setTimeout(r,0));
+    }
+  }
+
+  const headers=Array.from(headerSet)
+    .filter(h=>h!=="TASK_ID")
+    .sort();
+
+  headers.unshift("TASK_ID");
+
+  if(rows.length>100000){
+    progressBox.textContent="⚡ Large data detected — exporting CSV...";
+    exportCSV(headers,rows,from,to);
+    progressBox.style.display="none";
+    return;
+  }
+
+  progressBox.textContent="📊 Generating Excel...";
+  await new Promise(r=>setTimeout(r,0));
+
+  const wb=XLSX.utils.book_new();
+  const ws=XLSX.utils.aoa_to_sheet([headers]);
+
+  for(let i=0;i<rows.length;i++){
+    XLSX.utils.sheet_add_aoa(
+      ws,
+      [headers.map(h=>rows[i][h]??"")],
+      {origin:-1}
+    );
+
+    if(i%500===0){
+      progressBox.textContent=
+        `📊 Writing Excel... ${i.toLocaleString()} / ${rows.length.toLocaleString()}`;
+      await new Promise(r=>setTimeout(r,0));
+    }
+  }
+
+  XLSX.utils.book_append_sheet(wb,ws,"Tasks");
+  XLSX.writeFile(wb,`Task_Report_${from}_to_${to}.xlsx`);
+  progressBox.style.display="none";
+};
+
+function exportCSV(headers,rows,from,to){
+  const escape=v=>`"${String(v??"").replace(/"/g,'""')}"`;
+  let csv=headers.map(escape).join(",")+"\n";
+
+  for(const row of rows){
+    csv+=headers.map(h=>escape(row[h])).join(",")+"\n";
+  }
+
+  const blob=new Blob([csv],{type:"text/csv;charset=utf-8;"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");
+
+  a.href=url;
+  a.download=`Task_Report_${from}_to_${to}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+
+[statusFilter,jobTypeFilter,baFilter,dmzFilter].forEach(el=>{
+  el.addEventListener("change",()=>{
+    const count=getFilteredTasks().length;
+    dataStatus.textContent=
+      `☁ Firestore — ${ALL_TASKS.length.toLocaleString()} loaded / ${count.toLocaleString()} matching current filters`;
+  });
+});
+
+dateFrom.addEventListener("change",()=>loadTasksForSelectedDates());
+dateTo.addEventListener("change",()=>loadTasksForSelectedDates());
+
+const today=getTodayPH();
+dateFrom.value=today;
+dateTo.value=today;
+
+await loadTasksForSelectedDates();
+
+</script>
+</body>
+</html>
