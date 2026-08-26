@@ -987,6 +987,7 @@ textarea{
 }
 
 </style>
+<link rel="stylesheet" href="./admin-theme.css">
 
 </head>
 
@@ -998,22 +999,27 @@ textarea{
      HEADER
      ========================================================= -->
 
-<header class="header">
+<header class="app-header">
 
-  <div>
+  <div class="app-brand">
+    <img src="./logo.jpg" class="app-logo" alt="Company Logo">
+    <div class="app-brand-copy">
+      <div class="app-eyebrow">NSCA Task Administration</div>
 
-    <h1>
-      🚚 Driva Delivery Template Maker V.R.0.0.17.4
+    <h1 class="app-title">
+      Delivery Template Maker <span class="app-version">V.R.0.0.17.4</span>
     </h1>
 
-    <p>
+    <p class="app-subtitle">
       Build the form on the left. The right side behaves like the actual driver screen.
     </p>
 
+    </div>
   </div>
 
 
-  <div class="actions">
+  <div class="app-header-actions">
+    <a class="app-nav-button" href="admin.html">Back to Dashboard</a>
 
     <button
       class="btn"

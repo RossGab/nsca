@@ -79,11 +79,23 @@ th, td {
   font-size:12px;
 }
 </style>
+<link rel="stylesheet" href="./admin-theme.css">
 </head>
 
 <body>
 
-<h2>👤 Driver Management V.R.0.1.1.0</h2>
+<header class="app-header">
+  <div class="app-brand">
+    <img src="./logo.jpg" class="app-logo" alt="Company Logo">
+    <div class="app-brand-copy">
+      <div class="app-eyebrow">NSCA Task Administration</div>
+      <h1 class="app-title">Driver Management <span class="app-version">V.R.0.1.1.0</span></h1>
+    </div>
+  </div>
+  <div class="app-header-actions">
+    <a class="app-nav-button" href="admin.html">Back to Dashboard</a>
+  </div>
+</header>
 
 <div class="card">
 
@@ -109,10 +121,6 @@ th, td {
 
   <button id="actionBtn" class="hidden" onclick="handleAction()"></button>
   <button id="deleteBtn" class="hidden delete" onclick="deleteDriver()">🗑 Delete Driver</button>
-
-  <button class="back" onclick="location.href='admin.html'">
-    ⬅ Back to Dashboard
-  </button>
 
 </div>
 

@@ -289,45 +289,29 @@ button {
   border-radius:10px;
 }
 </style>
+<link rel="stylesheet" href="./admin-theme.css">
 </head>
 
 <body>
 
-<div class="admin-header" style="justify-content:space-between;">
-
-  <button onclick="logout()" style="
-  padding:10px 14px;
-  background:#dc3545;
-  color:#fff;
-  border:none;
-  border-radius:6px;
-  cursor:pointer;
-">
-  Logout(testing)
-</button>
-  
-  <div style="display:flex;align-items:center;gap:14px;">
-    <img src="./logo.jpg" class="admin-logo" alt="Company Logo">
-    <h1>Admin Dashboard <span class="version">V.R.0.1.0</span></h1>
+<header class="app-header">
+  <div class="app-brand">
+    <img src="./logo.jpg" class="app-logo" alt="Company Logo">
+    <div class="app-brand-copy">
+      <div class="app-eyebrow">NSCA Task Administration</div>
+      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.0</span></h1>
+    </div>
   </div>
 
-  <!-- 📅 DATE FILTER -->
-  <div style="display:flex; gap:8px; align-items:center;">
-  <input
-    type="date"
-    id="adminDateFrom"
-    style="padding:8px; border-radius:6px; border:1px solid #ccc;"
-  >
-
-  <span style="font-size:14px;">to</span>
-
-  <input
-    type="date"
-    id="adminDateTo"
-    style="padding:8px; border-radius:6px; border:1px solid #ccc;"
-  >
-</div>
-</div>
+  <div class="app-header-actions">
+    <div class="app-date-range">
+      <input type="date" id="adminDateFrom">
+      <span>to</span>
+      <input type="date" id="adminDateTo">
+    </div>
+    <button class="app-danger-button" onclick="logout()">Logout</button>
+  </div>
+</header>
 
 <!-- ===== DASHBOARD ===== -->
 <div class="dashboard">

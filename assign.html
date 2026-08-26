@@ -77,13 +77,23 @@ select, input[type="date"] {
   font-size:13px;
 }
 </style>
+<link rel="stylesheet" href="./admin-theme.css">
 </head>
 
 <body>
 
-<h2>Manage Tasks V.R.0.1.0</h2>
-
-<button onclick="location.href='admin.html'" class="small-btn">⬅ Back</button>
+<header class="app-header">
+  <div class="app-brand">
+    <img src="./logo.jpg" class="app-logo" alt="Company Logo">
+    <div class="app-brand-copy">
+      <div class="app-eyebrow">NSCA Task Administration</div>
+      <h1 class="app-title">Manage Tasks <span class="app-version">V.R.0.1.0</span></h1>
+    </div>
+  </div>
+  <div class="app-header-actions">
+    <a class="app-nav-button" href="admin.html">Back to Dashboard</a>
+  </div>
+</header>
 
 <!-- BULK UPLOAD -->
 <div class="panel">
