@@ -82,6 +82,23 @@ let deferredPrompt = null;
 const statusText = document.getElementById("statusText");
 const installBtn = document.getElementById("installBtn");
 
+async function preparePWA() {
+  if (!("serviceWorker" in navigator)) {
+    statusText.innerText = "PWA installation is not supported. Please use Chrome, Edge, or Safari.";
+    installBtn.style.display = "none";
+    return;
+  }
+
+  try {
+    await navigator.serviceWorker.register("./sw.js", { scope: "./" });
+    await navigator.serviceWorker.ready;
+  } catch (error) {
+    console.error("Driver PWA preparation failed:", error);
+    statusText.innerText = "Could not prepare the app. Check your connection and reload this page.";
+    installBtn.style.display = "none";
+  }
+}
+
 function isStandalone() {
   return window.matchMedia("(display-mode: standalone)").matches ||
          window.navigator.standalone === true;
@@ -147,6 +164,8 @@ window.addEventListener("appinstalled", () => {
   statusText.innerText =
     "✅ App installed! Open it from your home screen.";
 });
+
+preparePWA();
 </script>
 </body>
 </html>

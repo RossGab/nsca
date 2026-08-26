@@ -1,6 +1,7 @@
 {
   "name": "Driver Task App 2",
   "short_name": "DriverTasks2",
+  "id": "/nsca/driver.html",
   "start_url": "/nsca/driver.html",
   "scope": "/nsca/",
   "display": "standalone",
@@ -10,12 +11,14 @@
     {
       "src": "/nsca/icon-192.png",
       "sizes": "192x192",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
     },
     {
       "src": "/nsca/icon-512.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
     }
   ]
 }
