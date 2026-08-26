@@ -1,6 +1,6 @@
 {
-  "name": "Driver Task App",
-  "short_name": "DriverTasks",
+  "name": "Driver Task App 2",
+  "short_name": "DriverTasks2",
   "start_url": "/nsca/driver.html",
   "scope": "/nsca/",
   "display": "standalone",
