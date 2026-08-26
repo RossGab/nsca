@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Driver Management</title>
+
+<style>
+body {
+  font-family: Arial, sans-serif;
+  background:#f3f3f3;
+  padding:10px;
+}
+
+h2 { text-align:center; }
+
+.card {
+  background:#fff;
+  padding:14px;
+  border-radius:8px;
+  box-shadow:0 0 4px rgba(0,0,0,.1);
+}
+
+.actions {
+  display:flex;
+  gap:8px;
+  margin-bottom:12px;
+}
+
+button {
+  flex:1;
+  padding:12px;
+  font-size:14px;
+  border:none;
+  border-radius:6px;
+  cursor:pointer;
+}
+
+.add { background:#007bff; color:#fff; }
+.search { background:#17a2b8; color:#fff; }
+.list { background:#6c757d; color:#fff; }
+.update { background:#28a745; color:#fff; }
+.confirm { background:#f39c12; color:#fff; }
+.delete { background:#dc3545; color:#fff; }
+.back { background:#444; color:#fff; margin-top:10px; }
+
+input {
+  width:100%;
+  padding:12px;
+  margin-top:8px;
+  font-size:14px;
+  box-sizing:border-box;
+}
+
+input[readonly] {
+  background:#eee;
+}
+
+.hidden { display:none; }
+
+table {
+  width:100%;
+  border-collapse:collapse;
+  margin-top:10px;
+}
+
+th, td {
+  padding:8px;
+  border-bottom:1px solid #ddd;
+  font-size:13px;
+  text-align:left;
+}
+
+.viewBtn {
+  background:#0069d9;
+  color:#fff;
+  padding:6px 10px;
+  border-radius:5px;
+  font-size:12px;
+}
+</style>
+</head>
+
+<body>
+
+<h2>👤 Driver Management V.R.0.0.4</h2>
+
+<div class="card">
+
+  <div class="actions">
+    <button class="add" onclick="setMode('add')">➕ Add Driver</button>
+    <button class="search" onclick="setMode('search')">🔍 Search Driver</button>
+    <button class="list" onclick="setMode('list')">📋 View All</button>
+  </div>
+
+  <input id="searchBox" class="hidden"
+    placeholder="Search driver (code, name, address, contact, team, vehicle)">
+
+  <div id="driverForm" class="hidden">
+    <input id="driverCode" placeholder="Driver Code">
+    <input id="name" placeholder="Driver Name">
+    <input id="address" placeholder="Address">
+    <input id="contact" placeholder="Contact Number">
+    <input id="team" placeholder="Driver Team">
+    <input id="vehicle" placeholder="Vehicle Details">
+  </div>
+
+  <div id="driverList" class="hidden"></div>
+
+  <button id="actionBtn" class="hidden" onclick="handleAction()"></button>
+  <button id="deleteBtn" class="hidden delete" onclick="deleteDriver()">🗑 Delete Driver</button>
+
+  <button class="back" onclick="location.href='admin_selected_v2.html'">
+    ⬅ Back to Dashboard
+  </button>
+
+</div>
+
+<script type="module">
+import { initializeApp } from
+  "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+
+import {
+  getFirestore,
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  setDoc,
+  updateDoc,
+  deleteDoc
+} from
+  "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyDFW61pnwLvh6HGKWt10zLYNr860fI8vkg",
+  authDomain: "driva-pwa.firebaseapp.com",
+  projectId: "driva-pwa",
+  storageBucket: "driva-pwa.firebasestorage.app",
+  messagingSenderId: "299138219722",
+  appId: "1:299138219722:web:623ff6b0a067ea822dfe33"
+};
+
+const app = initializeApp(firebaseConfig);
+// Use the existing named Firestore database shown in Firebase Console.
+const db = getFirestore(app, "drver-task");
+
+/*
+  FIRESTORE STRUCTURE
+
+  drivers/{driverCode}
+
+  Example:
+
+  drivers/
+    DRIVER001
+      driverCode: "DRIVER001"
+      name: "John Doe"
+      address: "..."
+      contact: "..."
+      team: "Team A"
+      vehicle: "ABC-123"
+      createdAt: "2026-08-10T..."
+      updatedAt: "2026-08-10T..."
+*/
+
+const DRIVERS_COLLECTION = "drivers";
+
+const searchBox = document.getElementById("searchBox");
+const form = document.getElementById("driverForm");
+const listDiv = document.getElementById("driverList");
+const actionBtn = document.getElementById("actionBtn");
+const deleteBtn = document.getElementById("deleteBtn");
+
+const codeEl = document.getElementById("driverCode");
+const nameEl = document.getElementById("name");
+const addressEl = document.getElementById("address");
+const contactEl = document.getElementById("contact");
+const teamEl = document.getElementById("team");
+const vehicleEl = document.getElementById("vehicle");
+
+let MODE = null;
+
+/* ===== MODE ===== */
+window.setMode = async function (mode) {
+  MODE = mode;
+  hideAll();
+
+  if (mode === "add") {
+    showForm(false);
+    clearForm();
+    codeEl.readOnly = false;
+    actionBtn.innerText = "Save Driver";
+    actionBtn.className = "add";
+    actionBtn.classList.remove("hidden");
+  }
+
+  if (mode === "search") {
+    searchBox.classList.remove("hidden");
+    actionBtn.innerText = "Search";
+    actionBtn.className = "search";
+    actionBtn.classList.remove("hidden");
+    searchBox.value = "";
+  }
+
+  if (mode === "list") {
+    listDiv.classList.remove("hidden");
+    await loadDriverList();
+  }
+};
+
+/* ===== ACTION ===== */
+window.handleAction = async function () {
+
+  if (MODE === "confirm") {
+    setReadOnly(false);
+    actionBtn.innerText = "Update Driver";
+    actionBtn.className = "update";
+    MODE = "update";
+    return;
+  }
+
+  if (MODE === "search") {
+    const term = searchBox.value.trim().toLowerCase();
+    if (!term) return alert("Enter search text");
+
+    try {
+      const snap = await getDocs(collection(db, DRIVERS_COLLECTION));
+
+      const results = snap.docs
+        .map(docSnap => ({
+          ...docSnap.data(),
+          driverCode: docSnap.data().driverCode || docSnap.id
+        }))
+        .filter(d =>
+          JSON.stringify(d).toLowerCase().includes(term)
+        );
+
+      hideAll();
+      listDiv.classList.remove("hidden");
+      renderDriverTable(results);
+
+    } catch (error) {
+      console.error("Driver search failed:", error);
+      alert("Failed to search drivers.");
+    }
+
+    return;
+  }
+
+  if (MODE === "add") {
+    const driverCode = codeEl.value.trim();
+    if (!driverCode) return alert("Driver code required");
+
+    try {
+      const driverRef = doc(db, DRIVERS_COLLECTION, driverCode);
+      const existing = await getDoc(driverRef);
+
+      if (existing.exists()) {
+        return alert("Driver already exists");
+      }
+
+      await setDoc(driverRef, buildPayload(true));
+
+      alert("Driver added");
+      clearForm();
+
+    } catch (error) {
+      console.error("Add driver failed:", error);
+      alert("Failed to add driver.");
+    }
+
+    return;
+  }
+
+  if (MODE === "update") {
+    const driverCode = codeEl.value.trim();
+    if (!driverCode) return alert("Driver code required");
+
+    try {
+      await updateDoc(
+        doc(db, DRIVERS_COLLECTION, driverCode),
+        buildPayload(false)
+      );
+
+      alert("Driver updated");
+      setReadOnly(true);
+      MODE = "confirm";
+
+    } catch (error) {
+      console.error("Update driver failed:", error);
+      alert("Failed to update driver.");
+    }
+
+    return;
+  }
+};
+
+/* ===== DELETE ===== */
+window.deleteDriver = async function () {
+  const code = codeEl.value.trim();
+  if (!code) return;
+
+  if (!confirm(`Delete driver "${code}"?\nThis cannot be undone.`)) return;
+
+  try {
+    await deleteDoc(doc(db, DRIVERS_COLLECTION, code));
+
+    alert("Driver deleted");
+
+    hideAll();
+    clearForm();
+    MODE = null;
+
+  } catch (error) {
+    console.error("Delete driver failed:", error);
+    alert("Failed to delete driver.");
+  }
+};
+
+/* ===== LIST ===== */
+async function loadDriverList() {
+  try {
+    const snap = await getDocs(collection(db, DRIVERS_COLLECTION));
+
+    const drivers = snap.docs.map(docSnap => ({
+      ...docSnap.data(),
+      driverCode: docSnap.data().driverCode || docSnap.id
+    }));
+
+    renderDriverTable(drivers);
+
+  } catch (error) {
+    console.error("Load driver list failed:", error);
+    listDiv.innerHTML = "Failed to load drivers.";
+  }
+}
+
+function renderDriverTable(drivers) {
+  if (!drivers.length) {
+    listDiv.innerHTML = "No drivers found";
+    return;
+  }
+
+  listDiv.innerHTML = `
+    <table>
+      <tr>
+        <th>Code</th>
+        <th>Name</th>
+        <th>Team</th>
+        <th>Contact</th>
+        <th></th>
+      </tr>
+
+      ${drivers.map(d => `
+        <tr>
+          <td>${escapeHtml(d.driverCode)}</td>
+          <td>${escapeHtml(d.name || "")}</td>
+          <td>${escapeHtml(d.team || "-")}</td>
+          <td>${escapeHtml(d.contact || "-")}</td>
+          <td>
+            <button
+              class="viewBtn"
+              data-driver-code="${escapeHtml(d.driverCode)}">
+              View / Modify
+            </button>
+          </td>
+        </tr>
+      `).join("")}
+    </table>
+  `;
+
+  listDiv.querySelectorAll(".viewBtn").forEach(button => {
+    button.addEventListener("click", async () => {
+      const code = button.dataset.driverCode;
+
+      try {
+        const snap = await getDoc(doc(db, DRIVERS_COLLECTION, code));
+
+        if (!snap.exists()) {
+          alert("Driver no longer exists.");
+          return;
+        }
+
+        viewDriver({
+          ...snap.data(),
+          driverCode: snap.data().driverCode || snap.id
+        });
+
+      } catch (error) {
+        console.error("Load driver failed:", error);
+        alert("Failed to load driver.");
+      }
+    });
+  });
+}
+
+window.viewDriver = function (d) {
+  hideAll();
+  showForm(true);
+
+  codeEl.value = d.driverCode;
+  nameEl.value = d.name || "";
+  addressEl.value = d.address || "";
+  contactEl.value = d.contact || "";
+  teamEl.value = d.team || "";
+  vehicleEl.value = d.vehicle || "";
+
+  codeEl.readOnly = true;
+
+  actionBtn.innerText = "✏ Modify Driver";
+  actionBtn.className = "confirm";
+  actionBtn.classList.remove("hidden");
+
+  deleteBtn.classList.remove("hidden");
+  MODE = "confirm";
+};
+
+/* ===== HELPERS ===== */
+function buildPayload(isNew) {
+  const now = new Date().toISOString();
+
+  return {
+    driverCode: codeEl.value.trim(),
+    name: nameEl.value.trim(),
+    address: addressEl.value.trim(),
+    contact: contactEl.value.trim(),
+    team: teamEl.value.trim(),
+    vehicle: vehicleEl.value.trim(),
+    ...(isNew ? { createdAt: now } : {}),
+    updatedAt: now
+  };
+}
+
+function setReadOnly(state) {
+  [nameEl, addressEl, contactEl, teamEl, vehicleEl]
+    .forEach(i => i.readOnly = state);
+}
+
+function showForm(readOnly) {
+  form.classList.remove("hidden");
+  setReadOnly(readOnly);
+}
+
+function hideAll() {
+  searchBox.classList.add("hidden");
+  form.classList.add("hidden");
+  listDiv.classList.add("hidden");
+  actionBtn.classList.add("hidden");
+  deleteBtn.classList.add("hidden");
+}
+
+function clearForm() {
+  codeEl.value = "";
+  nameEl.value = "";
+  addressEl.value = "";
+  contactEl.value = "";
+  teamEl.value = "";
+  vehicleEl.value = "";
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+</script>
+
+</body>
+</html>
