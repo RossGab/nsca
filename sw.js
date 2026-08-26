@@ -1,7 +1,7 @@
-const CACHE_VERSION = "v14";
+const CACHE_VERSION = "v15";
 const CACHE_NAME = `field-task-app-${CACHE_VERSION}`;
 
-const BASE_PATH = "/driva-pwa/";
+const BASE_PATH = "/nsca/";
 
 const APP_SHELL = [
   BASE_PATH,
