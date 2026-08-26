@@ -1,11 +1,10 @@
-const CACHE_VERSION = "v17-offline";
+const CACHE_VERSION = "v18-offline-install";
 const CACHE_NAME = `field-task-app-${CACHE_VERSION}`;
 
 const BASE_PATH = "/nsca/";
 const DRIVER_URL = BASE_PATH + "driver.html";
 
 const CORE_ASSETS = [
-  BASE_PATH,
   DRIVER_URL,
   BASE_PATH + "install.html",
   BASE_PATH + "manifest.json",

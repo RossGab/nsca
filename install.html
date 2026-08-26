@@ -81,6 +81,21 @@
 let deferredPrompt = null;
 const statusText = document.getElementById("statusText");
 const installBtn = document.getElementById("installBtn");
+let installPromptTimer = null;
+
+function showManualInstallHelp() {
+  if (deferredPrompt || isStandalone() || isIOS() || isInAppBrowser()) return;
+
+  installBtn.disabled = false;
+  installBtn.innerText = "Open Driver App";
+  installBtn.onclick = () => location.href = "./driver.html";
+  statusText.innerHTML = `
+    The automatic install prompt is not available on this browser.<br><br>
+    Open the browser menu and select <b>Install app</b> or
+    <b>Add to Home screen</b>.<br><br>
+    If that option is missing, update Chrome and reload this page.
+  `;
+}
 
 async function preparePWA() {
   if (!("serviceWorker" in navigator)) {
@@ -90,8 +105,11 @@ async function preparePWA() {
   }
 
   try {
-    await navigator.serviceWorker.register("./sw.js", { scope: "./" });
+    const registration = await navigator.serviceWorker.register("./sw.js", { scope: "./" });
+    await registration.update();
     await navigator.serviceWorker.ready;
+
+    installPromptTimer = setTimeout(showManualInstallHelp, 8000);
   } catch (error) {
     console.error("Driver PWA preparation failed:", error);
     statusText.innerText = "Could not prepare the app. Check your connection and reload this page.";
@@ -142,6 +160,7 @@ else if (isInAppBrowser()) {
 window.addEventListener("beforeinstallprompt", e => {
   e.preventDefault();
   deferredPrompt = e;
+  clearTimeout(installPromptTimer);
 
   installBtn.disabled = false;
   installBtn.innerText = "📲 Install Driver App";
@@ -160,6 +179,7 @@ installBtn.onclick = async () => {
 };
 
 window.addEventListener("appinstalled", () => {
+  clearTimeout(installPromptTimer);
   installBtn.style.display = "none";
   statusText.innerText =
     "✅ App installed! Open it from your home screen.";
