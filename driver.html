@@ -1,0 +1,7442 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>Driver Tasks</title>
+
+<link rel="manifest" href="./manifest.json">
+<meta name="theme-color" content="#222222">
+
+<style>
+body { font-family: Arial, sans-serif; background:#f4f4f4; padding:10px; }
+#appVersion { background:#222;color:#fff;padding:8px;text-align:center;margin-bottom:6px; }
+#offlineBanner { background:#c0392b;color:#fff;padding:6px;text-align:center;margin-bottom:10px;display:none; }
+#searchBox { width:100%;padding:10px;margin-bottom:10px;border-radius:6px;border:1px solid #ccc;font-size:14px; }
+.task { background:#fff;padding:12px;margin-bottom:10px;border-radius:8px;border-left:5px solid orange; }
+.task.completed { border-left-color:green; }
+.small { font-size:13px;color:#555;margin-top:4px; }
+.radio-group label { display:block;margin-top:4px; }
+textarea { width:100%;min-height:60px;margin-top:6px;padding:6px;font-size:14px; }
+.offline-indicator { font-weight:bold;color:#c0392b;margin-top:6px; }
+.uploading { font-weight:bold;color:#f39c12;margin-top:6px; }
+button { width:100%;padding:10px;margin-top:6px;border-radius:6px;border:none;font-size:14px; }
+
+/* =====================================================
+   🗺 MAP PREVIOUS LEVEL BUTTON
+   ===================================================== */
+
+.task-map-previous-control {
+  margin-top: 10px;
+  margin-right: 10px;
+}
+
+.task-map-previous-control button {
+  width: auto;
+  min-width: 105px;
+
+  margin: 0;
+  padding: 8px 12px;
+
+  background: #ffffff;
+  color: #222;
+
+  border: 1px solid #ccc;
+  border-radius: 7px;
+
+  box-shadow:
+    0 2px 6px rgba(0, 0, 0, 0.25);
+
+  font-size: 13px;
+  font-weight: 600;
+
+  cursor: pointer;
+}
+
+.task-map-previous-control button:active {
+  transform: translateY(1px);
+}
+
+.task-map-previous-control button:hover {
+  background: #f5f5f5;
+}
+.capture { background:#007bff;color:#fff; }
+.capture-label {
+  display: block;
+  text-align: center;
+  background: #007bff;
+  color: #fff;
+  padding: 12px;
+  border-radius: 6px;
+  font-size: 14px;
+  cursor: pointer;
+  user-select: none;
+}
+#jobTypeOptions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+/* =====================================================
+   🔒 SYNC LOCK
+   ===================================================== */
+
+body.sync-active .task {
+  opacity: 0.75;
+}
+
+body.sync-active .task button,
+body.sync-active .task input,
+body.sync-active .task textarea {
+  cursor: not-allowed;
+}
+
+body.sync-active #refreshTasksBtn {
+  background: #95a5a6 !important;
+}
+
+body.sync-active #settingsBtn {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.job-type-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #fff;
+  border: 1px solid #ddd;
+  padding: 6px 10px;
+  border-radius: 18px;
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.job-type-chip input {
+  margin: 0;
+}
+.uploading,
+.offline-indicator {
+  pointer-events: none;
+}
+.task {
+  pointer-events: auto;
+}
+button.capture {
+  position: relative;
+  z-index: 9999;
+  pointer-events: auto;
+}
+.toggle { background:#0069d9;color:#fff; }
+.delivery-fields {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.delivery-fields label {
+  font-weight: bold;
+  font-size: 13px;
+}
+
+.delivery-fields input,
+.delivery-fields textarea,
+.delivery-fields select {
+  width: 100%;
+  padding: 8px;
+  font-size: 14px;
+  box-sizing: border-box;
+}
+
+.delivery-fields textarea {
+  min-height: 90px;
+  resize: vertical;
+}
+img { width:100%;margin-top:8px;border-radius:6px; }
+</style>
+<!-- ===== DRIVER TASK MAP ===== -->
+<link
+  rel="stylesheet"
+  href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+/>
+
+<link
+  rel="stylesheet"
+  href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"
+/>
+
+<link
+  rel="stylesheet"
+  href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"
+/>
+
+<style>
+  #driverTaskMapPanel {
+    display: none;
+    background: #fff;
+    border-radius: 10px;
+    overflow: hidden;
+    margin-bottom: 10px;
+  }
+
+  #driverTaskMap {
+    width: 100%;
+    height: calc(100vh - 180px);
+    min-height: 500px;
+  }
+
+  .task-map-marker {
+    background: #1976d2;
+    color: #fff;
+    width: 34px;
+    height: 34px;
+    border-radius: 50% 50% 50% 0;
+    transform: rotate(-45deg);
+    border: 2px solid #fff;
+    box-shadow: 0 2px 6px rgba(0,0,0,.35);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .task-map-marker.local-completed {
+    background: #28a745;
+}
+
+  .task-map-marker span {
+    transform: rotate(45deg);
+    font-weight: bold;
+    font-size: 13px;
+  }
+
+  .driver-map-marker {
+    background: #1565c0;
+    color: #fff;
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    border: 3px solid #fff;
+    box-shadow: 0 2px 8px rgba(0,0,0,.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+  }
+
+  /* =====================================================
+     🧭 FOCUSED TASK CALLOUTS
+     The task marker may move away from the exact GPS point
+     to prevent overlapping. A leader line connects it back
+     to the real GPS coordinate.
+     ===================================================== */
+  .task-map-marker.callout-marker {
+    z-index: 1000;
+  }
+
+  .task-map-callout-line {
+    pointer-events: none;
+  }
+
+  .task-map-topbar {
+    display: flex;
+    gap: 6px;
+    padding: 8px;
+    background: #fff;
+    border-bottom: 1px solid #ddd;
+  }
+
+  .task-map-topbar button {
+    flex: 1;
+    padding: 10px;
+    border: none;
+    border-radius: 6px;
+    font-weight: bold;
+  }
+
+  .task-map-info {
+    padding: 8px 10px;
+    font-size: 13px;
+    background: #f7f7f7;
+    border-bottom: 1px solid #ddd;
+  }
+</style>
+<script
+  src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js">
+</script>
+<script
+  src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js">
+</script>
+</head>
+
+<body>
+<button id="settingsBtn"
+  style="
+    position: fixed;
+    top: 10px;
+    right: 10px;
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    border: none;
+    background: #fff;
+    font-size: 20px;
+    box-shadow: 0 2px 6px rgba(0,0,0,.2);
+    z-index: 99999;
+  ">
+  ⚙️
+</button>
+
+<div id="appVersion"></div>
+<div id="gpsStatus"
+  style="background:#fff;padding:6px;text-align:center;
+         margin-bottom:6px;border-radius:6px;font-size:13px;">
+  📡 Acquiring GPS…
+</div>
+<div id="taskCounter"
+   style="background:#fff;padding:8px;text-align:center;
+        margin-bottom:10px;border-radius:6px;font-weight:bold;">
+</div>
+<button
+  id="refreshTasksBtn"
+  style="
+    width:100%;
+    padding:10px;
+    margin-bottom:10px;
+    border-radius:6px;
+    border:none;
+    font-size:14px;
+    font-weight:bold;
+    background:#3498db;
+    color:#fff;
+  "
+>
+  Task for download (0)
+</button>
+<button id="syncBtn"
+  style="
+    width:100%;
+    padding:10px;
+    margin-bottom:10px;
+    border-radius:6px;
+    border:none;
+    font-size:14px;
+    font-weight:bold;
+    background:#2ecc71;
+    color:#fff;
+  ">
+  🔄 Sync Completed Tasks
+</button>
+<div id="offlineBanner">⚠ Offline</div>
+  <div id="storageBanner"
+  style="
+    background:#f39c12;
+    color:#000;
+    padding:8px;
+    text-align:center;
+    margin-bottom:10px;
+    border-radius:6px;
+    font-size:13px;
+    display:none;
+    font-weight:bold;
+  ">
+  ⚠ Low storage — please free up space to avoid upload issues
+</div>
+<div id="uploadCounter"
+  style="background:#fff;padding:8px;text-align:center;
+         margin-bottom:10px;border-radius:6px;
+         font-weight:bold;color:#f39c12;">
+</div>
+<div
+  id="uploadNote"
+  style="
+    display:none;
+    background:#fff3cd;
+    color:#856404;
+    padding:10px;
+    margin-bottom:10px;
+    border-radius:6px;
+    font-size:13px;
+    text-align:center;
+  "
+>
+  ℹ️ <b>Upload in progress</b><br>
+  The screen may refresh while uploading.<br>
+  <b>Please wait until the upload is completed.</b>
+</div>
+
+  <div
+  id="syncProgressBox"
+  style="
+    display:none;
+    background:#fff;
+    padding:12px;
+    margin-bottom:10px;
+    border-radius:8px;
+    border:1px solid #ddd;
+  "
+>
+  <div style="font-weight:bold;margin-bottom:8px;">
+    🔄 Syncing Completed Tasks
+  </div>
+
+  <div
+    id="syncProgressText"
+    style="font-size:14px;margin-bottom:6px;"
+  >
+    Preparing...
+  </div>
+
+  <div
+    style="
+      width:100%;
+      height:18px;
+      background:#e9ecef;
+      border-radius:10px;
+      overflow:hidden;
+    "
+  >
+    <div
+      id="syncProgressBar"
+      style="
+        width:0%;
+        height:100%;
+        background:#2ecc71;
+        transition:width .2s ease;
+      "
+    ></div>
+  </div>
+
+  <div
+    id="syncProgressPercent"
+    style="
+      text-align:center;
+      font-weight:bold;
+      margin-top:5px;
+    "
+  >
+    0%
+  </div>
+
+  <div
+    id="syncCurrentTask"
+    style="
+      font-size:13px;
+      color:#555;
+      margin-top:8px;
+    "
+  ></div>
+
+  <div
+    id="syncCurrentPhoto"
+    style="
+      font-size:13px;
+      color:#555;
+      margin-top:4px;
+    "
+  ></div>
+
+  <div
+    id="syncResultCount"
+    style="
+      font-size:13px;
+      margin-top:8px;
+    "
+  >
+    ✅ Successful: 0 &nbsp; | &nbsp; ❌ Failed: 0
+  </div>
+</div>
+
+<button
+  id="retryUploadBtn"
+  style="
+    display:none;
+    width:100%;
+    padding:10px;
+    margin-bottom:10px;
+    border-radius:6px;
+    border:none;
+    font-size:14px;
+    font-weight:bold;
+    background:#e67e22;
+    color:#fff;
+  "
+  onclick="manualRetryUploads()"
+>
+  🔁 Retry Pending Uploads
+</button>
+
+<input
+  type="date"
+  id="dateFilter"
+  style="
+    width:100%;
+    padding:10px;
+    margin-bottom:8px;
+    border-radius:6px;
+    border:1px solid #ccc;
+    font-size:14px;
+  "
+>
+<div id="jobTypeFilter"
+  style="
+    background:#fff;
+    padding:10px;
+    margin-bottom:8px;
+    border-radius:6px;
+    font-size:13px;
+  ">
+  <b>Job Type</b>
+  <div id="jobTypeOptions"></div>
+</div>
+<!-- ===== DRIVER TASK MAP BUTTON ===== -->
+<button
+  id="openTaskMapBtn"
+  style="
+    width:100%;
+    padding:12px;
+    margin-bottom:10px;
+    border:none;
+    border-radius:8px;
+    background:#3498db;
+    color:#fff;
+    font-size:16px;
+    font-weight:bold;
+  "
+>
+  🗺 View Tasks on Map
+</button>
+
+<!-- ===== DRIVER TASK MAP ===== -->
+<div id="driverTaskMapPanel">
+
+  <div class="task-map-topbar">
+  <button
+  id="showAllTaskClustersBtn"
+  style="
+    background:#2ecc71;
+    color:#fff;
+    display:none;
+  "
+>
+  📍 All Tasks
+</button>
+
+    <button
+      id="closeTaskMapBtn"
+      style="
+        background:#555;
+        color:#fff;
+      "
+    >
+      ← Back to Tasks
+    </button>
+
+    <button
+      id="centerDriverBtn"
+      style="
+        background:#1976d2;
+        color:#fff;
+      "
+    >
+      🔵 My Location
+    </button>
+
+  </div>
+
+  <div
+    id="taskMapInfo"
+    class="task-map-info"
+  >
+    Loading tasks...
+  </div>
+
+  <div id="driverTaskMap"></div>
+
+</div>
+<div style="display:flex;gap:6px;margin-bottom:10px;">
+  <input id="searchBox" placeholder="Search tasks" style="flex:1;">
+  
+  <button id="scanQRBtn"
+    style="
+      width:60px;
+      border-radius:6px;
+      border:none;
+      background:#8e44ad;
+      color:#fff;
+      font-size:18px;
+    ">
+    📷
+  </button>
+</div>
+<div id="qrReader"
+  style="
+    display:none;
+    background:#000;
+    padding:10px;
+    border-radius:6px;
+    margin-bottom:10px;
+  ">
+</div>
+<div id="fatalErrorBox"
+  style="
+    display:none;
+    background:#b00020;
+    color:#fff;
+    padding:10px;
+    margin-bottom:10px;
+    border-radius:6px;
+    font-size:13px;
+    white-space:pre-wrap;
+  ">
+</div>
+<div id="taskList">
+  Loading tasks…
+  <div id="scrollSentinel"></div>
+</div>
+<input type="file" id="cameraInput" accept="image/*" capture="environment" hidden>
+<input
+  type="file"
+  id="recoveryFileInput"
+  accept=".json,application/json"
+  multiple
+  hidden
+>
+<script src="https://unpkg.com/html5-qrcode"></script>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+import { getDatabase, ref, get, update, query, orderByChild, equalTo } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+import {
+  getFirestore,
+  collection,
+  query as fsQuery,
+  where,
+  orderBy,
+  getDocs,
+  getCountFromServer,
+  doc as fsDoc,
+  getDoc,
+  updateDoc,
+  writeBatch,
+  serverTimestamp
+} from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+import { getStorage, ref as sRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js";
+import { increment } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+  
+const VERSION = "V.R.0.0.16.1.3.9";
+const BILLING_CACHE = {};
+window.BILLING_CACHE = BILLING_CACHE;
+const DRIVER_UI_CACHE = {};
+const DRIVER_UI_STORAGE_KEY = "driverUIConfigCache";
+const selectedJobTypes = new Set();
+const PHOTO_BUFFER = {};
+const submitLock = {};
+const FORM_CACHE_KEY = "driverFormCache";
+let ACTIVE_CAPTURE_TASK = null;
+let jobTypeFilterInitialized = false;
+let LAST_KNOWN_GPS = null;
+  // =====================================================
+// 🗺 DRIVER TASK MAP
+// =====================================================
+
+
+
+let DRIVER_TASK_MAP = null;
+let DRIVER_TASK_MARKERS = {};
+let DRIVER_TASK_MARKER_CLUSTER = null;
+let DRIVER_TASK_CALLOUT_LAYER = null;
+let DRIVER_LOCATION_MARKER = null;
+let DRIVER_TASK_MAP_VISIBLE = false;
+let DRIVER_TASK_MAP_FOCUS_KEYS = null;
+let DRIVER_TASK_MAP_FOCUS_INDIVIDUAL = false;
+
+// =====================================================
+// 🗺 DRIVER TASK MAP — FOCUS HISTORY
+// =====================================================
+
+// Each entry represents one previous map focus level.
+let DRIVER_TASK_MAP_FOCUS_HISTORY = [];
+
+// Prevent duplicate history entries.
+let DRIVER_TASK_MAP_LAST_FOCUS_SIGNATURE = null;
+  
+let LOAD_IN_PROGRESS = false;
+let RENDER_OFFSET = 0;
+let CURRENT_RENDER_LIST = [];
+let IS_DOWNLOADING = false;
+let LAST_RENDER_SIGNATURE = "";
+let SYNC_RUNNING = false;
+
+let DRIVER_TASK_MAP_INITIALIZED_VIEW = false;
+// =====================================================
+// 💾 SAVED DRIVER TASK MAP STATE
+// =====================================================
+
+let DRIVER_TASK_MAP_SAVED_STATE = null;
+
+function setTaskWorkLocked(locked) {
+
+  SYNC_RUNNING = locked;
+
+  const controls = [
+    "refreshTasksBtn",
+    "settingsBtn",
+    "dateFilter",
+    "searchBox",
+    "scanQRBtn"
+  ];
+
+  controls.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+
+    el.disabled = locked;
+  });
+
+  document
+    .querySelectorAll(
+      ".task button, .task input, .task textarea"
+    )
+    .forEach(el => {
+      el.disabled = locked;
+    });
+
+  document.body.classList.toggle(
+    "sync-active",
+    locked
+  );
+
+  const note =
+    document.getElementById("uploadNote");
+
+  if (note) {
+    note.style.display =
+      locked ? "block" : "none";
+  }
+}
+
+function updateSyncProgress({
+  current = 0,
+  total = 0,
+  currentTask = "",
+  currentPhoto = "",
+  successful = 0,
+  failed = 0,
+  message = ""
+}) {
+
+  const box =
+    document.getElementById("syncProgressBox");
+
+  const text =
+    document.getElementById("syncProgressText");
+
+  const bar =
+    document.getElementById("syncProgressBar");
+
+  const percent =
+    document.getElementById("syncProgressPercent");
+
+  const task =
+    document.getElementById("syncCurrentTask");
+
+  const photo =
+    document.getElementById("syncCurrentPhoto");
+
+  const result =
+    document.getElementById("syncResultCount");
+
+  if (!box) return;
+
+  box.style.display = "block";
+
+  const pct =
+    total > 0
+      ? Math.min(100, (current / total) * 100)
+      : 0;
+
+  if (text) {
+    text.innerText =
+      message ||
+      `Task ${current} of ${total}`;
+  }
+
+  if (bar) {
+    bar.style.width = `${pct}%`;
+  }
+
+  if (percent) {
+    percent.innerText =
+      `${pct.toFixed(1)}%`;
+  }
+
+  if (task) {
+    task.innerText =
+      currentTask
+        ? `📋 Current task: ${currentTask}`
+        : "";
+  }
+
+  if (photo) {
+    photo.innerText =
+      currentPhoto
+        ? currentPhoto
+        : "";
+  }
+
+  if (result) {
+    result.innerHTML =
+      `✅ Successful: ${successful} &nbsp; | &nbsp; ❌ Failed: ${failed}`;
+  }
+}
+
+function hideSyncProgress() {
+  const box =
+    document.getElementById("syncProgressBox");
+
+  if (box) {
+    box.style.display = "none";
+  }
+}
+
+
+
+
+const firebaseConfig = {
+  apiKey: "AIzaSyDFW61pnwLvh6HGKWt10zLYNr860fI8vkg",
+  authDomain: "driva-pwa.firebaseapp.com",
+  databaseURL: "https://driva-pwa-default-rtdb.firebaseio.com",
+  projectId: "driva-pwa",
+  storageBucket: "driva-pwa.firebasestorage.app", // ✅ FIX
+  messagingSenderId: "299138219722",
+  appId: "1:299138219722:web:623ff6b0a067ea822dfe33"
+};
+
+const app = initializeApp(firebaseConfig);
+
+const db = getDatabase(app);
+
+const firestore = getFirestore(app, "drver-task");
+
+const storage = getStorage(app);
+
+console.log(
+  "🔥 Firestore driver database initialized:",
+  firestore
+);
+
+const DB_NAME = "driver_uploads";
+const DB_VERSION = 5; // ⬅️ bump version ONCE
+const STORE = "photos";
+const TASK_STORE = "tasks";
+let FORCE_REDOWNLOAD = false;
+
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+
+    req.onupgradeneeded = e => {
+      const db = e.target.result;
+
+      // existing store (photos)
+      if (!db.objectStoreNames.contains(STORE)) {
+        db.createObjectStore(STORE, { keyPath: "id" });
+      }
+
+      // task cache store
+      if (!db.objectStoreNames.contains(TASK_STORE)) {
+        db.createObjectStore(TASK_STORE, { keyPath: "_key" });
+      }
+    };
+
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function savePhotoToDB(record) {
+  const db = await openDB();
+  const tx = db.transaction(STORE, "readwrite");
+  tx.objectStore(STORE).put(record);
+}
+
+async function getAllPhotosFromDB() {
+  const db = await openDB();
+  return new Promise(resolve => {
+    const tx = db.transaction(STORE, "readonly");
+    const req = tx.objectStore(STORE).getAll();
+    req.onsuccess = () => resolve(req.result || []);
+  });
+}
+
+async function saveTasksToIndexedDB(tasks) {
+  const db = await openDB();
+  const tx = db.transaction(TASK_STORE, "readwrite");
+  const store = tx.objectStore(TASK_STORE);
+
+  for (const t of tasks) {
+    if (!t._key) continue;
+  
+    if (!t.dateKey) continue; // 🔥 GUARANTEE dateKey exists
+  
+    const existing = await new Promise(resolve => {
+      const r = store.get(t._key);
+      r.onsuccess = () => resolve(r.result || {});
+      r.onerror = () => resolve({});
+    });
+  
+    store.put({
+      ...existing,
+      ...t,
+      dateKey: t.dateKey // 🔥 FORCE overwrite
+    });
+  }
+}
+
+async function getTasksFromIndexedDB() {
+  const db = await openDB();
+  return new Promise(resolve => {
+    const tx = db.transaction(TASK_STORE, "readonly");
+    const req = tx.objectStore(TASK_STORE).getAll();
+    req.onsuccess = () => resolve(req.result || []);
+  });
+}
+
+// =====================================================
+// ♻️ RECOVER LOCAL COMPLETED TASKS
+// =====================================================
+
+async function recoverTasksFromFiles() {
+
+  if (SYNC_RUNNING) {
+    alert(
+      "⏳ Sync is currently running.\n\n" +
+      "Please wait until synchronization is complete."
+    );
+    return;
+  }
+
+  const input =
+    document.getElementById("recoveryFileInput");
+
+  if (!input) {
+    alert(
+      "❌ Recovery file input not found."
+    );
+    return;
+  }
+
+  // Reset selected files
+  input.value = "";
+
+  // Wait for the driver to select files
+  const files = await new Promise(resolve => {
+
+    input.onchange = () => {
+
+      resolve(
+        Array.from(
+          input.files || []
+        )
+      );
+
+    };
+
+    input.click();
+
+  });
+
+  if (!files.length) {
+    console.log(
+      "♻️ Recovery cancelled."
+    );
+    return;
+  }
+
+  console.log(
+    "♻️ Recovery files selected:",
+    files.map(f => f.name)
+  );
+
+  let recovered = 0;
+  let skipped = 0;
+
+  try {
+
+    for (const file of files) {
+
+      console.log(
+        "♻️ Reading recovery file:",
+        file.name
+      );
+
+      // ==========================================
+      // ONLY LOCAL_COMPLETED FILES
+      // ==========================================
+
+      if (
+        !file.name.startsWith(
+          "LOCAL_COMPLETED_"
+        )
+      ) {
+
+        console.warn(
+          "⏭️ Not a LOCAL_COMPLETED file:",
+          file.name
+        );
+
+        skipped++;
+        continue;
+      }
+
+      // ==========================================
+      // READ JSON
+      // ==========================================
+
+      let backup;
+
+      try {
+
+        backup =
+          JSON.parse(
+            await file.text()
+          );
+
+      } catch (err) {
+
+        console.error(
+          "❌ Invalid JSON:",
+          file.name,
+          err
+        );
+
+        skipped++;
+        continue;
+      }
+
+      console.log(
+        "♻️ Backup contents:",
+        backup
+      );
+
+      // ==========================================
+      // VALIDATE TASK
+      // ==========================================
+
+      if (!backup._key) {
+
+        console.warn(
+          "⏭️ Missing _key:",
+          file.name
+        );
+
+        skipped++;
+        continue;
+      }
+
+      if (!backup.dateKey) {
+
+        console.warn(
+          "⏭️ Missing dateKey:",
+          file.name
+        );
+
+        skipped++;
+        continue;
+      }
+
+      // ==========================================
+      // RESTORE TASK
+      // ==========================================
+      
+      let recoveredTask = {
+        ...backup
+      };
+      
+      // ==========================================
+      // 🔥 RECOVER ORIGINAL TASK DATA
+      // ==========================================
+      // If the backup was created before we started
+      // saving the complete task, get the original
+      // task from Firestore using the task key.
+      
+      if (navigator.onLine) {
+      
+        try {
+      
+          const taskRef =
+            fsDoc(
+              firestore,
+              "TASK",
+              backup._key
+            );
+      
+          const taskSnap =
+            await getDoc(taskRef);
+      
+          if (taskSnap.exists()) {
+      
+            const firestoreData =
+              taskSnap.data();
+      
+            const firestoreTask =
+              normalizeFirestoreTask(
+                firestoreData,
+                backup._key,
+                backup.dateKey
+              );
+      
+            // Firestore task data first,
+            // then restore local completion data.
+            recoveredTask = {
+      
+              ...firestoreTask,
+      
+              ...backup,
+      
+              // Keep normalized task fields
+              _key:
+                backup._key,
+      
+              dateKey:
+                backup.dateKey,
+      
+              // Local state MUST remain LOCAL_COMPLETED
+              status:
+                "LOCAL_COMPLETED",
+      
+              driverId:
+                backup.driverId ||
+                firestoreTask.driverId ||
+                DRIVER_ID,
+      
+              deliveryData:
+                backup.deliveryData ||
+                {},
+      
+              exported:
+                false
+            };
+      
+            console.log(
+              "♻️ Original Firestore task restored:",
+              recoveredTask
+            );
+      
+          } else {
+      
+            console.warn(
+              "⚠️ Firestore task not found:",
+              backup._key
+            );
+      
+          }
+      
+        } catch (err) {
+      
+          console.warn(
+            "⚠️ Could not restore task metadata from Firestore:",
+            backup._key,
+            err
+          );
+      
+        }
+      }
+      
+      await saveTasksToIndexedDB([
+        recoveredTask
+      ]);
+
+      console.log(
+        "✅ Task restored to IndexedDB:",
+        backup._key
+      );
+
+      // ==========================================
+      // RESTORE PHOTOS
+      // ==========================================
+
+      if (
+        Array.isArray(
+          backup.photos
+        )
+      ) {
+
+        for (
+          const photo of backup.photos
+        ) {
+
+          if (
+              photo.photoIndex === undefined ||
+              photo.photoIndex === null
+            ) {
+            
+              alert(
+                "⚠️ OLD RECOVERY FILE\n\n" +
+                "Task: " + backup._key + "\n\n" +
+                "This backup was created before photoIndex was added.\n" +
+                "Its photo cannot be restored correctly."
+              );
+            
+              console.warn(
+                "⚠️ Recovery photo has no photoIndex:",
+                {
+                  taskKey: backup._key,
+                  photoId: photo.id
+                }
+              );
+            
+              continue;
+            }
+
+          try {
+
+            const response =
+              await fetch(
+                photo.base64
+              );
+
+            const blob =
+              await response.blob();
+
+            await savePhotoToDB({
+
+              id:
+                photo.id ||
+                `${backup._key}_${photo.photoIndex}`,
+
+              taskKey:
+                backup._key,
+
+              photoIndex:
+                photo.photoIndex,
+
+              blob,
+
+              takenAt:
+                photo.takenAt ||
+                new Date().toISOString(),
+
+              gps:
+                photo.gps ||
+                null,
+
+              submitIntent:
+                true
+            });
+
+            console.log(
+              "📸 Photo restored:",
+              backup._key,
+              photo.photoIndex
+            );
+
+          } catch (photoErr) {
+
+            console.error(
+              "❌ Photo restore failed:",
+              photoErr
+            );
+
+          }
+        }
+      }
+
+      recovered++;
+    }
+
+    // ==========================================
+    // REFRESH QUEUE
+    // ==========================================
+
+    const tasks =
+      await getTasksFromIndexedDB();
+
+    UPLOAD_QUEUE_COUNT =
+      tasks.filter(t =>
+        t.status ===
+          "LOCAL_COMPLETED" &&
+        !t.exported &&
+        String(
+          t.driverId || ""
+        ).trim().toUpperCase() ===
+        String(
+          DRIVER_ID
+        ).trim().toUpperCase()
+      ).length;
+
+    updateUploadCounter();
+
+    await loadTasks();
+
+    alert(
+      `♻️ Recovery complete!\n\n` +
+      `Recovered: ${recovered}\n` +
+      `Skipped: ${skipped}`
+    );
+
+  } catch (err) {
+
+    console.error(
+      "❌ Recovery failed:",
+      err
+    );
+
+    alert(
+      "❌ Recovery failed.\n\n" +
+      (
+        err?.message ||
+        "Unknown error"
+      )
+    );
+  }
+}
+
+// =============================
+// 📷 QR SCANNER
+// =============================
+let qrScanner = null;
+
+document.getElementById("scanQRBtn").onclick = toggleQRScanner;
+
+async function toggleQRScanner() {
+
+  const box = document.getElementById("qrReader");
+  const btn = document.getElementById("scanQRBtn");
+
+  // 🔴 IF SCANNER IS RUNNING → STOP IT
+  if (qrScanner) {
+    try {
+      await qrScanner.stop();
+    } catch {}
+    try {
+      await qrScanner.clear();
+    } catch {}
+
+    qrScanner = null;
+
+    box.style.display = "none";
+    btn.innerText = "📷"; // reset icon
+
+    return;
+  }
+
+  // 🟢 START SCANNER
+  box.style.display = "block";
+  btn.innerText = "❌"; // show close icon
+
+  qrScanner = new Html5Qrcode("qrReader");
+
+  try {
+    await qrScanner.start(
+      { facingMode: "environment" },
+      {
+        fps: 10,
+        qrbox: 220
+      },
+      onScanSuccess,
+      () => {}
+    );
+  } catch (err) {
+    console.error("QR start error:", err);
+    alert("Camera failed to start. Try again.");
+
+    qrScanner = null;
+    box.style.display = "none";
+    btn.innerText = "📷";
+  }
+}
+
+async function startQRScanner() {
+
+  const box = document.getElementById("qrReader");
+  box.style.display = "block";
+
+  // 🔥 FULL RESET (important)
+  if (qrScanner) {
+    try {
+      await qrScanner.stop();
+    } catch {}
+    try {
+      await qrScanner.clear();
+    } catch {}
+    qrScanner = null; // ✅ VERY IMPORTANT
+  }
+
+  // 🔥 CREATE NEW INSTANCE EVERY TIME
+  qrScanner = new Html5Qrcode("qrReader");
+
+  try {
+    await qrScanner.start(
+      { facingMode: "environment" },
+      {
+        fps: 10,
+        qrbox: 220
+      },
+      onScanSuccess,
+      () => {}
+    );
+  } catch (err) {
+    console.error("QR start error:", err);
+    alert("Camera failed to start. Try again.");
+  }
+}
+
+function showAllDriverTaskClusters() {
+
+  // This function is now the
+  // "Previous Level" button.
+  goToPreviousDriverTaskMapFocus();
+
+}
+
+document.getElementById(
+  "showAllTaskClustersBtn"
+).onclick =
+  showAllDriverTaskClusters;
+
+function updateTaskMapFocusInfo() {
+
+  const btn =
+    document.getElementById(
+      "showAllTaskClustersBtn"
+    );
+
+  const info =
+    document.getElementById(
+      "taskMapInfo"
+    );
+
+  if (!DRIVER_TASK_MAP_FOCUS_KEYS) {
+
+    if (btn) {
+      btn.style.display = "none";
+    }
+
+    return;
+  }
+
+  if (btn) {
+    btn.style.display = "block";
+  }
+
+  if (info) {
+
+    info.innerHTML =
+      `🎯 <b>Focused group:</b> ` +
+      `${DRIVER_TASK_MAP_FOCUS_KEYS.size} tasks`;
+  }
+}
+
+async function onScanSuccess(decodedText) {
+
+  const btn = document.getElementById("scanQRBtn");
+
+  try {
+    if (qrScanner) {
+      await qrScanner.stop();
+      await qrScanner.clear();
+      qrScanner = null;
+    }
+  } catch {}
+
+  document.getElementById("qrReader").style.display = "none";
+  if (btn) btn.innerText = "📷"; // ✅ reset button
+
+  navigator.vibrate?.(150);
+
+  let scannedMeter = decodedText.trim();
+  scannedMeter = scannedMeter.replace(/[^\d]/g, "");
+
+  if (!scannedMeter) {
+    alert("Invalid QR code");
+    return;
+  }
+
+  const task = TASKS_CACHE.find(t =>
+    String(t.METERNUMBER || "").trim() === scannedMeter
+  );
+
+  if (!task) {
+    alert("❌ No task found for meter: " + scannedMeter);
+    return;
+  }
+
+  ACTIVE_CAPTURE_TASK = task._key;
+  applyFiltersOnly();
+
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+async function getWithRetry(dbRef, retries = 1, delay = 400) {
+  try {
+    const snap = await get(dbRef);
+    if (snap.exists() || retries === 0) return snap;
+  } catch {}
+
+  await new Promise(r => setTimeout(r, delay));
+  return getWithRetry(dbRef, retries - 1, delay);
+}
+
+async function deletePhotoFromDB(id) {
+  const db = await openDB();
+  const tx = db.transaction(STORE, "readwrite");
+  tx.objectStore(STORE).delete(id);
+}
+
+async function deleteTaskFromIndexedDB(taskKey) {
+  const db = await openDB();
+  const tx = db.transaction(TASK_STORE, "readwrite");
+  tx.objectStore(TASK_STORE).delete(taskKey);
+}
+
+async function cleanOrphanPhotos() {
+  try {
+    const tasks = await getTasksFromIndexedDB();
+    const photos = await getAllPhotosFromDB();
+
+    const validTaskKeys = new Set(tasks.map(t => t._key));
+
+    for (const p of photos) {
+      if (!validTaskKeys.has(p.taskKey)) {
+        console.log("🧹 Deleting orphan photo:", p.id);
+        await deletePhotoFromDB(p.id);
+      }
+    }
+  } catch (e) {
+    console.warn("Orphan cleanup failed", e);
+  }
+}
+
+function hasCachedTasksForDate(tasks, selectedDate) {
+  const dateKey = selectedDate.replace(/-/g, "");
+
+  return tasks.some(t =>
+    t.dateKey === dateKey &&
+    String(t.driverId || "").trim().toUpperCase() ===
+    String(DRIVER_ID).trim().toUpperCase()
+  );
+}
+  
+let SEARCH_TERM = "";
+let searchTimer;
+let TASKS_CACHE = [];
+let UPLOAD_QUEUE_COUNT = 0;
+const dateFilter = document.getElementById("dateFilter");
+  const appVersion = document.getElementById("appVersion");
+const taskList = document.getElementById("taskList");
+const offlineBanner = document.getElementById("offlineBanner");
+const cameraInput = document.getElementById("cameraInput");
+
+const STORAGE_WARNING_THRESHOLD_MB = 400; // warn below 300 MB
+
+async function checkStorageQuota() {
+  // Storage API not supported → silently ignore
+  if (!navigator.storage || !navigator.storage.estimate) return;
+
+  try {
+    const { quota, usage } = await navigator.storage.estimate();
+    if (!quota || !usage) return;
+
+    const freeMB = (quota - usage) / (1024 * 1024);
+    const banner = document.getElementById("storageBanner");
+
+    if (!banner) return;
+
+    if (freeMB < STORAGE_WARNING_THRESHOLD_MB) {
+      banner.style.display = "block";
+      banner.innerText =
+        `⚠ Low storage (${Math.round(freeMB)} MB left) — please free space to avoid upload issues`;
+    } else {
+      banner.style.display = "none";
+    }
+  } catch (e) {
+    console.warn("Storage check failed", e);
+  }
+}
+
+
+
+// ✅ Default to today
+function getTodayPH() {
+  return new Date().toLocaleDateString("en-CA", {
+    timeZone: "Asia/Manila"
+  });
+}
+
+dateFilter.value = getTodayPH();
+
+dateFilter.addEventListener("change", async () => {
+
+  // 🔒 Reset capture mode
+  ACTIVE_CAPTURE_TASK = null;
+
+  // 🔄 Reset filters
+  selectedJobTypes.clear();
+  jobTypeFilterInitialized = false;
+
+  // 🧹 Clear job type UI immediately
+  const jobTypeOptions = document.getElementById("jobTypeOptions");
+  if (jobTypeOptions) jobTypeOptions.innerHTML = "";
+  toggleJobTypeFilter(false);
+
+  // 🧹 Clear render state
+  CURRENT_RENDER_LIST = [];
+  RENDER_OFFSET = 0;
+
+  taskList.innerHTML = `
+    <div style="padding:20px;text-align:center;font-size:14px;">
+      ⏳ Please wait... Loading tasks
+    </div>
+  `;
+  taskList.appendChild(sentinel);
+
+  // ✅ Immediately show 0 remaining but KEEP upload count
+  const counter = document.getElementById("taskCounter");
+  if (counter) {
+    counter.innerHTML =
+      `📄 Remaining: 0 &nbsp;&nbsp; | &nbsp;&nbsp; ⏫ Total For Upload: ${UPLOAD_QUEUE_COUNT}`;
+  }
+
+  // 🚀 Load new date (next frame so UI paints first)
+  requestAnimationFrame(() => {
+    loadTasks();
+  });
+});
+
+function normalizeDatePH(dateStr) {
+  if (!dateStr || typeof dateStr !== "string") return null;
+
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return null;
+
+  return d.toLocaleDateString("en-CA", {
+    timeZone: "Asia/Manila"
+  });
+}
+
+function refreshUI() {
+  applyFiltersOnly();
+}
+
+function applyFiltersOnly() {
+  const selectedDate = dateFilter.value;
+  if (!selectedDate) return;
+
+  
+
+  const dateKey = selectedDate.replace(/-/g, "");
+
+  let tasks = TASKS_CACHE.filter(t => {
+  if (!t || !t._key) return false;
+
+  // ✅ If capturing — only show active task
+  if (ACTIVE_CAPTURE_TASK) {
+    return t._key === ACTIVE_CAPTURE_TASK;
+  }
+
+  // correct driver
+  if (
+    String(t.driverId || "").trim().toUpperCase() !==
+    String(DRIVER_ID).trim().toUpperCase()
+  ) return false;
+
+  // correct date
+  if (t.dateKey !== dateKey) return false;
+
+  // hide completed
+  if (resolveStatus(t) === "COMPLETED") return false;
+
+  return true;
+});
+
+  // job type filter
+  if (jobTypeFilterInitialized && selectedJobTypes.size > 0) {
+    tasks = tasks.filter(t => selectedJobTypes.has(t.JOBTYPE));
+  }
+
+  // search
+  tasks = tasks.filter(t => matchesSearch(t, SEARCH_TERM));
+
+  tasks = sortTasksOfflineSafe(tasks);
+
+  renderWithPagination(tasks);
+  if (DRIVER_TASK_MAP_VISIBLE) {
+    requestAnimationFrame(() => {
+      renderDriverTaskMap();
+    });
+  }
+  updateRemainingCounter(tasks);
+  updateUploadCounter();
+}
+
+const searchBox = document.getElementById("searchBox");
+
+searchBox.addEventListener("input", e => {
+  SEARCH_TERM = e.target.value.toLowerCase();
+
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => {
+    applyFiltersOnly();
+  }, 120);
+});
+
+let DRIVER_ID = localStorage.getItem("driverId");
+while (!DRIVER_ID) DRIVER_ID = prompt("Enter Driver ID");
+localStorage.setItem("driverId", DRIVER_ID);
+
+document.getElementById("settingsBtn").onclick = async () => {
+
+  const choice = prompt(
+`Settings
+
+1 - Change Driver ID
+2 - Recover Tasks
+
+Enter 1 or 2`
+  );
+
+  if (!choice) {
+    return;
+  }
+
+  // ==========================================
+  // 1 — CHANGE DRIVER ID
+  // ==========================================
+
+  if (choice === "1") {
+
+    const current =
+      localStorage.getItem("driverId") || "";
+
+    const next =
+      prompt(
+        "Enter new Driver ID",
+        current
+      );
+
+    if (!next) return;
+
+    if (next === current) return;
+
+    localStorage.setItem(
+      "driverId",
+      next
+    );
+
+    alert(
+      "Driver ID changed. Reloading…"
+    );
+
+    location.reload();
+
+    return;
+  }
+
+  // ==========================================
+  // 2 — RECOVER TASKS
+  // ==========================================
+
+  if (choice === "2") {
+
+    if (
+      !confirm(
+        "♻️ Recover completed tasks?\n\n" +
+        "Select the LOCAL_COMPLETED JSON files " +
+        "from your Downloads folder.\n\n" +
+        "The files will NOT be deleted."
+      )
+    ) {
+      return;
+    }
+
+    await recoverTasksFromFiles();
+
+    return;
+  }
+
+  alert(
+    "⚠️ Invalid selection."
+  );
+};
+
+let gpsWatchId = null;
+
+appVersion.innerText = `Driver: ${DRIVER_ID} | ${VERSION}`;
+startGPSTracking(DRIVER_ID);
+
+async function loadDriverUI(jobType) {
+  // 1️⃣ Memory cache
+  if (DRIVER_UI_CACHE[jobType]) {
+    return DRIVER_UI_CACHE[jobType];
+  }
+
+  // 2️⃣ LocalStorage cache
+  const stored = JSON.parse(
+    localStorage.getItem(DRIVER_UI_STORAGE_KEY) || "{}"
+  );
+
+  const cached = stored[jobType];
+
+  // 3️⃣ If offline → use cache if available
+  if (!navigator.onLine) {
+    if (cached) {
+      DRIVER_UI_CACHE[jobType] = cached.deliveryMethods || cached;
+      return DRIVER_UI_CACHE[jobType];
+    }
+    return {};
+  }
+
+  // 4️⃣ Fetch metadata (updatedAt) FIRST
+  const metaSnap = await get(
+    ref(db, `config/driverUI/jobTypes/${jobType}/updatedAt`)
+  );
+
+  const serverUpdatedAt = metaSnap.val();
+
+  // 5️⃣ Cache HIT + same version → reuse
+  if (
+    cached &&
+    cached.updatedAt &&
+    serverUpdatedAt &&
+    cached.updatedAt === serverUpdatedAt
+  ) {
+    DRIVER_UI_CACHE[jobType] = cached.deliveryMethods;
+    return DRIVER_UI_CACHE[jobType];
+  }
+
+  // 6️⃣ Fetch FULL config (changed or first load)
+  const snap = await get(
+    ref(db, `config/driverUI/jobTypes/${jobType}/deliveryMethods`)
+  );
+
+  const deliveryMethods = snap.val() || {};
+
+  // 7️⃣ Save fresh cache
+  const payload = {
+    updatedAt: serverUpdatedAt || new Date().toISOString(),
+    deliveryMethods
+  };
+
+  DRIVER_UI_CACHE[jobType] = deliveryMethods;
+  stored[jobType] = payload;
+
+  localStorage.setItem(
+    DRIVER_UI_STORAGE_KEY,
+    JSON.stringify(stored)
+  );
+
+  return deliveryMethods;
+}
+
+// async function loadDriverUI(jobType) {
+//   // 1️⃣ Memory cache
+//   if (DRIVER_UI_CACHE[jobType]) return DRIVER_UI_CACHE[jobType];
+
+//   // 2️⃣ LocalStorage cache (OFFLINE SAFE)
+//   const stored = JSON.parse(
+//     localStorage.getItem(DRIVER_UI_STORAGE_KEY) || "{}"
+//   );
+
+//   if (stored[jobType]) {
+//     DRIVER_UI_CACHE[jobType] = stored[jobType];
+//     return stored[jobType];
+//   }
+
+//   // 3️⃣ Online fetch ONLY if online
+//   if (!navigator.onLine) {
+//     return {}; // offline + no cache = empty
+//   }
+
+//   const snap = await get(
+//     ref(db, `config/driverUI/jobTypes/${jobType}/deliveryMethods`)
+//   );
+
+//   const data = snap.val() || {};
+
+//   // 4️⃣ Save to memory + localStorage
+//   DRIVER_UI_CACHE[jobType] = data;
+//   stored[jobType] = data;
+
+//   localStorage.setItem(
+//     DRIVER_UI_STORAGE_KEY,
+//     JSON.stringify(stored)
+//   );
+
+//   return data;
+// }
+document.getElementById("syncBtn").onclick = async () => {
+
+  if (SYNC_RUNNING) {
+    alert("Upload already running.");
+    return;
+  }
+
+  if (!navigator.onLine) {
+    alert("📴 Connect to internet first.");
+    return;
+  }
+
+  SYNC_RUNNING = true;
+
+  const note = document.getElementById("uploadNote");
+  if (note) note.style.display = "block";
+
+  const tasks = await getTasksFromIndexedDB();
+
+  const completed = tasks.filter(t =>
+    t.status === "LOCAL_COMPLETED" &&
+    t.driverId === DRIVER_ID
+  );
+
+  if (!completed.length) {
+    hideSyncProgress();
+    alert("No completed tasks to sync.");
+    SYNC_RUNNING = false;
+    return;
+  }
+
+  if (!confirm(`Upload ${completed.length} completed tasks?`)) {
+    hideSyncProgress();
+    SYNC_RUNNING = false;
+    return;
+  }
+  // 🔒 LOCK DRIVER TASK OPERATIONS
+  setTaskWorkLocked(true);
+
+  // 🔥 LOAD PHOTOS ONCE
+
+const photos = await getAllPhotosFromDB();
+
+let successful = 0;
+let failed = 0;
+
+updateSyncProgress({
+  current: 0,
+  total: completed.length,
+  successful,
+  failed,
+  message: "📦 Preparing upload..."
+});
+
+for (let taskIndex = 0; taskIndex < completed.length; taskIndex++) {
+
+  const task = completed[taskIndex];
+
+  updateSyncProgress({
+    current: taskIndex,
+    total: completed.length,
+    currentTask:
+      `${task._key}${task.CUSTOMERNAME ? " — " + task.CUSTOMERNAME : ""}`,
+    currentPhoto: "",
+    successful,
+    failed,
+    message:
+      `🔄 Processing task ${taskIndex + 1} of ${completed.length}`
+  });
+  const related = photos.filter(p => p.taskKey === task._key);
+
+   if (related.length === 0) {
+
+        failed++;
+      
+        updateSyncProgress({
+          current: taskIndex + 1,
+          total: completed.length,
+          currentTask:
+            `${task._key}${task.CUSTOMERNAME ? " — " + task.CUSTOMERNAME : ""}`,
+          currentPhoto:
+            "❌ No recovered photos",
+          successful,
+          failed,
+          message:
+            "❌ Recovery file contains no usable photo records"
+        });
+      
+        alert(
+          "❌ CANNOT UPLOAD RECOVERED TASK\n\n" +
+          "Task: " +
+          task._key +
+          "\n\n" +
+          "No usable photos were restored.\n\n" +
+          "This usually means the JSON was created before the photoIndex fix."
+        );
+      
+        continue;
+      }
+
+    let allUploaded = true;
+
+    for (let i = 0; i < related.length; i++) {
+
+    const p = related[i];
+
+   updateSyncProgress({
+        current: taskIndex,
+        total: completed.length,
+        currentTask:
+          `${task._key}${task.CUSTOMERNAME ? " — " + task.CUSTOMERNAME : ""}`,
+        currentPhoto:
+          `📸 Photo ${i + 1}/${related.length} | index=${p.photoIndex}`,
+        successful,
+        failed,
+        message:
+          `🔍 Checking recovered photo...`
+      });
+  
+    try {
+
+        if (
+           !(p.blob instanceof Blob) ||
+           p.blob.size === 0
+         ) {
+         
+           alert(
+             "❌ INVALID RECOVERED PHOTO\n\n" +
+             "Task: " +
+             task._key +
+             "\n" +
+             "Photo: " +
+             p.photoIndex +
+             "\n\n" +
+             "The recovered photo Blob is missing or empty."
+           );
+         
+           allUploaded = false;
+           break;
+         }
+
+        const latestData = task.deliveryData || {};
+
+        const success = await uploadNow(
+          p.taskKey,
+          p.blob,
+          p.takenAt,
+          null,
+          latestData, // ✅ ALWAYS LATEST DATA
+          p.gps,
+          p.photoIndex,
+          i === related.length - 1
+        );
+
+        if (!success) {
+
+           alert(
+             "❌ PHOTO UPLOAD FAILED\n\n" +
+             "Task: " +
+             task._key +
+             "\n" +
+             "Photo: " +
+             p.photoIndex +
+             "\n\n" +
+             "uploadNow() returned FALSE.\n" +
+             "Check the sync progress/details."
+           );
+         
+           allUploaded = false;
+           break;
+         }
+
+      } catch (err) {
+
+  console.error(
+    "❌ Upload failed:",
+    err
+  );
+
+  alert(
+    "❌ UPLOAD ERROR\n\n" +
+    "Task: " +
+    task._key +
+    "\n" +
+    "Photo: " +
+    p.photoIndex +
+    "\n\n" +
+    "Error:\n" +
+    (
+      err?.message ||
+      String(err)
+    )
+  );
+
+  allUploaded = false;
+  break;
+
+}
+    }
+
+    // ✅ DELETE ONLY AFTER SUCCESS
+    if (allUploaded) {
+    
+      // 🔎 VERIFY FIRESTORE REALLY HAS THE TASK
+      let data = {};
+    
+      for (let i = 0; i < 3; i++) {
+    
+        const verifySnap =
+          await getDoc(
+            fsDoc(
+              firestore,
+              "TASK",
+              task._key
+            )
+          );
+    
+        if (verifySnap.exists()) {
+          data = verifySnap.data();
+        } else {
+          data = {};
+        }
+    
+        const allPhotosExist =
+          related.every(p =>
+            data[
+              `photo${p.photoIndex}Url`
+            ]
+          );
+    
+        const completed =
+          data.workStatus === "completed" &&
+          data.status === "COMPLETED";
+    
+        console.log(
+          "🔎 Firestore sync verification:",
+          {
+            taskKey: task._key,
+            allPhotosExist,
+            workStatus: data.workStatus,
+            status: data.status
+          }
+        );
+    
+        if (
+          allPhotosExist &&
+          completed
+        ) {
+          break;
+        }
+    
+        await new Promise(
+          r => setTimeout(r, 500)
+        );
+      }
+    
+      let verified = true;
+    
+      // Verify all photos
+      for (const p of related) {
+    
+        const key =
+          `photo${p.photoIndex}Url`;
+    
+        if (!data[key]) {
+    
+          console.warn(
+            "❌ Missing Firestore photo:",
+            key
+          );
+    
+          verified = false;
+          break;
+        }
+      }
+    
+      // Verify completed status
+      if (
+        data.workStatus !==
+        "completed"
+      ) {
+    
+        console.warn(
+          "❌ Firestore workStatus is not completed:",
+          data.workStatus
+        );
+    
+        verified = false;
+      }
+    
+      if (
+        data.status !==
+        "COMPLETED"
+      ) {
+    
+        console.warn(
+          "❌ Firestore status is not COMPLETED:",
+          data.status
+        );
+    
+        verified = false;
+      }
+    
+      if (!verified) {
+        console.warn(
+          "Verification failed, skipping delete"
+        );
+      
+        failed++;
+      
+        updateSyncProgress({
+          current: taskIndex + 1,
+          total: completed.length,
+          currentTask:
+            `${task._key}${task.CUSTOMERNAME ? " — " + task.CUSTOMERNAME : ""}`,
+          currentPhoto:
+            "❌ Verification failed",
+          successful,
+          failed,
+          message:
+            `⚠️ Task ${taskIndex + 1} of ${completed.length} failed`
+        });
+      
+        continue;
+      }
+    
+      // ✅ DELETE ONLY IF VERIFIED
+      for (const p of related) {
+        await deletePhotoFromDB(p.id);
+      }
+    
+      await deleteTaskFromIndexedDB(task._key);
+
+      successful++;
+
+      updateSyncProgress({
+        current: taskIndex + 1,
+        total: completed.length,
+        currentTask:
+          `${task._key}${task.CUSTOMERNAME ? " — " + task.CUSTOMERNAME : ""}`,
+        currentPhoto:
+          "✅ Task synchronized",
+        successful,
+        failed,
+        message:
+          `🔄 Completed ${taskIndex + 1} of ${completed.length}`
+      });
+    
+      UPLOAD_QUEUE_COUNT =
+        Math.max(
+          0,
+          UPLOAD_QUEUE_COUNT - 1
+        );
+    
+      updateUploadCounter();
+    }
+    else {
+
+      failed++;
+    
+      updateSyncProgress({
+        current: taskIndex + 1,
+        total: completed.length,
+        currentTask:
+          `${task._key}${task.CUSTOMERNAME ? " — " + task.CUSTOMERNAME : ""}`,
+        currentPhoto:
+          "❌ Upload failed",
+        successful,
+        failed,
+        message:
+          `⚠️ Task ${taskIndex + 1} of ${completed.length} failed`
+      });
+    }
+  }
+
+  updateSyncProgress({
+  current: completed.length,
+  total: completed.length,
+  successful,
+  failed,
+  message:
+    failed === 0
+      ? "✅ All tasks synchronized"
+      : "⚠️ Sync finished with some failures"
+});
+
+if (failed === 0) {
+
+  alert(
+    `✅ Sync complete!\n\n` +
+    `Successful: ${successful}`
+  );
+
+} else {
+
+  alert(
+    `⚠️ Sync finished.\n\n` +
+    `Successful: ${successful}\n` +
+    `Failed: ${failed}`
+  );
+}
+
+if (note) {
+  note.style.display = "none";
+}
+
+await loadTasks();
+
+// 🔓 SYNC FINISHED — DRIVER CAN WORK AGAIN
+setTaskWorkLocked(false);
+};
+
+// 🔒 SAFE WRAPPER (DO NOT MODIFY ORIGINAL LOGIC)
+// =====================================================
+// 🔒 SYNC ACTION WRAPPER
+// =====================================================
+
+const syncButton =
+  document.getElementById("syncBtn");
+
+// Save the ORIGINAL Sync handler
+const originalSyncHandler =
+  syncButton.onclick;
+
+// Replace button handler
+syncButton.onclick =
+  async function (event) {
+
+    const choice = prompt(
+`Choose action:
+
+1 - Upload now
+2 - Export completed tasks
+
+Enter 1 or 2`
+    );
+
+    if (!choice) {
+      return;
+    }
+
+    // =================================================
+    // OPTION 2 — EXPORT
+    // =================================================
+
+    if (choice === "2") {
+
+      await exportTasksToFile();
+
+      return;
+    }
+
+    // =================================================
+    // OPTION 1 — ORIGINAL SYNC
+    // =================================================
+
+    if (choice === "1") {
+
+      console.log(
+        "🔵 Option 1 selected — starting original Sync"
+      );
+
+      if (
+        typeof originalSyncHandler !==
+        "function"
+      ) {
+
+        console.error(
+          "❌ Original Sync handler is missing:",
+          originalSyncHandler
+        );
+
+        alert(
+          "❌ Unable to start Sync.\n\n" +
+          "The original Sync handler was not found."
+        );
+
+        return;
+      }
+
+      // Call the original handler
+      // with the SAME button as its context
+      await originalSyncHandler.call(
+        syncButton,
+        event
+      );
+
+      return;
+    }
+
+    // =================================================
+    // INVALID
+    // =================================================
+
+    alert(
+      "⚠️ Invalid selection.\n\n" +
+      "Please enter 1 or 2."
+    );
+  };
+  
+function toggleJobTypeFilter(show) {
+  const box = document.getElementById("jobTypeFilter");
+  if (!box) return;
+
+  box.style.display = show ? "block" : "none";
+}
+  function renderJobTypeFilters(tasks) {
+  const container = document.getElementById("jobTypeOptions");
+  if (!container) return;
+
+  const selectedDate = dateFilter.value;
+  const dateKey = selectedDate.replace(/-/g, "");
+
+  // 🔥 STRICT DATE + PENDING FILTER
+  const safeTasks = tasks.filter(t =>
+    t.dateKey === dateKey &&
+    resolveStatus(t) === "PENDING"
+  );
+
+  // ✅ BUILD COUNTS HERE (THIS WAS MISSING)
+  const jobTypeCounts = {};
+  for (const t of safeTasks) {
+    if (!t.JOBTYPE) continue;
+    jobTypeCounts[t.JOBTYPE] =
+      (jobTypeCounts[t.JOBTYPE] || 0) + 1;
+  }
+
+  const jobTypes = Object.keys(jobTypeCounts).sort();
+
+  container.innerHTML = "";
+
+  // ✅ If no job types → hide filter completely
+  if (!jobTypes.length) {
+    selectedJobTypes.clear();   // ✅ ADD THIS
+    toggleJobTypeFilter(false);
+    jobTypeFilterInitialized = false;
+    return;
+  }
+
+  toggleJobTypeFilter(true);
+
+  jobTypes.forEach(type => {
+    const label = document.createElement("label");
+    label.className = "job-type-chip";
+
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+
+    if (!jobTypeFilterInitialized) {
+      checkbox.checked = true;
+      selectedJobTypes.add(type);
+    } else {
+      checkbox.checked = selectedJobTypes.has(type);
+    }
+
+    checkbox.onchange = () => {
+      if (checkbox.checked) {
+        selectedJobTypes.add(type);
+      } else {
+        selectedJobTypes.delete(type);
+      }
+      applyFiltersOnly();
+    };
+
+    label.appendChild(checkbox);
+    label.append(` ${type} (${jobTypeCounts[type]})`);
+
+    container.appendChild(label);
+  });
+
+  jobTypeFilterInitialized = true;
+}
+
+async function pruneOldTasks() {
+
+  const db = await openDB();
+
+  const tx =
+    db.transaction(
+      TASK_STORE,
+      "readwrite"
+    );
+
+  const store =
+    tx.objectStore(TASK_STORE);
+
+  const req =
+    store.getAll();
+
+  req.onsuccess = () => {
+
+    const tasks =
+      req.result || [];
+
+    const now =
+      new Date();
+
+    const nowPH =
+      new Date(
+        now.toLocaleString(
+          "en-US",
+          {
+            timeZone: "Asia/Manila"
+          }
+        )
+      );
+
+    // ==========================================
+    // 30 DAYS
+    // ==========================================
+
+    const MAX_PENDING_AGE_DAYS = 30;
+
+    tasks.forEach(t => {
+
+      const status =
+        resolveStatus(t);
+
+      // ========================================
+      // 1️⃣ INVALID TASK — NO DATE
+      // ========================================
+
+      if (!t.dateKey) {
+
+        console.log(
+          "🧹 Deleting invalid local task with no dateKey:",
+          t._key
+        );
+
+        store.delete(
+          t._key
+        );
+
+        return;
+      }
+
+      // ========================================
+      // 2️⃣ ONLY AGE PENDING TASKS
+      // ========================================
+
+      if (
+        status !== "PENDING"
+      ) {
+        return;
+      }
+
+      // ========================================
+      // 3️⃣ USE assignedDate
+      // ========================================
+
+      let assignedDate =
+        t.assignedDate;
+
+      // Fallback for older IndexedDB records
+      if (!assignedDate) {
+
+        if (
+          t.dateKey &&
+          String(t.dateKey).length === 8
+        ) {
+
+          const d =
+            String(t.dateKey);
+
+          assignedDate =
+            `${d.substring(0, 4)}-${d.substring(4, 6)}-${d.substring(6, 8)}`;
+        }
+      }
+
+      if (!assignedDate) {
+
+        console.warn(
+          "⚠️ Cannot determine assigned date:",
+          t._key
+        );
+
+        return;
+      }
+
+      // ========================================
+      // 4️⃣ PARSE ASSIGNED DATE
+      // ========================================
+
+      const assigned =
+        new Date(
+          `${assignedDate}T00:00:00`
+        );
+
+      if (
+        isNaN(
+          assigned.getTime()
+        )
+      ) {
+
+        console.warn(
+          "⚠️ Invalid assignedDate:",
+          {
+            taskKey: t._key,
+            assignedDate
+          }
+        );
+
+        return;
+      }
+
+      const assignedPH =
+        new Date(
+          assigned.toLocaleString(
+            "en-US",
+            {
+              timeZone:
+                "Asia/Manila"
+            }
+          )
+        );
+
+      const ageDays =
+        (
+          nowPH -
+          assignedPH
+        ) /
+        (
+          1000 *
+          60 *
+          60 *
+          24
+        );
+
+      // ========================================
+      // 5️⃣ DO NOT DELETE BEFORE 30 DAYS
+      // ========================================
+
+      if (
+        ageDays <
+        MAX_PENDING_AGE_DAYS
+      ) {
+
+        return;
+      }
+
+      // ========================================
+      // 6️⃣ CHECK FOR LOCAL PHOTOS
+      // ========================================
+
+      // We intentionally do NOT delete a
+      // pending task if it has local photos.
+      //
+      // This protects work that may not have
+      // been synchronized yet.
+
+      getAllPhotosFromDB()
+        .then(photos => {
+
+          const relatedPhotos =
+            photos.filter(
+              p =>
+                p.taskKey ===
+                t._key
+            );
+
+          if (
+            relatedPhotos.length > 0
+          ) {
+
+            console.warn(
+              "⚠️ Keeping aged PENDING task because local photos exist:",
+              {
+                taskKey: t._key,
+                ageDays:
+                  Math.floor(ageDays),
+                photos:
+                  relatedPhotos.length
+              }
+            );
+
+            return;
+          }
+
+          // ====================================
+          // 7️⃣ DELETE OLD PENDING TASK
+          // ====================================
+
+          console.log(
+            "🧹 Deleting aged PENDING task:",
+            {
+              taskKey: t._key,
+              assignedDate,
+              ageDays:
+                Math.floor(ageDays)
+            }
+          );
+
+          store.delete(
+            t._key
+          );
+
+        })
+        .catch(err => {
+
+          console.warn(
+            "⚠️ Could not check task photos; keeping task:",
+            t._key,
+            err
+          );
+
+        });
+
+    });
+  };
+}
+
+function syncDynamicFields(taskKey) {
+  const box = document.getElementById(`dyn_${taskKey}`);
+  if (!box) return;
+
+  if (!BILLING_CACHE[taskKey]) return;
+
+  const inputs = box.querySelectorAll("input[data-key], textarea[data-key], select[data-key]");
+
+  const allowedKeys = new Set();
+
+  // Only allow CURRENT visible inputs
+  inputs.forEach(el => {
+    const k = el.getAttribute("data-key");
+    if (k) allowedKeys.add(k);
+  });
+
+  // Purge stale keys
+  for (const k of Object.keys(BILLING_CACHE[taskKey])) {
+    if (k !== "deliveryType" && k !== "deliverytype_2nd" && !allowedKeys.has(k)) {
+      delete BILLING_CACHE[taskKey][k];
+    }
+  }
+
+  // Sync only current fields
+  inputs.forEach(el => {
+    const fieldKey = el.getAttribute("data-key");
+    if (!fieldKey) return;
+
+    if (el.type === "radio" && !el.checked) return;
+    BILLING_CACHE[taskKey][fieldKey] = el.value.trim();
+  });
+  // ✅ PERSIST FORM STATE
+  const all = loadFormCache();
+  all[taskKey] = BILLING_CACHE[taskKey];
+  saveFormCache(all);
+
+  // 🔥 SAVE TO INDEXEDDB (SOURCE OF TRUTH)
+  (async () => {
+    const tasks = await getTasksFromIndexedDB();
+    const existing = tasks.find(t => t._key === taskKey) || {};
+  
+    await saveTasksToIndexedDB([{
+      ...existing,
+      _key: taskKey,
+      deliveryData: BILLING_CACHE[taskKey] || {}
+    }]);
+  })();
+}
+
+function loadFormCache() {
+  return JSON.parse(localStorage.getItem(FORM_CACHE_KEY) || "{}");
+}
+
+function saveFormCache(cache) {
+  localStorage.setItem(FORM_CACHE_KEY, JSON.stringify(cache));
+}
+
+let lastSentTime = 0;
+let lastSentLocation = null;
+
+const GPS_MIN_INTERVAL = 60000; // 15 sec
+const GPS_MIN_DISTANCE = 15;    // 15 meters
+const GPS_MAX_ACCURACY = 50;    // ignore bad GPS
+
+function getDistanceMeters(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const toRad = x => x * Math.PI / 180;
+
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+
+  const a =
+    Math.sin(dLat/2) * Math.sin(dLat/2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+    Math.sin(dLon/2) * Math.sin(dLon/2);
+
+  return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+}
+
+function shouldSendGPS(pos) {
+  const now = Date.now();
+
+  // accuracy filter
+  if (pos.coords.accuracy > GPS_MAX_ACCURACY) return false;
+
+  // time throttle
+  if (now - lastSentTime < GPS_MIN_INTERVAL) return false;
+
+  // distance check
+  if (lastSentLocation) {
+    const dist = getDistanceMeters(
+      lastSentLocation.lat,
+      lastSentLocation.lng,
+      pos.coords.latitude,
+      pos.coords.longitude
+    );
+
+    if (dist < GPS_MIN_DISTANCE) return false;
+  }
+
+  return true;
+}
+
+function startGPSTracking(driverId) {
+  detectGPSPermission();
+  if (!navigator.geolocation) return;
+
+  const gpsStatus = document.getElementById("gpsStatus");
+
+  if (gpsWatchId !== null) {
+    navigator.geolocation.clearWatch(gpsWatchId);
+    gpsWatchId = null;
+  }
+
+  gpsWatchId = navigator.geolocation.watchPosition(
+    pos => {
+      LAST_KNOWN_GPS = {
+        latitude: pos.coords.latitude,
+        longitude: pos.coords.longitude,
+        accuracy: pos.coords.accuracy,
+        timestamp: Date.now()
+      };
+      // 🗺 Update driver's position on task map
+      if (DRIVER_TASK_MAP_VISIBLE) {
+        updateDriverLocationOnTaskMap();
+      }
+
+      // ✅ UPDATE UI HERE
+      if (gpsStatus) {
+        gpsStatus.innerText =
+          `📡 GPS locked (±${Math.round(pos.coords.accuracy)}m)`;
+      }
+
+      // 🔥 SMART FILTER
+      if (!shouldSendGPS(pos)) return;
+      
+      lastSentTime = Date.now();
+      lastSentLocation = {
+        lat: pos.coords.latitude,
+        lng: pos.coords.longitude
+      };
+      
+      update(ref(db, `driverStatus/${driverId}`), {
+        latitude: pos.coords.latitude,
+        longitude: pos.coords.longitude,
+        accuracy: pos.coords.accuracy || null,
+        lastSeen: new Date().toISOString()
+      });
+    },
+    handleGPSError,
+    
+    {
+      enableHighAccuracy: true,
+      maximumAge: 5000,
+      timeout: 20000
+    }
+  );
+}
+
+/* ===== NETWORK ===== */
+function updateNetwork() {
+  offlineBanner.style.display = navigator.onLine ? "none" : "block";
+}
+window.addEventListener("offline", updateNetwork);
+updateNetwork();
+
+function showMessage(message) {
+  CURRENT_RENDER_LIST = [];
+  RENDER_OFFSET = 0;
+
+  taskList.innerHTML = `
+    <div style="padding:20px;text-align:center;font-size:14px;">
+      ${message}
+    </div>
+  `;
+
+  taskList.appendChild(sentinel);
+}
+
+/* ===== IMAGE ===== */
+function compressImage(file, gps, takenAt) {
+  return new Promise(resolve => {
+    const img = new Image();
+    const r = new FileReader();
+
+    r.onload = e => (img.src = e.target.result);
+
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      let w = img.width;
+      let h = img.height;
+
+      // ✅ Resize (recommended values)
+      if (w > 1024) {
+        h *= 1024 / w;
+        w = 1024;
+      }
+
+      canvas.width = w;
+      canvas.height = h;
+
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0, w, h);
+
+      // =========================
+      // 🖊️ WATERMARK OVERLAY
+      // =========================
+      if (gps?.latitude && gps?.longitude) {
+        const lat = gps.latitude.toFixed(6);
+        const lng = gps.longitude.toFixed(6);
+
+        const timeStr = new Date(takenAt).toLocaleString("en-GB", {
+          timeZone: "Asia/Manila",
+          hour12: false
+        });
+
+        const padding = 12;
+        const fontSize = Math.max(12, Math.round(w / 45));
+
+        ctx.font = `bold ${fontSize}px Arial`;
+        ctx.textBaseline = "bottom";
+
+        const text1 = `📍 ${lat}, ${lng}`;
+        const text2 = `🕒 ${timeStr} PH`;
+
+        const textWidth = Math.max(
+          ctx.measureText(text1).width,
+          ctx.measureText(text2).width
+        );
+
+        const boxHeight = fontSize * 2 + padding * 1.5;
+        const boxWidth = textWidth + padding * 2;
+
+        const x = padding;
+        const y = h - padding;
+
+        // Background (semi-transparent black)
+        ctx.fillStyle = "rgba(0,0,0,0.55)";
+        ctx.fillRect(
+          x - padding / 2,
+          y - boxHeight,
+          boxWidth,
+          boxHeight
+        );
+
+        // Text
+        ctx.fillStyle = "#ffffff";
+        ctx.fillText(text1, x, y - fontSize - 4);
+        ctx.fillText(text2, x, y);
+      }
+
+      // =========================
+      // 🗜️ FINAL COMPRESSION
+      // =========================
+      canvas.toBlob(
+        blob => resolve(blob),
+        "image/jpeg",
+        0.45 // ✅ recommended quality
+      );
+    };
+
+    r.readAsDataURL(file);
+  });
+}
+
+  let CURRENT_TASK = null;
+let CURRENT_PHOTO_INDEX = null;
+let BOOT_WATCHDOG_FIRED = false;
+
+// window.startPhoto = async function(index, taskKey) {
+//   if (!(await validateDynamic(taskKey))) return;
+
+//   CURRENT_TASK = taskKey;
+//   CURRENT_PHOTO_INDEX = index;
+
+//   cameraInput.value = "";
+//   cameraInput.click();
+// };
+window.startPhoto = async function(index, taskKey) {
+
+  // 🔒 DO NOT START A NEW TASK DURING SYNC
+  if (SYNC_RUNNING) {
+    alert(
+      "⏳ Sync is still in progress.\n\n" +
+      "Please wait until synchronization is complete."
+    );
+    return;
+  }
+
+  CURRENT_TASK = taskKey;
+  CURRENT_PHOTO_INDEX = index;
+
+  cameraInput.value = "";
+  cameraInput.click();
+};
+
+
+cameraInput.onchange = async e => {
+  try {
+    const file = e.target.files?.[0];   // ✅ ADD THIS LINE
+
+    const taskKey = CURRENT_TASK;
+    const photoIndex = CURRENT_PHOTO_INDEX;
+  
+  CURRENT_TASK = null;
+  CURRENT_PHOTO_INDEX = null;
+  
+  if (!file || !taskKey || !photoIndex) return;
+  
+  if (!PHOTO_BUFFER[taskKey]) PHOTO_BUFFER[taskKey] = {};
+
+  const gps = LAST_KNOWN_GPS;
+  if (!gps || !gps.latitude) {
+    alert("📍 Waiting for GPS signal...");
+    return;
+  }
+    
+  let blob;
+  try {
+    blob = await compressImage(file, gps, new Date().toISOString());
+  } catch {
+    alert("Image processing failed");
+    return;
+  }
+
+  
+
+  const previewURL = URL.createObjectURL(blob);
+  
+  PHOTO_BUFFER[taskKey][photoIndex] = {
+    blob,
+    previewURL,
+    takenAt: new Date().toISOString(),
+    gps
+  };
+
+  const takenAt = new Date().toISOString();
+
+  const latestData =
+    loadFormCache()[taskKey] ||
+    BILLING_CACHE[taskKey] ||
+    {};
+  
+  await savePhotoToDB({
+    id: `${taskKey}_${photoIndex}`,
+    taskKey,
+    photoIndex,
+    blob,
+    takenAt,
+    gps,
+    submitIntent: false
+  });
+  
+  setTimeout(checkStorageQuota, 0);
+
+  // 🔒 Lock UI to this task after first photo
+  if (photoIndex === 1) {
+    ACTIVE_CAPTURE_TASK = taskKey;
+  }
+
+  CURRENT_PHOTO_INDEX = null;
+  CURRENT_TASK = null;   // 🔥 REQUIRED FIX
+  
+  // ✅ reset AFTER capture finishes
+  setTimeout(() => {
+    cameraInput.value = "";
+  }, 150);
+  // ✅ LOCAL UI UPDATE ONLY — NO FULL RELOAD
+    applyFiltersOnly();
+    
+    // ⬇️ Auto scroll to bottom of page after render
+    requestAnimationFrame(() => {
+      window.scrollTo({
+        top: document.body.scrollHeight,
+        behavior: "smooth"
+      });
+  });
+  } catch (err) {
+      console.error("📸 Camera handler crash:", err);
+      alert("Camera error — please retry.");
+    }
+  };
+  
+  window.submitTask = async function(taskKey) {
+
+  // 🔒 DO NOT COMPLETE ANOTHER TASK DURING SYNC
+  if (SYNC_RUNNING) {
+    alert(
+      "⏳ Sync is still in progress.\n\n" +
+      "Please wait until synchronization is complete."
+    );
+    return;
+  }
+
+  syncDynamicFields(taskKey);
+
+  if (!(await validateDynamic(taskKey))) return;
+
+  if (submitLock[taskKey]) return;
+  submitLock[taskKey] = true;
+
+  const btn = document.querySelector(
+    `button[onclick="submitTask('${taskKey}')"]`
+  );
+
+  if (btn) {
+    btn.disabled = true;
+    btn.innerText = "📦 Saved Locally";
+  }
+
+  const photos = PHOTO_BUFFER[taskKey];
+
+  if (!photos || Object.keys(photos).length === 0) {
+    alert("Please take at least 1 photo.");
+    submitLock[taskKey] = false;
+    if (btn) {
+      btn.disabled = false;
+      btn.innerText = "✅ Submit Task";
+    }
+    return;
+  }
+
+  // ==============================
+  // ✅ ALWAYS QUEUE (ONLINE OR OFFLINE)
+  // ==============================
+
+  const latestData =
+  BILLING_CACHE[taskKey] || {};
+
+  const currentTasks =
+     await getTasksFromIndexedDB();
+   
+   const originalTask =
+     currentTasks.find(
+       t => t._key === taskKey
+     ) || {};
+
+  await saveTasksToIndexedDB([{
+    _key: taskKey,
+    status: "LOCAL_COMPLETED",
+    driverId: DRIVER_ID,
+    dateKey: dateFilter.value.replace(/-/g, ""),
+    deliveryData: latestData // 🔥 IMPORTANT
+  }]);
+
+  // ==============================
+   // 💾 AUTO-DOWNLOAD LOCAL COMPLETED JSON
+   // ==============================
+   try {
+   
+     const taskPhotos =
+        Object.entries(
+          PHOTO_BUFFER[taskKey] || {}
+        );
+      
+      const backupPhotos = [];
+      
+      for (const [photoIndex, photo] of taskPhotos) {
+   
+       const base64 =
+         await blobToBase64(
+           photo.blob
+         );
+   
+       backupPhotos.push({
+   
+         id:
+           `${taskKey}_${photoIndex}`,
+         
+         taskKey,
+         
+         photoIndex:
+           Number(photoIndex),
+   
+         takenAt:
+           photo.takenAt,
+   
+         gps:
+           photo.gps || null,
+   
+         base64
+       });
+     }
+   
+    const taskData = {
+
+        // 🔥 KEEP THE COMPLETE ORIGINAL TASK
+        ...originalTask,
+      
+        // 🔥 LOCAL COMPLETION STATE
+        _key:
+          taskKey,
+      
+        status:
+          "LOCAL_COMPLETED",
+      
+        driverId:
+          DRIVER_ID,
+      
+        dateKey:
+          dateFilter.value.replace(
+            /-/g,
+            ""
+          ),
+      
+        deliveryData:
+          latestData,
+      
+        photos:
+          backupPhotos
+      };
+   
+     const jsonBlob =
+       new Blob(
+         [
+           JSON.stringify(
+             taskData,
+             null,
+             2
+           )
+         ],
+         {
+           type:
+             "application/json"
+         }
+       );
+   
+     const filename =
+       `LOCAL_COMPLETED_${taskKey}.json`;
+   
+     saveToGallery(
+       jsonBlob,
+       filename
+     );
+   
+     console.log(
+       "✅ LOCAL_COMPLETED recovery backup downloaded:",
+       {
+         filename,
+         taskKey,
+         dateKey:
+           taskData.dateKey,
+         photos:
+           backupPhotos.length
+       }
+     );
+   
+   } catch (err) {
+   
+     console.error(
+       "❌ Failed to create LOCAL_COMPLETED JSON:",
+       err
+     );
+   
+   }
+
+   // ==========================================
+// 🗺 UPDATE IN-MEMORY TASK STATUS
+// ==========================================
+
+const mapTask =
+  CURRENT_RENDER_LIST.find(
+    t => t._key === taskKey
+  );
+
+if (mapTask) {
+
+  mapTask.status =
+    "LOCAL_COMPLETED";
+
+}
+
+updateTaskMapMarkerAfterLocalSubmit(
+  taskKey
+);
+    
+  const cached = await getTasksFromIndexedDB();
+  UPLOAD_QUEUE_COUNT = cached.filter(t =>
+    t.status === "LOCAL_COMPLETED" &&
+    !t.exported &&
+    String(t.driverId).toUpperCase() === DRIVER_ID.toUpperCase()
+  ).length;
+  
+  updateUploadCounter();
+
+  // 🔓 MARK ALL INDEXEDDB PHOTOS FOR THIS TASK AS SUBMITTED
+    const dbi = await openDB();
+    
+    await new Promise((resolve, reject) => {
+      const tx = dbi.transaction(STORE, "readwrite");
+      const store = tx.objectStore(STORE);
+    
+      const req = store.getAll();
+    
+      req.onsuccess = () => {
+        req.result
+          .filter(p => p.taskKey === taskKey)
+          .forEach(p => {
+            store.put({
+              ...p,
+              submitIntent: true
+            });
+          });
+      };
+    
+      tx.oncomplete = resolve;
+      tx.onerror = reject;
+    });
+  
+  // 🧠 Photos already saved to IndexedDB at capture time
+  delete PHOTO_BUFFER[taskKey];
+  ACTIVE_CAPTURE_TASK = null;
+  
+  removeTaskFromUI(taskKey);
+  
+  
+  submitLock[taskKey] = false;
+  if (btn) {
+    btn.disabled = false;
+    btn.innerText = "✅ Submit Task";
+  }
+  
+  
+  return;
+  }
+
+// =====================================================
+// 🗺 UPDATE ONE TASK MARKER AFTER LOCAL SUBMISSION
+// =====================================================
+
+function updateTaskMapMarkerAfterLocalSubmit(taskKey) {
+
+  if (
+    !DRIVER_TASK_MAP ||
+    !DRIVER_TASK_MAP_VISIBLE
+  ) {
+    return;
+  }
+
+  const marker =
+    DRIVER_TASK_MARKERS[
+      taskKey
+    ];
+
+  if (!marker) {
+    console.log(
+      "🗺 Marker not currently visible:",
+      taskKey
+    );
+    return;
+  }
+
+  // ==========================================
+  // Change the existing marker to GREEN
+  // ==========================================
+
+  const task =
+    CURRENT_RENDER_LIST.find(
+      t => t._key === taskKey
+    );
+
+  if (!task) {
+    return;
+  }
+
+  marker.setIcon(
+    createExpandedTaskMapIcon(
+      task.SEQUENCE,
+      "SYNC_PENDING"
+    )
+  );
+
+  console.log(
+    "🟢 Map marker updated locally:",
+    taskKey
+  );
+}
+
+/* ===== CAMERA ===== */
+
+function saveToGallery(blob, filename) {
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+
+  document.body.appendChild(a);
+  a.click();
+
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+window.CURRENT_TASK = null;
+
+function resolveStatus(task) {
+  if (task.status === "COMPLETED") return "COMPLETED";
+  if (task.status === "LOCAL_COMPLETED") {
+  if (task.exported) return "EXPORTED";
+    return "SYNC_PENDING";
+  }
+
+  const p = PHOTO_BUFFER[task._key];
+  if (p && Object.keys(p).length > 0) return "READY";
+
+  return "PENDING";
+}
+ 
+
+function removeTaskFromUI(taskKey) {
+  TASKS_CACHE = TASKS_CACHE.filter(t => t._key !== taskKey);
+  applyFiltersOnly();
+}
+
+function sortTasksOfflineSafe(tasks) {
+  function getOfflineRank(t) {
+    if (t.status === "OFFLINE_PENDING") return 3;
+    if (t.status === "UPLOADING") return 2;
+
+    const resolved = resolveStatus(t);
+    if (resolved === "READY") return 1;
+    if (resolved === "PENDING") return 1;
+
+    return 9;
+  }
+
+  return tasks.sort((a, b) => {
+    const ra = getOfflineRank(a);
+    const rb = getOfflineRank(b);
+  
+    if (ra !== rb) return ra - rb;
+  
+    // ✅ Excel chronological order
+    if (a.rowIndex != null && b.rowIndex != null) {
+      return Number(a.rowIndex) - Number(b.rowIndex);
+    }
+  
+    return 0;
+  });
+}
+
+async function uploadNow(
+  taskKey,
+  blob,
+  takenAt,
+  _ignoredFilename,
+  deliveryData = {},
+  photoGPS,
+  photoIndex,
+  isLastPhoto
+) {
+
+  console.log("⬆️ Syncing task:", {
+    taskKey,
+    photoIndex,
+    isLastPhoto
+  });
+
+  // ==========================================
+  // 1. GET TASK FROM FIRESTORE
+  // ==========================================
+
+  const taskRef = fsDoc(
+    firestore,
+    "TASK",
+    taskKey
+  );
+
+  const taskSnap = await getDoc(taskRef);
+
+  if (!taskSnap.exists()) {
+
+    console.error(
+      "❌ Firestore TASK not found:",
+      taskKey
+    );
+
+    return false;
+  }
+
+  const task = taskSnap.data();
+
+  console.log(
+    "🔥 Firestore task found:",
+    task
+  );
+
+  // ==========================================
+  // 2. PHOTO ALREADY UPLOADED?
+  // ==========================================
+
+  if (
+    task[`photo${photoIndex}Url`]
+  ) {
+
+    console.log(
+      "⚠️ Photo already uploaded — skipping:",
+      taskKey,
+      photoIndex
+    );
+
+    return true;
+  }
+
+  // ==========================================
+  // 3. UPLOAD PHOTO TO STORAGE
+  // ==========================================
+
+  const filename =
+    `${taskKey}_photo_${photoIndex}.jpg`;
+
+  const imgRef =
+    sRef(
+      storage,
+      `tasks/${taskKey}/${filename}`
+    );
+
+  try {
+
+    await uploadBytes(
+      imgRef,
+      blob
+    );
+
+  } catch (err) {
+
+  console.error(
+    "❌ Storage upload failed:",
+    err
+  );
+
+  alert(
+    "❌ FIREBASE STORAGE ERROR\n\n" +
+    "Task: " +
+    taskKey +
+    "\n" +
+    "Photo: " +
+    photoIndex +
+    "\n\n" +
+    "Error:\n" +
+    (
+      err?.code ||
+      err?.message ||
+      String(err)
+    )
+  );
+
+  return false;
+}
+
+  // ==========================================
+  // 4. GET DOWNLOAD URL
+  // ==========================================
+
+  let url;
+
+  try {
+
+    url =
+      await getDownloadURL(
+        imgRef
+      );
+
+  } catch (err) {
+
+    console.error(
+      "❌ Failed to get download URL:",
+      err
+    );
+
+    return false;
+  }
+
+  // ==========================================
+  // 5. BUILD FIRESTORE UPDATE
+  // ==========================================
+
+  const updatePayload = {
+
+    // Save driver-entered fields
+    ...(deliveryData || {}),
+
+    // Photo
+    [`photo${photoIndex}Url`]:
+      url,
+
+    [`photo${photoIndex}Filename`]:
+      filename,
+
+    [`photo${photoIndex}TakenAt`]:
+      takenAt,
+
+    // GPS
+    ...(photoGPS
+      ? {
+          [`photo${photoIndex}GPS`]:
+            photoGPS
+        }
+      : {}),
+
+    uploadedAt:
+      serverTimestamp()
+  };
+
+  // ==========================================
+  // 6. LAST PHOTO = COMPLETED
+  // ==========================================
+
+  if (isLastPhoto) {
+
+    updatePayload.workStatus =
+      "completed";
+
+    updatePayload.status =
+      "COMPLETED";
+
+    updatePayload.forceReopen =
+      false;
+
+    updatePayload.completedAt =
+      serverTimestamp();
+
+    updatePayload.completedBy =
+      DRIVER_ID;
+  }
+
+  console.log(
+    "🔥 Updating Firestore TASK:",
+    taskKey,
+    updatePayload
+  );
+
+  // ==========================================
+  // 7. UPDATE FIRESTORE
+  // ==========================================
+
+  try {
+
+    await updateDoc(
+      taskRef,
+      updatePayload
+    );
+
+  } catch (err) {
+
+  console.error(
+    "❌ Firestore TASK update failed:",
+    err
+  );
+
+  alert(
+    "❌ FIRESTORE UPDATE ERROR\n\n" +
+    "Task: " +
+    taskKey +
+    "\n\n" +
+    "Error:\n" +
+    (
+      err?.code ||
+      err?.message ||
+      String(err)
+    )
+  );
+
+  return false;
+}
+
+  // ==========================================
+  // 8. VERIFY FIRESTORE IMMEDIATELY
+  // ==========================================
+
+  const verifySnap =
+    await getDoc(taskRef);
+
+  if (!verifySnap.exists()) {
+
+    console.error(
+      "❌ Firestore verification failed:",
+      taskKey
+    );
+
+    return false;
+  }
+
+  const verifyData =
+    verifySnap.data();
+
+  console.log(
+    "🔎 FIRESTORE AFTER SYNC:",
+    {
+      taskKey,
+      workStatus:
+        verifyData.workStatus,
+
+      status:
+        verifyData.status,
+
+      photo:
+        verifyData[
+          `photo${photoIndex}Url`
+        ]
+    }
+  );
+
+  // ==========================================
+  // 9. VERIFY COMPLETED STATUS
+  // ==========================================
+
+  if (isLastPhoto) {
+
+    if (
+      verifyData.workStatus !==
+      "completed"
+    ) {
+
+      console.error(
+        "❌ Firestore workStatus is NOT completed:",
+        verifyData.workStatus
+      );
+
+      return false;
+    }
+
+    if (
+      verifyData.status !==
+      "COMPLETED"
+    ) {
+
+      console.error(
+        "❌ Firestore status is NOT COMPLETED:",
+        verifyData.status
+      );
+
+      return false;
+    }
+  }
+
+  // ==========================================
+  // 10. SAVE TO GALLERY
+  // ==========================================
+
+  saveToGallery(
+    blob,
+    filename
+  );
+
+  console.log(
+    "✅ Firestore sync successful:",
+    taskKey,
+    photoIndex
+  );
+
+  return true;
+}
+
+async function preloadDriverUIConfig(tasks) {
+  const types = new Set(
+    tasks.map(t => t.JOBTYPE).filter(Boolean)
+  );
+
+  await Promise.all(
+    [...types].map(t => loadDriverUI(t))
+  );
+}
+  
+checkStorageQuota();
+setInterval(checkStorageQuota, 60_000); // every 60 seconds
+
+// =====================================================
+// 🔄 NORMALIZE TASK DATA
+// =====================================================
+function normalizeFirestoreTask(data, taskId, dateKey) {
+
+  const keys = Object.keys(data || {});
+
+  // Case-insensitive / punctuation-insensitive lookup
+  const findValue = (...possibleNames) => {
+
+    const normalizedNames = possibleNames.map(name =>
+      String(name)
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, "")
+    );
+
+    for (const key of keys) {
+
+      const normalizedKey =
+        String(key)
+          .toLowerCase()
+          .replace(/[^a-z0-9]/g, "");
+
+      if (normalizedNames.includes(normalizedKey)) {
+
+        const value = data[key];
+
+        if (
+          value !== undefined &&
+          value !== null &&
+          String(value).trim() !== ""
+        ) {
+          return value;
+        }
+      }
+    }
+
+    return "";
+  };
+
+  const task = {
+
+    // ==========================================
+    // SYSTEM
+    // ==========================================
+    _key: taskId,
+    dateKey,
+
+    // ==========================================
+    // DRIVER
+    // ==========================================
+    driverId: findValue(
+      "agentId",
+      "driverId",
+      "driverID",
+      "DRIVERID",
+      "driver"
+    ),
+
+    driverName: findValue(
+      "agentName",
+      "driverName",
+      "driverID",
+      "DRIVERNAME"
+    ),
+
+    // ==========================================
+    // CUSTOMER
+    // ==========================================
+    CUSTOMERNAME: findValue(
+      "CUSTOMERNAME",
+      "customerName",
+      "customer_name",
+      "customer",
+      "name"
+    ),
+
+    ADDRESS: findValue(
+      "ADDRESS",
+      "address",
+      "customerAddress",
+      "customer_address"
+    ),
+
+    ACCOUNTNUMBER: findValue(
+      "ACCOUNTNUMBER",
+      "accountNumber",
+      "account_number",
+      "accountNo",
+      "account_no"
+    ),
+
+    MRU: findValue(
+      "MRU",
+      "mru"
+    ),
+
+    METERNUMBER: findValue(
+      "METERNUMBER",
+      "meterNumber",
+      "meter_number",
+      "meterNo",
+      "meter_no"
+    ),
+
+    DMZ: findValue(
+      "DMZ",
+      "dmz"
+    ),
+
+    SEQUENCE: findValue(
+      "SEQUENCE",
+      "sequence",
+      "sequenceNumber",
+      "sequence_number",
+      "sequenceNo",
+      "sequence_no"
+    ),
+
+    JOBTYPE: findValue(
+      "JOBTYPE",
+      "jobType",
+      "job_type",
+      "job"
+    ),
+
+    // ==========================================
+    // GPS
+    // ==========================================
+    LATITUDE: findValue(
+      "LATITUDE",
+      "latitude",
+      "lat"
+    ),
+
+    LONGITUDE: findValue(
+      "LONGITUDE",
+      "longitude",
+      "lng",
+      "lon"
+    )
+  };
+
+  // ==========================================
+  // KEEP ORIGINAL FIRESTORE DATA
+  // ==========================================
+  Object.assign(task, data);
+
+  // ==========================================
+  // IMPORTANT:
+  // normalized values overwrite original
+  // ==========================================
+  task._key = taskId;
+  task.dateKey = dateKey;
+
+  task.driverId = findValue(
+    "agentId",
+    "driverId",
+    "driverID",
+    "DRIVERID",
+    "driver"
+  );
+
+  task.driverName = findValue(
+    "agentName",
+    "driverName",
+    "DRIVERNAME"
+  );
+
+  task.CUSTOMERNAME = findValue(
+    "CUSTOMERNAME",
+    "customerName",
+    "customer_name",
+    "customer",
+    "name"
+  );
+
+  task.ADDRESS = findValue(
+    "ADDRESS",
+    "address",
+    "customerAddress",
+    "customer_address"
+  );
+
+  task.ACCOUNTNUMBER = findValue(
+    "ACCOUNTNUMBER",
+    "accountNumber",
+    "account_number",
+    "accountNo",
+    "account_no"
+  );
+
+  task.MRU = findValue(
+    "MRU",
+    "mru"
+  );
+
+  task.METERNUMBER = findValue(
+    "METERNUMBER",
+    "meterNumber",
+    "meter_number",
+    "meterNo",
+    "meter_no"
+  );
+
+  task.DMZ = findValue(
+    "DMZ",
+    "dmz"
+  );
+
+  task.SEQUENCE = findValue(
+    "SEQUENCE",
+    "sequence",
+    "sequenceNumber",
+    "sequence_number",
+    "sequenceNo",
+    "sequence_no"
+  );
+
+  task.JOBTYPE = findValue(
+    "JOBTYPE",
+    "jobType",
+    "job_type",
+    "job"
+  );
+
+  task.LATITUDE = findValue(
+    "LATITUDE",
+    "latitude",
+    "lat"
+  );
+
+  task.LONGITUDE = findValue(
+    "LONGITUDE",
+    "longitude",
+    "lng",
+    "lon"
+  );
+
+  console.log("🔎 TASK FIELD KEYS:", keys);
+
+  console.log("🔄 NORMALIZED TASK:", {
+    _key: task._key,
+    driverId: task.driverId,
+    CUSTOMERNAME: task.CUSTOMERNAME,
+    ADDRESS: task.ADDRESS,
+    ACCOUNTNUMBER: task.ACCOUNTNUMBER,
+    MRU: task.MRU,
+    METERNUMBER: task.METERNUMBER,
+    DMZ: task.DMZ,
+    SEQUENCE: task.SEQUENCE,
+    JOBTYPE: task.JOBTYPE,
+    LATITUDE: task.LATITUDE,
+    LONGITUDE: task.LONGITUDE
+  });
+
+  return task;
+}
+
+// =====================================================
+// 🔧 MIGRATE EXISTING INDEXEDDB TASKS
+// =====================================================
+async function migrateIndexedDBTasks() {
+
+  const tasks =
+    await getTasksFromIndexedDB();
+
+  if (!tasks.length) {
+    console.log("🔧 No IndexedDB tasks to migrate.");
+    return;
+  }
+
+  console.log(
+    `🔧 Migrating ${tasks.length} IndexedDB tasks...`
+  );
+
+  const migrated = [];
+
+  for (const oldTask of tasks) {
+
+    const normalized =
+      normalizeFirestoreTask(
+        oldTask,
+        oldTask._key,
+        oldTask.dateKey
+      );
+
+    // Preserve local state
+    normalized.status =
+      oldTask.status || "PENDING";
+
+    normalized.workStatus =
+      oldTask.workStatus || "pending";
+
+    normalized.finalized =
+      oldTask.finalized || false;
+
+    normalized.exported =
+      oldTask.exported || false;
+
+    normalized.deliveryData =
+      oldTask.deliveryData || {};
+
+    normalized.createdAt =
+      oldTask.createdAt;
+
+    normalized.updatedAt =
+      oldTask.updatedAt;
+
+    migrated.push(normalized);
+  }
+
+  await saveTasksToIndexedDB(migrated);
+
+  console.log(
+    "✅ IndexedDB task migration complete."
+  );
+
+  // Show exactly what was saved
+  const verify =
+    await getTasksFromIndexedDB();
+
+  console.log(
+    "🔎 FIRST MIGRATED TASK:",
+    verify[0]
+  );
+}
+
+// =====================================================
+// 🔥 GET TASKS WAITING FOR DOWNLOAD
+// =====================================================
+async function loadDriverTasksFromFirestore(selectedDate) {
+
+  // Firestore uses YYYY-MM-DD
+  const firestoreDate = selectedDate;
+
+  // IndexedDB uses YYYYMMDD
+  const dateKey =
+    selectedDate.replace(/-/g, "");
+
+  console.log(
+    "🔥 Loading FORDOWNLOAD tasks:",
+    {
+      assignedDate: firestoreDate,
+      dateKey: dateKey,
+      driverId: DRIVER_ID,
+      workStatus: "fordownload"
+    }
+  );
+
+  const tasksRef =
+    collection(
+      firestore,
+      "TASK"
+    );
+
+  const q = fsQuery(
+
+    tasksRef,
+
+    where(
+      "assignedDate",
+      "==",
+      firestoreDate
+    ),
+
+    where(
+      "agentId",
+      "==",
+      DRIVER_ID
+    ),
+
+    where(
+      "workStatus",
+      "==",
+      "fordownload"
+    )
+  );
+
+  const snapshot =
+    await getDocs(q);
+
+  const tasks = [];
+
+  snapshot.forEach(docSnap => {
+
+    const data = docSnap.data();
+  
+    console.log(
+      "🔥 FIRESTORE RAW TASK:",
+      docSnap.id,
+      data
+    );
+  
+    const normalizedTask =
+      normalizeFirestoreTask(
+        data,
+        docSnap.id,
+        dateKey
+      );
+  
+    tasks.push(normalizedTask);
+  });
+
+  // Sort locally instead of using Firestore orderBy().
+  // This avoids another composite-index requirement.
+  tasks.sort((a, b) => {
+
+    const aTime =
+      a.createdAt?.toMillis
+        ? a.createdAt.toMillis()
+        : new Date(a.createdAt || 0).getTime();
+
+    const bTime =
+      b.createdAt?.toMillis
+        ? b.createdAt.toMillis()
+        : new Date(b.createdAt || 0).getTime();
+
+    return aTime - bTime;
+  });
+
+  console.log(
+    `🔥 Firestore returned ${tasks.length} FORDOWNLOAD tasks`
+  );
+
+  return tasks;
+}
+
+// =====================================================
+// 🔢 COUNT TASKS FOR DOWNLOAD
+// =====================================================
+async function getTasksForDownloadCount(selectedDate) {
+
+  const firestoreDate = selectedDate;
+
+  const tasksRef =
+    collection(firestore, "TASK");
+
+  const q = fsQuery(
+    tasksRef,
+
+    where(
+      "assignedDate",
+      "==",
+      firestoreDate
+    ),
+
+    where(
+      "agentId",
+      "==",
+      DRIVER_ID
+    ),
+
+    where(
+      "workStatus",
+      "==",
+      "fordownload"
+    )
+  );
+
+  const countSnap =
+    await getCountFromServer(q);
+
+  const count =
+    countSnap.data().count || 0;
+
+  console.log(
+    `🔢 Tasks for download: ${count}`,
+    {
+      assignedDate: firestoreDate,
+      driverId: DRIVER_ID,
+      workStatus: "fordownload"
+    }
+  );
+
+  return count;
+}
+
+// =====================================================
+// 🔢 UPDATE "TASK FOR DOWNLOAD" BUTTON
+// =====================================================
+async function updateTasksForDownloadCount() {
+
+  const btn =
+    document.getElementById("refreshTasksBtn");
+
+  if (!btn) return;
+
+  const selectedDate =
+    dateFilter.value;
+
+  if (!selectedDate) {
+    btn.innerText =
+      "Task for download (0)";
+    return;
+  }
+
+  // Offline → cannot query Firestore
+  if (!navigator.onLine) {
+    btn.innerText =
+      "Task for download (—)";
+    return;
+  }
+
+  try {
+
+    const count =
+      await getTasksForDownloadCount(
+        selectedDate
+      );
+
+    btn.innerText =
+      `Task for download (${count})`;
+
+    btn.dataset.count =
+      String(count);
+
+    btn.disabled =
+      count === 0;
+
+    btn.style.opacity =
+      count === 0 ? "0.6" : "1";
+
+  } catch (err) {
+
+    console.error(
+      "❌ Failed to get download count:",
+      err
+    );
+
+    btn.innerText =
+      "Task for download (?)";
+
+    btn.disabled = false;
+    btn.style.opacity = "1";
+  }
+}
+
+// =====================================================
+// ⬇️ DOWNLOAD FORDOWNLOAD TASKS
+// =====================================================
+async function downloadTasksForDriver() {
+
+  if (IS_DOWNLOADING) {
+    alert("⏳ Task download already running.");
+    return;
+  }
+
+  if (!navigator.onLine) {
+    alert(
+      "📴 Connect to the internet first."
+    );
+    return;
+  }
+
+  const selectedDate =
+    dateFilter.value;
+
+  if (!selectedDate) {
+    alert(
+      "Please select a date first."
+    );
+    return;
+  }
+
+  IS_DOWNLOADING = true;
+
+  const btn =
+    document.getElementById(
+      "refreshTasksBtn"
+    );
+
+  try {
+
+    if (btn) {
+      btn.disabled = true;
+      btn.style.opacity = "0.7";
+      btn.innerText =
+        "⏬ Downloading tasks...";
+    }
+
+    showMessage(
+      "⏬ Downloading tasks..."
+    );
+
+    // ==========================================
+    // 1. GET TASKS WAITING FOR DOWNLOAD
+    // ==========================================
+
+    const freshTasks =
+      await loadDriverTasksFromFirestore(
+        selectedDate
+      );
+
+    console.log(
+      "🔥 Tasks downloaded from Firestore:",
+      freshTasks.length
+    );
+
+    if (!freshTasks.length) {
+
+      alert(
+        "📭 There are no tasks waiting for download."
+      );
+
+      return;
+    }
+
+    // ==========================================
+    // 2. CONVERT FIRESTORE → DRIVER LOCAL MODEL
+    // ==========================================
+
+    const localTasks =
+      freshTasks.map(task => ({
+    
+        ...task,
+    
+        _key: task._key,
+    
+        driverId:
+          task.driverId || DRIVER_ID,
+    
+        driverName:
+          task.driverName || "",
+    
+        dateKey:
+          selectedDate.replace(/-/g, ""),
+    
+        status:
+          "PENDING",
+    
+        workStatus:
+          "pending",
+    
+        finalized:
+          false,
+    
+        exported:
+          false
+    
+      }));
+
+    // ==========================================
+    // 3. SAVE LOCALLY FIRST
+    // ==========================================
+
+    await saveTasksToIndexedDB(
+      localTasks
+    );
+
+    console.log(
+      `💾 Saved ${localTasks.length} tasks to IndexedDB`
+    );
+
+    // ==========================================
+    // 4. MARK FIRESTORE TASKS AS DOWNLOADED
+    // ==========================================
+
+    await markTasksAsDownloaded(
+      freshTasks
+    );
+
+    console.log(
+      `✅ ${freshTasks.length} tasks moved: fordownload → pending`
+    );
+
+    // ==========================================
+    // 5. LOAD LOCAL TASK LIST
+    // ==========================================
+
+    FORCE_REDOWNLOAD = false;
+
+    await loadTasks();
+
+    // ==========================================
+    // 6. REFRESH DOWNLOAD COUNT
+    // ==========================================
+
+    await updateTasksForDownloadCount();
+
+  } catch (err) {
+
+    console.error(
+      "❌ Task download failed:",
+      err
+    );
+
+    alert(
+      "❌ Failed to download tasks.\n\n" +
+      (err?.message || "Unknown error")
+    );
+
+  } finally {
+
+    IS_DOWNLOADING = false;
+
+    await updateTasksForDownloadCount();
+  }
+}
+
+// =====================================================
+// 🔄 FORDOWNLOAD → PENDING
+// =====================================================
+async function markTasksAsDownloaded(tasks) {
+
+  if (!tasks.length) return;
+
+  console.log(
+    `🔄 Updating ${tasks.length} Firestore tasks to pending...`
+  );
+
+  // Firestore batch limit = 500
+  const CHUNK_SIZE = 450;
+
+  for (
+    let start = 0;
+    start < tasks.length;
+    start += CHUNK_SIZE
+  ) {
+
+    const chunk =
+      tasks.slice(
+        start,
+        start + CHUNK_SIZE
+      );
+
+    const batch =
+      writeBatch(firestore);
+
+    for (const task of chunk) {
+
+      const taskRef =
+        fsDoc(
+          firestore,
+          "TASK",
+          task._key
+        );
+
+      batch.update(
+        taskRef,
+        {
+          workStatus: "pending",
+          updatedAt: serverTimestamp()
+        }
+      );
+    }
+
+    await batch.commit();
+
+    console.log(
+      `✅ Firestore batch committed: ${chunk.length} tasks`
+    );
+  }
+}
+  
+async function loadTasks() {
+  if (LOAD_IN_PROGRESS) return;
+  LOAD_IN_PROGRESS = true;
+
+  const selectedDate = dateFilter.value;
+  if (!selectedDate) {
+    showMessage("Select a date.");
+    LOAD_IN_PROGRESS = false;
+    return;
+  }
+
+  const dateKey = selectedDate.replace(/-/g, "");
+
+  try {
+    // ===============================
+    // 1️⃣ ALWAYS READ INDEXEDDB FIRST
+    // ===============================
+    const cached = await getTasksFromIndexedDB();
+    // 🔥 Calculate upload queue once
+    UPLOAD_QUEUE_COUNT = cached.filter(t =>
+      String(t.driverId || "").trim().toUpperCase() ===
+      String(DRIVER_ID).trim().toUpperCase() &&
+      t.status === "LOCAL_COMPLETED" &&
+      !t.exported
+    ).length;
+    updateUploadCounter();
+
+    const localTasks = cached.filter(t =>
+      t.dateKey === dateKey &&
+      String(t.driverId || "").trim().toUpperCase() ===
+      String(DRIVER_ID).trim().toUpperCase() &&
+      resolveStatus(t) !== "COMPLETED"
+    );
+
+    if (!navigator.onLine) {
+      // 🔒 OFFLINE MODE
+      if (!localTasks.length) {
+        TASKS_CACHE = [];
+        toggleJobTypeFilter(false);
+        updateRemainingCounter([]);
+        updateUploadCounter();
+        showMessage("📭 No tasks found for selected date.");
+        LOAD_IN_PROGRESS = false;
+        return;
+      }
+
+      TASKS_CACHE = sortTasksOfflineSafe(localTasks);
+      selectedJobTypes.clear();
+      jobTypeFilterInitialized = false;
+      renderJobTypeFilters(TASKS_CACHE);
+      refreshUI();
+      LOAD_IN_PROGRESS = false;
+      return;
+    }
+
+    // ===============================
+    // 2️⃣ SHOW DOWNLOADED LOCAL TASKS
+    // ===============================
+    
+    TASKS_CACHE =
+      sortTasksOfflineSafe(localTasks);
+    
+    selectedJobTypes.clear();
+    jobTypeFilterInitialized = false;
+    
+    renderJobTypeFilters(
+      TASKS_CACHE
+    );
+    
+    refreshUI();
+    
+    // 🔢 Always refresh the Firestore
+    // download counter separately.
+    if (navigator.onLine) {
+      updateTasksForDownloadCount();
+    }
+    
+    LOAD_IN_PROGRESS = false;
+    return;
+    
+    
+  } catch (err) {
+  console.error("❌ loadTasks error:", err);
+
+  let reason = "";
+
+  if (!navigator.onLine) {
+    reason = "📴 You are offline.";
+  } else if (err?.message?.includes("permission")) {
+    reason = "🔒 Permission denied. Check Firebase rules.";
+  } else if (err?.message?.includes("network")) {
+    reason = "🌐 Network error while contacting server.";
+  } else if (err?.message?.includes("timeout")) {
+    reason = "⏳ Request timed out.";
+  } else {
+    reason = err?.message || "Unknown error.";
+  }
+
+  showMessage(`
+    ⚠ <b>Failed to load tasks</b><br><br>
+    ${reason}
+    `);
+}
+
+  LOAD_IN_PROGRESS = false;
+}
+
+// =====================================================
+// ⬇️ TASK FOR DOWNLOAD BUTTON
+// =====================================================
+document.getElementById("refreshTasksBtn").onclick =
+  async () => {
+
+    // 🔒 DO NOT DOWNLOAD WHILE SYNC IS RUNNING
+    if (SYNC_RUNNING) {
+      alert(
+        "⏳ Sync is still in progress.\n\n" +
+        "Please wait until synchronization is complete."
+      );
+      return;
+    }
+
+    // Block download if completed tasks are waiting
+    // to be uploaded.
+    const pendingUpload =
+      (await getTasksFromIndexedDB()).filter(t =>
+        t.status === "LOCAL_COMPLETED" &&
+        !t.exported &&
+        String(t.driverId).trim().toUpperCase() ===
+        String(DRIVER_ID).trim().toUpperCase()
+      ).length;
+
+    if (pendingUpload > 0) {
+
+      alert(
+        `⚠ You have ${pendingUpload} task(s) waiting for upload.\n\n` +
+        "Please press 'Sync Completed Tasks' first."
+      );
+
+      return;
+    }
+
+    const count =
+      Number(
+        document.getElementById(
+          "refreshTasksBtn"
+        )?.dataset.count || 0
+      );
+
+    if (count === 0) {
+
+      alert(
+        "📭 No tasks are currently waiting for download."
+      );
+
+      await updateTasksForDownloadCount();
+
+      return;
+    }
+
+    const ok =
+      confirm(
+        `Download ${count} task(s) for this date?\n\n` +
+        "The tasks will be saved locally and marked as pending."
+      );
+
+    if (!ok) return;
+
+    await downloadTasksForDriver();
+  };
+
+
+async function detectGPSPermission() {
+  if (!navigator.permissions) return;
+
+  try {
+    const result = await navigator.permissions.query({ name: "geolocation" });
+
+    if (result.state === "denied") {
+      gpsStatus.innerText =
+        "🚫 Location blocked — Tap ⚙️ → Allow Location";
+    }
+
+    result.onchange = () => detectGPSPermission();
+  } catch {}
+}
+
+function handleGPSError(err) {
+  const gpsStatus = document.getElementById("gpsStatus");
+
+  let msg = "";
+
+  switch (err.code) {
+    case 1:
+      msg = "🚫 Location blocked — Phone Settings → App → Allow Location (Always)";
+      break;
+
+    case 2:
+      msg = "📴 GPS is OFF — Turn ON Location services";
+      break;
+
+    case 3:
+      msg = "⏳ Can't get GPS — Move to open area & wait";
+      break;
+
+    default:
+      msg = "⚠️ GPS error — Restart phone";
+  }
+
+  if (gpsStatus) gpsStatus.innerText = msg;
+}
+
+function updateUploadCounter() {
+
+  const el =
+    document.getElementById(
+      "uploadCounter"
+    );
+
+  const note =
+    document.getElementById(
+      "uploadNote"
+    );
+
+  const retryBtn =
+    document.getElementById(
+      "retryUploadBtn"
+    );
+
+  if (el)
+    el.style.display = "none";
+
+  if (note)
+    note.style.display = "none";
+
+  if (retryBtn)
+    retryBtn.style.display = "none";
+}
+  
+async function updateRemainingCounter(tasks) {
+
+  const selectedDate = document.getElementById("dateFilter")?.value;
+  if (!selectedDate) return;
+
+  const dateKey = selectedDate.replace(/-/g, "");
+
+  const remaining = tasks.filter(t => {
+    if (resolveStatus(t) !== "PENDING") return false;
+    if (t.dateKey !== dateKey) return false;
+
+    return (
+      String(t.driverId || "").trim().toUpperCase() ===
+      String(DRIVER_ID).trim().toUpperCase()
+    );
+  }).length;
+
+  const el = document.getElementById("taskCounter");
+
+  if (el) {
+    el.innerHTML =
+      `📄 Remaining: ${remaining} &nbsp;&nbsp; | &nbsp;&nbsp; ⏫ Total For Upload: ${UPLOAD_QUEUE_COUNT}`;
+  }
+}  
+
+ function renderWithPagination(tasks) {
+  CURRENT_RENDER_LIST = tasks;
+  RENDER_OFFSET = 0;
+
+  taskList.innerHTML = "";
+  taskList.appendChild(sentinel);
+
+  requestAnimationFrame(() => {
+    renderNextPage();
+
+    // 🔥 Safety kick
+    if (
+      document.documentElement.scrollHeight <= window.innerHeight + 250
+    ) {
+      renderNextPage();
+    }
+  });
+}
+
+// =====================================================
+// 🗺 DRIVER TASK MAP
+// =====================================================
+
+function initDriverTaskMap() {
+
+  if (DRIVER_TASK_MAP) {
+    return;
+  }
+
+  DRIVER_TASK_MAP = L.map(
+    "driverTaskMap"
+  ).setView(
+    [14.5995, 120.9842],
+    12
+  );
+
+  // =====================================================
+// ↩ PREVIOUS MAP LEVEL BUTTON
+// =====================================================
+
+const previousMapControl =
+  L.control({
+    position: "topright"
+  });
+
+previousMapControl.onAdd =
+  function () {
+
+    const container =
+      L.DomUtil.create(
+        "div",
+        "leaflet-control task-map-previous-control"
+      );
+
+    container.innerHTML = `
+      <button
+        id="showAllTaskClustersBtn"
+        type="button"
+        title="Return to previous map level"
+      >
+        ↩ Previous
+      </button>
+    `;
+
+    // Prevent the map from receiving
+    // clicks intended for the button.
+    L.DomEvent.disableClickPropagation(
+      container
+    );
+
+    L.DomEvent.disableScrollPropagation(
+      container
+    );
+
+    container
+      .querySelector("button")
+      .addEventListener(
+        "click",
+        showAllDriverTaskClusters
+      );
+
+    return container;
+  };
+
+previousMapControl.addTo(
+  DRIVER_TASK_MAP
+);
+
+updateDriverTaskMapPreviousButton();
+
+  L.tileLayer(
+    "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+    {
+      maxZoom: 19,
+      attribution: "&copy; OpenStreetMap contributors"
+    }
+  ).addTo(DRIVER_TASK_MAP);
+
+  // =====================================================
+  // 📍 TASK MARKER CLUSTER
+  // =====================================================
+
+  DRIVER_TASK_MARKER_CLUSTER =
+  L.markerClusterGroup({
+
+    // =================================================
+    // 📍 CLUSTERING
+    // =================================================
+
+    /*
+     * Smaller radius = locations must actually be
+     * closer together before becoming one cluster.
+     *
+     * This prevents distant delivery locations from
+     * being grouped together too aggressively.
+     */
+    maxClusterRadius: function (zoom) {
+
+      if (zoom <= 11) {
+        return 35;
+      }
+    
+      if (zoom <= 13) {
+        return 30;
+      }
+    
+      if (zoom <= 15) {
+        return 25;
+      }
+    
+      if (zoom <= 17) {
+        return 25;
+      }
+    
+      if (zoom <= 18) {
+        return 35;
+      }
+    
+      return 35;
+    },
+
+    // =================================================
+    // 🔎 CLOSE ZOOM
+    // =================================================
+
+    /*
+     * Keep clustering until zoom 18.
+     *
+     * At maximum zoom, MarkerCluster can spiderfy
+     * overlapping tasks instead of putting them
+     * directly on top of each other.
+     */
+    disableClusteringAtZoom: 20,
+
+    spiderfyOnMaxZoom: false,
+
+    showCoverageOnHover: false,
+
+    zoomToBoundsOnClick: false,
+
+    spiderfyDistanceMultiplier: 1.5,
+
+    // =================================================
+    // ⚡ PERFORMANCE
+    // =================================================
+
+    animate: false,
+
+    chunkedLoading: true,
+
+    chunkInterval: 50,
+
+    chunkDelay: 10,
+
+    removeOutsideVisibleBounds: true,
+
+    iconCreateFunction:
+      createTaskClusterIcon
+
+  });
+
+  DRIVER_TASK_MAP.addLayer(
+    DRIVER_TASK_MARKER_CLUSTER
+  );
+
+  // =====================================================
+  // 🧭 LEADER-LINE LAYER
+  // =====================================================
+  // Kept separate from the task markers so the lines can be
+  // cleared/rebuilt whenever the map zooms or moves.
+  DRIVER_TASK_CALLOUT_LAYER =
+    L.layerGroup().addTo(DRIVER_TASK_MAP);
+
+  // =====================================================
+  // 🔄 REPOSITION FOCUSED MARKERS AFTER ZOOM / PAN
+  // =====================================================
+  DRIVER_TASK_MAP.on(
+    "zoomend moveend",
+    () => {
+      if (
+        !DRIVER_TASK_MAP_VISIBLE ||
+        !DRIVER_TASK_MAP_FOCUS_INDIVIDUAL
+      ) {
+        return;
+      }
+
+      requestAnimationFrame(() => {
+        positionFocusedTaskMarkers();
+      });
+    }
+  );
+
+  // =====================================================
+  // 🎯 CLUSTER CLICK → ENTER / DEEPEN FOCUS
+  // =====================================================
+  
+  DRIVER_TASK_MARKER_CLUSTER.on(
+    "clusterclick",
+    function (event) {
+  
+      const cluster =
+        event.layer;
+  
+      focusDriverTaskCluster(
+        cluster
+      );
+  
+    }
+  );
+}
+
+
+function createTaskMapIcon(sequence, status) {
+
+  const label =
+    sequence !== undefined &&
+    sequence !== null &&
+    String(sequence).trim() !== ""
+      ? String(sequence)
+      : "•";
+
+  const completedLocally =
+    status === "SYNC_PENDING";
+
+  return L.divIcon({
+
+    className: "",
+
+    html: `
+      <div class="task-map-marker ${completedLocally ? "local-completed" : ""}">
+        <span>${label}</span>
+      </div>
+    `,
+
+    iconSize: [34, 34],
+
+    iconAnchor: [17, 34],
+
+    popupAnchor: [0, -34]
+  });
+}
+
+  function createTaskClusterIcon(cluster) {
+
+  const count =
+    cluster.getChildCount();
+
+  let size = 42;
+
+  if (count >= 10) {
+    size = 50;
+  }
+
+  if (count >= 50) {
+    size = 58;
+  }
+
+  return L.divIcon({
+
+    className: "",
+
+    html: `
+      <div
+        style="
+          width:${size}px;
+          height:${size}px;
+          border-radius:50%;
+          background:#1976d2;
+          color:#fff;
+          border:3px solid #fff;
+          box-shadow:0 2px 7px rgba(0,0,0,.35);
+
+          display:flex;
+          align-items:center;
+          justify-content:center;
+
+          font-size:15px;
+          font-weight:bold;
+
+          box-sizing:border-box;
+        "
+      >
+        ${count}
+      </div>
+    `,
+
+    iconSize: [
+      size,
+      size
+    ],
+
+    iconAnchor: [
+      size / 2,
+      size / 2
+    ]
+
+  });
+}
+
+function createDriverMapIcon() {
+
+  return L.divIcon({
+
+    className: "",
+
+    html: `
+      <div class="driver-map-marker">
+        📍
+      </div>
+    `,
+
+    iconSize: [38, 38],
+
+    iconAnchor: [19, 19]
+  });
+}
+
+
+function isValidTaskGPS(task) {
+
+  const lat =
+    Number(task?.LATITUDE);
+
+  const lng =
+    Number(task?.LONGITUDE);
+
+  return (
+    Number.isFinite(lat) &&
+    Number.isFinite(lng) &&
+    lat >= -90 &&
+    lat <= 90 &&
+    lng >= -180 &&
+    lng <= 180
+  );
+}
+
+
+function getDriverTaskMapTasks() {
+
+  /*
+   * CURRENT_RENDER_LIST contains ALL tasks
+   * matching the current date/job/search filters.
+   *
+   * It is NOT limited to the 3 tasks currently
+   * rendered on screen.
+   */
+
+  return Array.isArray(
+    CURRENT_RENDER_LIST
+  )
+    ? CURRENT_RENDER_LIST.filter(
+        t => t && t._key
+      )
+    : [];
+}
+
+
+function updateDriverLocationOnTaskMap() {
+
+  if (
+    !DRIVER_TASK_MAP ||
+    !DRIVER_TASK_MAP_VISIBLE
+  ) {
+    return;
+  }
+
+  if (
+    !LAST_KNOWN_GPS ||
+    !Number.isFinite(
+      Number(LAST_KNOWN_GPS.latitude)
+    ) ||
+    !Number.isFinite(
+      Number(LAST_KNOWN_GPS.longitude)
+    )
+  ) {
+    return;
+  }
+
+  const pos = [
+    Number(LAST_KNOWN_GPS.latitude),
+    Number(LAST_KNOWN_GPS.longitude)
+  ];
+
+  if (!DRIVER_LOCATION_MARKER) {
+
+    DRIVER_LOCATION_MARKER =
+      L.marker(
+        pos,
+        {
+          icon:
+            createDriverMapIcon(),
+          zIndexOffset: 1000
+        }
+      )
+      .addTo(DRIVER_TASK_MAP)
+      .bindPopup(`
+        <b>🔵 Your Location</b><br>
+        Accuracy:
+        ${
+          LAST_KNOWN_GPS.accuracy
+            ? Math.round(
+                LAST_KNOWN_GPS.accuracy
+              ) + " m"
+            : "—"
+        }
+      `);
+
+  } else {
+
+    DRIVER_LOCATION_MARKER
+      .setLatLng(pos);
+
+    DRIVER_LOCATION_MARKER
+      .setPopupContent(`
+        <b>🔵 Your Location</b><br>
+        Accuracy:
+        ${
+          LAST_KNOWN_GPS.accuracy
+            ? Math.round(
+                LAST_KNOWN_GPS.accuracy
+              ) + " m"
+            : "—"
+        }
+      `);
+  }
+}
+
+/* =====================================================
+   🧭 FOCUSED TASK MARKER COLLISION AVOIDANCE
+   =====================================================
+
+   Leaflet markers are normally placed directly on the GPS
+   coordinate. When several tasks are very close together,
+   that makes the sequence numbers overlap.
+
+   In focused mode:
+   - markers are moved away from the real GPS point
+   - markers are kept separated from each other
+   - markers are also kept away from other real GPS points
+   - a leader line connects the visual marker to the real GPS point
+*/
+
+const FOCUSED_MARKER_MIN_DISTANCE = 48;
+const FOCUSED_MARKER_FIRST_RING = 58;
+const FOCUSED_MARKER_RING_STEP = 38;
+const FOCUSED_MARKER_MAX_RADIUS = 360;
+
+
+// =====================================================
+// 📍 GENERATE MARKER OFFSETS
+// =====================================================
+
+function getFocusedMarkerOffsets() {
+
+  const offsets = [];
+
+  for (
+    let radius = FOCUSED_MARKER_FIRST_RING;
+    radius <= FOCUSED_MARKER_MAX_RADIUS;
+    radius += FOCUSED_MARKER_RING_STEP
+  ) {
+
+    // Start at the top and rotate around the GPS point.
+    for (
+      let angle = -90;
+      angle < 270;
+      angle += 30
+    ) {
+
+      const radians =
+        angle * Math.PI / 180;
+
+      offsets.push({
+        x:
+          Math.cos(radians) * radius,
+
+        y:
+          Math.sin(radians) * radius
+      });
+
+    }
+  }
+
+  return offsets;
+}
+
+
+const FOCUSED_MARKER_OFFSETS =
+  getFocusedMarkerOffsets();
+
+
+// =====================================================
+// 📍 CHECK IF VISUAL MARKER POSITION IS FREE
+// =====================================================
+
+function focusedPointIsFree(
+  candidate,
+  placed,
+  originalPoints
+) {
+
+  // ==========================================
+  // 1️⃣ DO NOT OVERLAP OTHER DISPLAY MARKERS
+  // ==========================================
+
+  for (const point of placed) {
+
+    const dx =
+      candidate.x - point.x;
+
+    const dy =
+      candidate.y - point.y;
+
+    if (
+      Math.sqrt(
+        dx * dx +
+        dy * dy
+      ) < FOCUSED_MARKER_MIN_DISTANCE
+    ) {
+
+      return false;
+    }
+  }
+
+
+  // ==========================================
+  // 2️⃣ DO NOT COVER ANY REAL GPS ENDPOINT
+  // ==========================================
+
+  for (const point of originalPoints) {
+
+    const dx =
+      candidate.x - point.x;
+
+    const dy =
+      candidate.y - point.y;
+
+    if (
+      Math.sqrt(
+        dx * dx +
+        dy * dy
+      ) < FOCUSED_MARKER_MIN_DISTANCE
+    ) {
+
+      return false;
+    }
+  }
+
+
+  return true;
+}
+
+
+// =====================================================
+// 🧹 CLEAR LEADER LINES
+// =====================================================
+
+function clearFocusedTaskCalloutLines() {
+
+  if (DRIVER_TASK_CALLOUT_LAYER) {
+
+    DRIVER_TASK_CALLOUT_LAYER.clearLayers();
+
+  }
+
+}
+
+
+// =====================================================
+// 🧭 POSITION FOCUSED TASK MARKERS
+// =====================================================
+
+function positionFocusedTaskMarkers() {
+
+  if (
+    !DRIVER_TASK_MAP ||
+    !DRIVER_TASK_MAP_FOCUS_INDIVIDUAL
+  ) {
+
+    return;
+
+  }
+
+
+  const map =
+    DRIVER_TASK_MAP;
+
+  const placed = [];
+
+
+  clearFocusedTaskCalloutLines();
+
+
+  // ==========================================
+  // 🔥 GET ALL INDIVIDUAL MARKERS
+  // ==========================================
+
+  const entries =
+    Object.values(
+      DRIVER_TASK_MARKERS
+    ).filter(marker =>
+      marker &&
+      marker.options &&
+      marker.options.taskOriginalLatLng
+    );
+
+
+  // ==========================================
+  // 🔥 COLLECT ALL REAL GPS ENDPOINTS
+  //
+  // IMPORTANT:
+  // entries MUST be created BEFORE this.
+  // ==========================================
+
+  const originalPoints =
+    entries.map(marker => {
+
+      const latLng =
+        marker.options.taskOriginalLatLng;
+
+      return map.project(
+        latLng
+      );
+
+    });
+
+
+  // ==========================================
+  // 🔢 STABLE ORDER
+  // ==========================================
+
+  entries.sort((a, b) => {
+
+    const sa =
+      Number(
+        a.options.taskSequence
+      );
+
+    const sb =
+      Number(
+        b.options.taskSequence
+      );
+
+
+    if (
+      Number.isFinite(sa) &&
+      Number.isFinite(sb)
+    ) {
+
+      return sa - sb;
+
+    }
+
+
+    if (Number.isFinite(sa)) {
+      return -1;
+    }
+
+
+    if (Number.isFinite(sb)) {
+      return 1;
+    }
+
+
+    return String(
+      a.options.taskKey || ""
+    ).localeCompare(
+      String(
+        b.options.taskKey || ""
+      )
+    );
+
+  });
+
+
+  // ==========================================
+  // 📍 POSITION EACH MARKER
+  // ==========================================
+
+  for (const marker of entries) {
+
+    const originalLatLng =
+      marker.options.taskOriginalLatLng;
+
+
+    const originalPoint =
+      map.project(
+        originalLatLng
+      );
+
+
+    let chosen =
+      null;
+
+
+    // ========================================
+    // 🔎 FIND A FREE VISUAL POSITION
+    // ========================================
+
+    for (
+      const offset of FOCUSED_MARKER_OFFSETS
+    ) {
+
+      const candidate = {
+
+        x:
+          originalPoint.x +
+          offset.x,
+
+        y:
+          originalPoint.y +
+          offset.y
+
+      };
+
+
+      if (
+        focusedPointIsFree(
+          candidate,
+          placed,
+          originalPoints
+        )
+      ) {
+
+        chosen =
+          candidate;
+
+        break;
+
+      }
+
+    }
+
+
+    // ========================================
+    // 🛟 LAST RESORT
+    // ========================================
+
+    if (!chosen) {
+
+      chosen =
+        originalPoint;
+
+    }
+
+
+    placed.push(
+      chosen
+    );
+
+
+    // ========================================
+    // 📍 CONVERT SCREEN POSITION → GPS
+    // ========================================
+
+    const displayLatLng =
+      map.unproject(
+        chosen
+      );
+
+
+    marker.setLatLng(
+      displayLatLng
+    );
+
+
+    // ========================================
+    // 📏 DISTANCE FROM REAL GPS POINT
+    // ========================================
+
+    const dx =
+      chosen.x -
+      originalPoint.x;
+
+    const dy =
+      chosen.y -
+      originalPoint.y;
+
+
+    const distance =
+      Math.sqrt(
+        dx * dx +
+        dy * dy
+      );
+
+
+    // ========================================
+    // 🧵 DRAW LEADER LINE
+    // ========================================
+
+    if (
+      distance > 3 &&
+      DRIVER_TASK_CALLOUT_LAYER
+    ) {
+
+      const line =
+        L.polyline(
+          [
+            originalLatLng,
+            displayLatLng
+          ],
+          {
+            className:
+              "task-map-callout-line",
+
+            color:
+              "#1976d2",
+
+            weight:
+              2,
+
+            opacity:
+              0.75,
+
+            dashArray:
+              "4 4",
+
+            interactive:
+              false
+          }
+        );
+
+
+      DRIVER_TASK_CALLOUT_LAYER.addLayer(
+        line
+      );
+
+    }
+
+  }
+
+}
+
+function focusDriverTaskCluster(cluster) {
+
+  if (!cluster) return;
+
+  const childMarkers =
+    cluster.getAllChildMarkers();
+
+  if (!childMarkers.length) {
+    return;
+  }
+
+  // ==========================================
+  // GET TASK KEYS FROM THIS CLUSTER
+  // ==========================================
+
+  const keys = [];
+
+  childMarkers.forEach(marker => {
+
+    const taskKey =
+      marker.options?.taskKey;
+
+    if (taskKey) {
+      keys.push(taskKey);
+    }
+
+  });
+
+  if (!keys.length) {
+    return;
+  }
+
+  // ==========================================
+  // 🧭 SAVE CURRENT LEVEL BEFORE GOING DEEPER
+  // ==========================================
+
+  const currentKeys =
+    DRIVER_TASK_MAP_FOCUS_KEYS
+      ? Array.from(DRIVER_TASK_MAP_FOCUS_KEYS)
+      : null;
+
+  const newSignature =
+    keys
+      .slice()
+      .sort()
+      .join("|");
+
+  // Only save a history level when we're actually
+  // moving into a different group.
+  if (
+    DRIVER_TASK_MAP_LAST_FOCUS_SIGNATURE !==
+    newSignature
+  ) {
+
+    DRIVER_TASK_MAP_FOCUS_HISTORY.push({
+      keys: currentKeys
+    });
+
+  }
+
+  DRIVER_TASK_MAP_LAST_FOCUS_SIGNATURE =
+    newSignature;
+
+  // ==========================================
+  // ENTER / DEEPEN FOCUS MODE
+  // ==========================================
+
+  DRIVER_TASK_MAP_FOCUS_KEYS =
+    new Set(keys);
+
+  // ==========================================
+  // 🔥 IMPORTANT
+  //
+  // If 20 or fewer tasks remain:
+  // STOP CLUSTERING COMPLETELY.
+  //
+  // Show every task individually.
+  // ==========================================
+
+  DRIVER_TASK_MAP_FOCUS_INDIVIDUAL =
+    keys.length <= 20;
+
+  console.log(
+    "🎯 Map cluster clicked:",
+    {
+      taskCount: keys.length,
+      individualMode:
+        DRIVER_TASK_MAP_FOCUS_INDIVIDUAL,
+      historyDepth:
+        DRIVER_TASK_MAP_FOCUS_HISTORY.length
+    }
+  );
+
+  // ==========================================
+  // RENDER SELECTED TASKS
+  // ==========================================
+
+  renderDriverTaskMap();
+
+  // ==========================================
+  // FIT MAP TO SELECTED GROUP
+  // ==========================================
+
+  const bounds = [];
+
+  childMarkers.forEach(marker => {
+
+    const latLng =
+      marker.getLatLng();
+
+    if (!latLng) return;
+
+    bounds.push([
+      latLng.lat,
+      latLng.lng
+    ]);
+
+  });
+
+  if (bounds.length) {
+
+    DRIVER_TASK_MAP.fitBounds(
+      bounds,
+      {
+        padding: [60, 60],
+        maxZoom: 18,
+        animate: true
+      }
+    );
+
+  }
+
+  updateTaskMapFocusInfo();
+
+  // ==========================================
+  // UPDATE PREVIOUS BUTTON
+  // ==========================================
+
+  updateDriverTaskMapPreviousButton();
+}
+
+// =====================================================
+// 🗺 DRIVER TASK MAP — GO TO PREVIOUS LEVEL
+// =====================================================
+
+function goToPreviousDriverTaskMapFocus() {
+
+  // Nothing to go back to
+  if (
+    !DRIVER_TASK_MAP_FOCUS_HISTORY.length
+  ) {
+    return;
+  }
+
+  const previous =
+    DRIVER_TASK_MAP_FOCUS_HISTORY.pop();
+
+  console.log(
+    "↩ Previous map level:",
+    previous
+  );
+
+  // ==========================================
+  // RESTORE PREVIOUS FOCUS
+  // ==========================================
+
+  if (
+    previous.keys &&
+    previous.keys.length
+  ) {
+
+    DRIVER_TASK_MAP_FOCUS_KEYS =
+      new Set(previous.keys);
+
+    DRIVER_TASK_MAP_FOCUS_INDIVIDUAL =
+      previous.keys.length <= 20;
+
+  } else {
+
+    // ========================================
+    // RETURN TO ALL TASKS
+    // ========================================
+
+    DRIVER_TASK_MAP_FOCUS_KEYS =
+      null;
+
+    DRIVER_TASK_MAP_FOCUS_INDIVIDUAL =
+      false;
+  }
+
+  // ==========================================
+  // UPDATE SIGNATURE
+  // ==========================================
+
+  DRIVER_TASK_MAP_LAST_FOCUS_SIGNATURE =
+    DRIVER_TASK_MAP_FOCUS_KEYS
+      ? Array.from(
+          DRIVER_TASK_MAP_FOCUS_KEYS
+        )
+          .sort()
+          .join("|")
+      : null;
+
+  // ==========================================
+  // RENDER
+  // ==========================================
+
+  renderDriverTaskMap();
+
+  // ==========================================
+  // FIT MAP TO CURRENT LEVEL
+  // ==========================================
+
+  const tasks =
+    getDriverTaskMapTasks();
+
+  const visibleTasks =
+    DRIVER_TASK_MAP_FOCUS_KEYS
+      ? tasks.filter(task =>
+          DRIVER_TASK_MAP_FOCUS_KEYS.has(
+            task._key
+          )
+        )
+      : tasks;
+
+  const bounds = [];
+
+  visibleTasks.forEach(task => {
+
+    if (!isValidTaskGPS(task)) {
+      return;
+    }
+
+    bounds.push([
+      Number(task.LATITUDE),
+      Number(task.LONGITUDE)
+    ]);
+
+  });
+
+  if (bounds.length) {
+
+    DRIVER_TASK_MAP.fitBounds(
+      bounds,
+      {
+        padding: [60, 60],
+        maxZoom:
+          DRIVER_TASK_MAP_FOCUS_KEYS
+            ? 18
+            : 16,
+        animate: true
+      }
+    );
+
+  }
+
+  updateTaskMapFocusInfo();
+
+  updateDriverTaskMapPreviousButton();
+}
+
+// =====================================================
+// 🗺 DRIVER TASK MAP — PREVIOUS BUTTON UI
+// =====================================================
+
+function updateDriverTaskMapPreviousButton() {
+
+  const btn =
+    document.getElementById(
+      "showAllTaskClustersBtn"
+    );
+
+  if (!btn) {
+    return;
+  }
+
+  const hasHistory =
+    DRIVER_TASK_MAP_FOCUS_HISTORY.length > 0;
+
+  if (hasHistory) {
+
+    btn.style.display = "block";
+
+    btn.innerHTML =
+      "↩ Previous";
+
+    btn.title =
+      "Return to the previous map level";
+
+  } else {
+
+    btn.style.display = "none";
+
+  }
+}
+
+function renderDriverTaskMap() {
+
+  if (!DRIVER_TASK_MAP) {
+    return;
+  }
+
+  // ==========================================
+  // 🧹 CLEAR PREVIOUS CLUSTER MARKERS
+  // ==========================================
+  DRIVER_TASK_MARKER_CLUSTER.clearLayers();
+
+  // ==========================================
+  // 🧹 CLEAR PREVIOUS INDIVIDUAL MARKERS
+  // ==========================================
+  Object.values(DRIVER_TASK_MARKERS).forEach(marker => {
+
+    if (
+      marker &&
+      DRIVER_TASK_MAP.hasLayer(marker)
+    ) {
+      DRIVER_TASK_MAP.removeLayer(marker);
+    }
+
+  });
+
+  DRIVER_TASK_MARKERS = {};
+
+  // Clear old leader lines before rebuilding markers.
+  clearFocusedTaskCalloutLines();
+
+  let tasks =
+    getDriverTaskMapTasks();
+
+  // ==========================================
+  // 🎯 FOCUS MODE
+  // ==========================================
+  const focusMode =
+    DRIVER_TASK_MAP_FOCUS_KEYS &&
+    DRIVER_TASK_MAP_FOCUS_KEYS.size > 0;
+
+  if (focusMode) {
+
+    tasks =
+      tasks.filter(task =>
+        DRIVER_TASK_MAP_FOCUS_KEYS.has(
+          task._key
+        )
+      );
+
+  }
+
+  const bounds = [];
+
+  let plotted = 0;
+  let missingGPS = 0;
+
+  // =====================================================
+  // 📍 CREATE MARKERS
+  // =====================================================
+  tasks.forEach(task => {
+
+    if (!isValidTaskGPS(task)) {
+      missingGPS++;
+      return;
+    }
+
+    const lat =
+      Number(task.LATITUDE);
+
+    const lng =
+      Number(task.LONGITUDE);
+
+    const status =
+      resolveStatus(task);
+
+    const originalLatLng =
+      L.latLng(lat, lng);
+
+    // ===================================================
+    // 📍 CREATE MARKER
+    // ===================================================
+    const marker =
+      L.marker(
+        originalLatLng,
+        {
+          icon:
+            createTaskMapIcon(
+              task.SEQUENCE,
+              status
+            ),
+
+          // 🔑 Task identity
+          taskKey: task._key,
+
+          // 🔑 Exact GPS location.
+          // The visible marker may be moved away from this
+          // coordinate in focused mode, but this value never
+          // changes.
+          taskOriginalLatLng:
+            originalLatLng,
+
+          taskSequence:
+            task.SEQUENCE
+        }
+      );
+
+    // ===================================================
+    // 📋 POPUP
+    // ===================================================
+    let statusLabel =
+      "🔵 Pending";
+
+    if (status === "SYNC_PENDING") {
+      statusLabel =
+        "🟢 Completed locally — waiting for sync";
+    }
+
+    if (status === "EXPORTED") {
+      statusLabel =
+        "🔵 Exported — waiting for admin upload";
+    }
+
+    marker.bindPopup(`
+      <div style="min-width:220px;">
+
+        <b>
+          ${task.CUSTOMERNAME || "—"}
+        </b>
+
+        <br>
+
+        📍 ${task.ADDRESS || "—"}
+
+        <hr style="margin:6px 0;">
+
+        <b>Sequence:</b>
+        ${task.SEQUENCE || "—"}
+
+        <br>
+
+        <b>Account:</b>
+        ${task.ACCOUNTNUMBER || "—"}
+
+        <br>
+
+        <b>Meter:</b>
+        ${task.METERNUMBER || "—"}
+
+        <br>
+
+        <b>MRU:</b>
+        ${task.MRU || "—"}
+
+        <br>
+
+        <b>Job:</b>
+        ${task.JOBTYPE || "—"}
+
+        <br>
+
+        <b>Status:</b>
+        ${statusLabel}
+
+        <br><br>
+
+        <button
+          style="
+            width:100%;
+            padding:8px;
+            border:none;
+            border-radius:6px;
+            background:#1976d2;
+            color:white;
+            font-weight:bold;
+          "
+          onclick="openTaskFromMap('${task._key}')"
+        >
+          Open Task
+        </button>
+
+      </div>
+    `);
+
+    // ===================================================
+    // 📍 ADD MARKER
+    // ===================================================
+    //
+    // Normal mode:
+    //   use clustering.
+    //
+    // Focus mode with <= 20 tasks:
+    //   show every task individually. The marker positions
+    //   are adjusted below so overlapping markers are spread
+    //   around their true GPS points and connected by lines.
+    //
+    // Focus mode with > 20 tasks:
+    //   continue clustering.
+    //
+    if (DRIVER_TASK_MAP_FOCUS_INDIVIDUAL) {
+
+      marker.addTo(
+        DRIVER_TASK_MAP
+      );
+
+    } else {
+
+      DRIVER_TASK_MARKER_CLUSTER.addLayer(
+        marker
+      );
+
+    }
+
+    DRIVER_TASK_MARKERS[task._key] =
+      marker;
+
+    bounds.push([
+      lat,
+      lng
+    ]);
+
+    plotted++;
+  });
+
+  // =====================================================
+  // 🔵 DRIVER LOCATION
+  // =====================================================
+  updateDriverLocationOnTaskMap();
+
+  if (
+    LAST_KNOWN_GPS &&
+    Number.isFinite(
+      Number(LAST_KNOWN_GPS.latitude)
+    ) &&
+    Number.isFinite(
+      Number(LAST_KNOWN_GPS.longitude)
+    )
+  ) {
+
+    bounds.push([
+      Number(LAST_KNOWN_GPS.latitude),
+      Number(LAST_KNOWN_GPS.longitude)
+    ]);
+  }
+
+  // =====================================================
+  // 🗺 FIT MAP ONCE
+  // =====================================================
+  if (
+    !DRIVER_TASK_MAP_INITIALIZED_VIEW
+  ) {
+
+    if (bounds.length) {
+
+      DRIVER_TASK_MAP.fitBounds(
+        bounds,
+        {
+          padding: [30, 30],
+          maxZoom: 16
+        }
+      );
+
+    } else {
+
+      DRIVER_TASK_MAP.setView(
+        [14.5995, 120.9842],
+        12
+      );
+
+    }
+
+    DRIVER_TASK_MAP_INITIALIZED_VIEW =
+      true;
+  }
+
+  // =====================================================
+  // 🧭 REMOVE OVERLAP IN FOCUSED MODE
+  // =====================================================
+  // Run once immediately and again after Leaflet finishes any
+  // fitBounds/zoom animation. The zoomend/moveend listener in
+  // initDriverTaskMap also keeps the layout correct afterwards.
+  if (DRIVER_TASK_MAP_FOCUS_INDIVIDUAL) {
+    requestAnimationFrame(() => {
+      positionFocusedTaskMarkers();
+    });
+  }
+
+  // =====================================================
+  // ℹ️ MAP INFORMATION
+  // =====================================================
+  const info =
+    document.getElementById(
+      "taskMapInfo"
+    );
+
+  if (info) {
+
+    info.innerHTML =
+      `📍 <b>${plotted}</b> tasks on map`;
+
+    if (missingGPS > 0) {
+
+      info.innerHTML +=
+        ` &nbsp; | &nbsp; ⚠️ ${missingGPS} without GPS`;
+    }
+  }
+}
+
+window.openTaskFromMap =
+  function(taskKey) {
+
+    const task =
+      CURRENT_RENDER_LIST.find(
+        t => t._key === taskKey
+      );
+
+    if (!task) {
+      return;
+    }
+
+    // Close the map and replace the list with the selected task.
+    // CURRENT_RENDER_LIST is intentionally left unchanged so reopening
+    // the map still shows the complete filtered task set.
+    closeDriverTaskMap();
+
+    taskList.innerHTML = "";
+    renderOneTask(task);
+  };
+// =====================================================
+// 💾 SAVE CURRENT DRIVER TASK MAP STATE
+// =====================================================
+
+function saveDriverTaskMapState() {
+
+  if (!DRIVER_TASK_MAP) {
+    return;
+  }
+
+  const center =
+    DRIVER_TASK_MAP.getCenter();
+
+  DRIVER_TASK_MAP_SAVED_STATE = {
+
+    lat:
+      center.lat,
+
+    lng:
+      center.lng,
+
+    zoom:
+      DRIVER_TASK_MAP.getZoom(),
+
+    focusKeys:
+      DRIVER_TASK_MAP_FOCUS_KEYS
+        ? Array.from(
+            DRIVER_TASK_MAP_FOCUS_KEYS
+          )
+        : null,
+
+    focusIndividual:
+      DRIVER_TASK_MAP_FOCUS_INDIVIDUAL === true
+  };
+
+  console.log(
+    "💾 Driver map state saved:",
+    DRIVER_TASK_MAP_SAVED_STATE
+  );
+}
+
+// =====================================================
+// ♻️ RESTORE DRIVER TASK MAP STATE
+// =====================================================
+
+function restoreDriverTaskMapState() {
+
+  if (
+    !DRIVER_TASK_MAP ||
+    !DRIVER_TASK_MAP_SAVED_STATE
+  ) {
+    return false;
+  }
+
+  const state =
+    DRIVER_TASK_MAP_SAVED_STATE;
+
+  // Restore focused task keys
+  DRIVER_TASK_MAP_FOCUS_KEYS =
+    state.focusKeys
+      ? new Set(state.focusKeys)
+      : null;
+
+  // Restore individual mode
+  DRIVER_TASK_MAP_FOCUS_INDIVIDUAL =
+    state.focusIndividual === true;
+
+  // Restore center + zoom
+  DRIVER_TASK_MAP.setView(
+    [
+      state.lat,
+      state.lng
+    ],
+    state.zoom,
+    {
+      animate: false
+    }
+  );
+
+  console.log(
+    "♻️ Driver map state restored:",
+    state
+  );
+
+  return true;
+}
+
+function openDriverTaskMap() {
+
+  if (SYNC_RUNNING) {
+
+    alert(
+      "⏳ Sync is in progress.\n\n" +
+      "Please wait until synchronization is complete."
+    );
+
+    return;
+  }
+
+  DRIVER_TASK_MAP_VISIBLE = true;
+
+  document.getElementById(
+    "driverTaskMapPanel"
+  ).style.display = "block";
+  
+  // =====================================================
+  // 📜 SCROLL TO MAP
+  // =====================================================
+  
+  document.getElementById(
+    "driverTaskMapPanel"
+  ).scrollIntoView({
+    behavior: "smooth",
+    block: "start"
+  });
+  
+  document.getElementById(
+    "openTaskMapBtn"
+  ).style.display = "none";
+
+  document.getElementById(
+    "jobTypeFilter"
+  ).style.display = "none";
+
+  document.getElementById(
+    "searchBox"
+  ).parentElement.style.display =
+    "none";
+
+  document.getElementById(
+    "taskList"
+  ).style.display = "none";
+
+  initDriverTaskMap();
+   setTimeout(() => {
+
+  DRIVER_TASK_MAP.invalidateSize();
+
+  // ==========================================
+  // ♻️ RESTORE LAST MAP STATE FIRST
+  // ==========================================
+
+  if (
+    DRIVER_TASK_MAP_SAVED_STATE
+  ) {
+
+    restoreDriverTaskMapState();
+
+  }
+
+  // ==========================================
+  // 🗺 RENDER USING RESTORED FOCUS
+  // ==========================================
+
+  renderDriverTaskMap();
+
+  // ==========================================
+  // 🧭 POSITION FOCUSED TASKS
+  // ==========================================
+
+  if (
+    DRIVER_TASK_MAP_FOCUS_INDIVIDUAL
+  ) {
+
+    requestAnimationFrame(() => {
+
+      positionFocusedTaskMarkers();
+
+    });
+
+  }
+
+}, 100);
+}
+
+
+function closeDriverTaskMap() {
+
+  // ==========================================
+  // 💾 SAVE MAP STATE BEFORE HIDING
+  // ==========================================
+
+  saveDriverTaskMapState();
+
+  DRIVER_TASK_MAP_VISIBLE = false;
+
+  clearFocusedTaskCalloutLines();
+
+  document.getElementById(
+    "driverTaskMapPanel"
+  ).style.display = "none";
+
+  document.getElementById(
+    "openTaskMapBtn"
+  ).style.display = "block";
+
+  document.getElementById(
+    "jobTypeFilter"
+  ).style.display = "block";
+
+  document.getElementById(
+    "searchBox"
+  ).parentElement.style.display =
+    "flex";
+
+  document.getElementById(
+    "taskList"
+  ).style.display = "block";
+}
+
+
+document.getElementById(
+  "openTaskMapBtn"
+).onclick =
+  openDriverTaskMap;
+
+
+document.getElementById(
+  "closeTaskMapBtn"
+).onclick =
+  closeDriverTaskMap;
+
+
+document.getElementById(
+  "centerDriverBtn"
+).onclick =
+  function() {
+
+    if (
+      !DRIVER_TASK_MAP ||
+      !LAST_KNOWN_GPS
+    ) {
+
+      alert(
+        "📍 Current GPS location is not available yet."
+      );
+
+      return;
+    }
+
+    DRIVER_TASK_MAP.setView(
+      [
+        Number(
+          LAST_KNOWN_GPS.latitude
+        ),
+        Number(
+          LAST_KNOWN_GPS.longitude
+        )
+      ],
+      17
+    );
+
+    updateDriverLocationOnTaskMap();
+  };
+const RENDER_CHUNK_SIZE = 3;      // then render 3 per frame
+
+function renderOneTask(t) {
+  if (!t || !t._key) return;
+  const p = PHOTO_BUFFER[t._key] || {};
+  // ✅ RESTORE FORM STATE IF EXISTS
+  const savedForms = loadFormCache();
+  if (savedForms[t._key] && !BILLING_CACHE[t._key]) {
+    BILLING_CACHE[t._key] = savedForms[t._key];
+  }
+  if (!BILLING_CACHE[t._key]) {
+    BILLING_CACHE[t._key] = {};
+  }
+
+  const status = resolveStatus(t);
+
+  const div = document.createElement("div");
+
+  div.className =
+    `task ${status === "COMPLETED" ? "completed" : ""}`;
+  
+  div.dataset.taskKey =
+    t._key;
+
+  const hasGPS =
+    t.LATITUDE &&
+    t.LONGITUDE &&
+    !isNaN(parseFloat(t.LATITUDE)) &&
+    !isNaN(parseFloat(t.LONGITUDE));
+
+  const mapURL = hasGPS
+    ? `https://www.google.com/maps?q=${t.LATITUDE},${t.LONGITUDE}`
+    : null;
+
+  const addressHTML = hasGPS
+    ? `<a href="${mapURL}" target="_blank"
+        style="color:#007bff;text-decoration:underline;font-weight:bold;">
+        📍 ${t.ADDRESS || "—"}
+      </a>`
+    : `<div>📍 ${t.ADDRESS || "—"}</div>`;
+
+  let html = `
+    <b>${t.CUSTOMERNAME || "—"}</b>
+    <div class="small">${addressHTML}</div>
+    <div class="small"><b>Account #:</b> ${t.ACCOUNTNUMBER || "—"}</div>
+    <div class="small"><b>MRU:</b> ${t.MRU || "—"}</div>
+    <div class="small"><b>Meter #:</b> ${t.METERNUMBER || "—"}</div>
+    <div class="small"><b>DMZ:</b> ${t.DMZ || "—"}</div>
+    <div class="small"><b>Sequence:</b> ${t.SEQUENCE || "—"}</div>
+    <div class="small"><b>Job Type:</b> ${t.JOBTYPE || "—"}</div>
+    <div class="small"><b>Status:</b> ${status}</div>
+  `;
+  if (t.lastUploadAttemptAt) {
+    html += `
+      <div class="small" style="color:#888">
+        ⏱ Last upload attempt:
+        ${new Date(t.lastUploadAttemptAt).toLocaleTimeString()}
+      </div>
+    `;
+  }
+
+  /* ===== PENDING (EDITABLE ONLINE + OFFLINE) ===== */
+  if ((status === "PENDING" || status === "CAPTURING" || status === "READY") && !t.finalized) {
+    const count = Object.keys(p).length;
+
+    if (count > 0) {
+      html += `
+        <div class="uploading" style="color:green;">
+          📸 Photos taken: ${count}
+        </div>
+      `;
+    }
+    
+
+    /* ===== PREVIEW THUMBNAILS ===== */
+    const previews = [1,2,3].map(i => {
+      if (!p[i]?.previewURL) return "";
+      return `
+        <img src="${p[i].previewURL}"
+          onclick="window.open('${p[i].previewURL}','_blank')"
+          style="
+            width:100%;
+            max-width:100px;
+            height:80px;
+            object-fit:cover;
+            border-radius:6px;
+            border:2px solid #28a745;
+            cursor:pointer;
+          "
+        />
+      `;
+    }).join("");
+
+    if (previews) {
+      html += `
+        <div style="
+          display:grid;
+          grid-template-columns:repeat(3,1fr);
+          gap:6px;
+          margin-top:8px;
+        ">
+          ${previews}
+        </div>
+      `;
+    }
+
+    /* ===== PHOTO BUTTONS ===== */
+    const disable1 = !!p[1];
+    const disable2 = !p[1] || !!p[2];
+    const disable3 = !p[2] || !!p[3];
+    const disableSubmit = Object.keys(p).length === 0;
+
+    /* ===== PHOTO BUTTONS ===== */
+      html += `
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:8px;">
+          <button ${disable1 ? "disabled" : ""}
+            onclick="startPhoto(1,'${t._key}')">
+            📸 Photo 1
+          </button>
+      
+          <button ${disable2 ? "disabled" : ""}
+            onclick="startPhoto(2,'${t._key}')">
+            📸 Photo 2
+          </button>
+      
+          <button ${disable3 ? "disabled" : ""}
+            onclick="startPhoto(3,'${t._key}')">
+            📸 Photo 3
+          </button>
+        </div>
+      
+        <!-- 🔥 DELIVERY METHOD HERE -->
+        <div id="delivery_${t._key}" style="margin-top:10px;"></div>
+      
+        <button ${disableSubmit ? "disabled" : ""}
+          onclick="submitTask('${t._key}')">
+          ✅ Submit Task
+        </button>
+      `;
+  }
+
+  if (status === "SYNC_PENDING") {
+    html += `
+      <div class="uploading">
+        📦 Saved locally — press “Sync Completed Tasks” to upload
+      </div>
+    `;
+  }
+  if (status === "EXPORTED") {
+    html += `
+      <div class="uploading" style="color:#2980b9;">
+        📦 Exported — waiting for admin upload
+      </div>
+    `;
+  }
+
+  if (status === "COMPLETED") {
+    html += `
+      <button class="toggle"
+        onclick="
+          const img = this.parentElement.querySelector('img');
+          if (!img) return;
+          img.style.display = img.style.display === 'none'
+            ? 'block'
+            : 'none';
+        ">
+        👁 Show / Hide Photo
+      </button>
+
+      <img src="${t.imageUrl}" style="display:none">
+    `;
+  }
+
+  div.innerHTML = html;
+taskList.appendChild(div);
+  // 🔒 If sync started while this task was being rendered,
+  // immediately lock its controls.
+  if (SYNC_RUNNING) {
+    div
+      .querySelectorAll("button, input, textarea")
+      .forEach(el => {
+        el.disabled = true;
+      });
+  }
+
+// ✅ NOW the container exists
+if (
+  (status === "PENDING" || status === "CAPTURING" || status === "READY") &&
+  !t.finalized
+) {
+  renderDynamicDelivery(t).then(h => {
+    if (!document.body.contains(div)) return;
+    const target = div.querySelector(`#delivery_${t._key}`);
+    if (target && h) {
+      target.innerHTML = h;
+    }
+  });
+}
+}
+
+
+let RENDERING = false;
+
+async function renderNextPage() {
+  if (RENDERING) return;
+  if (RENDER_OFFSET >= CURRENT_RENDER_LIST.length) return;
+  if (!document.body.contains(sentinel)) return;
+
+  RENDERING = true;
+
+  const start = RENDER_OFFSET;
+  const end = Math.min(start + RENDER_CHUNK_SIZE, CURRENT_RENDER_LIST.length);
+
+  for (let i = start; i < end; i++) {
+    renderOneTask(CURRENT_RENDER_LIST[i]);
+  }
+
+  RENDER_OFFSET = end;
+  RENDERING = false;
+
+  // ✅ Auto-fill screen until scrollable
+  requestAnimationFrame(() => {
+    const doc = document.documentElement;
+
+    const notScrollable =
+    doc.scrollHeight <= window.innerHeight + 200;
+
+    if (
+      notScrollable &&
+      RENDER_OFFSET < CURRENT_RENDER_LIST.length
+    ) {
+      renderNextPage();
+    }
+  });
+}
+
+function canUploadNow() {
+  if (!navigator.onLine) return false;
+
+  if (navigator.connection) {
+    const c = navigator.connection;
+    
+    if (c.effectiveType === "2g" || c.effectiveType === "slow-2g") {
+      return false;
+    }
+  }
+  return true;
+}
+function matchesSearch(task, term) {
+  if (!term) return true;
+  term = term.toLowerCase();
+
+  return (
+    String(task.CUSTOMERNAME || "").toLowerCase().includes(term) ||
+    String(task.ADDRESS || "").toLowerCase().includes(term) ||
+    String(task.ACCOUNTNUMBER || "").toLowerCase().includes(term) ||
+    String(task.METERNUMBER || "").toLowerCase().includes(term) ||
+    String(task.DMZ || "").toLowerCase().includes(term) ||
+    String(task.SEQUENCE || "").toLowerCase().includes(term)
+  );
+}
+  
+async function renderDynamicDelivery(t) {
+  const methods = await loadDriverUI(t.JOBTYPE);
+  if (!methods || typeof methods !== "object") return "";
+
+  const methodNames = Object.keys(methods);
+  if (!methodNames.length) return "";
+
+  let html = `<div class="radio-group"><b>Delivery Method</b>`;
+
+  for (const m of methodNames) {
+    html += `
+      <label>
+        <input type="radio" name="delivery_${t._key}" value="${m}"
+          onchange="handleDeliveryMethod('${t._key}','${t.JOBTYPE}','${m}')">
+        ${m}
+      </label>`;
+  }
+
+  html += `</div><div id="dyn_${t._key}"></div>`;
+  // 🔁 Restore selected delivery method UI
+  const saved = BILLING_CACHE[t._key];
+  if (saved?.deliveryType) {
+    setTimeout(() => {
+      const radio = document.querySelector(
+        `input[name="delivery_${t._key}"][value="${saved.deliveryType}"]`
+      );
+      if (radio) radio.checked = true;
+    }, 0);
+  }
+  // 🔁 Auto-rebuild child fields if previously selected
+if (saved?.deliveryType && saved?.deliverytype_2nd) {
+  setTimeout(() => {
+    handleDeliveryMethod(
+      t._key,
+      t.JOBTYPE,
+      saved.deliveryType
+    );
+
+    setTimeout(() => {
+      handleRadioTrigger(
+        t._key,
+        t.JOBTYPE,
+        saved.deliveryType,
+        saved.deliverytype_2nd
+      );
+    }, 0);
+  }, 0);
+}
+  return html;
+}
+
+  
+function getCurrentLocation() {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) {
+      reject("Geolocation not supported");
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        resolve({
+          latitude: pos.coords.latitude,
+          longitude: pos.coords.longitude
+        });
+      },
+      err => reject(err.message),
+      {
+        enableHighAccuracy: true,
+        timeout: 15000,
+        maximumAge: 0
+      }
+    );
+  });
+}
+
+const sentinel = document.getElementById("scrollSentinel");
+
+const observer = new IntersectionObserver(entries => {
+  if (entries[0].isIntersecting) {
+    if (!RENDERING && RENDER_OFFSET < CURRENT_RENDER_LIST.length) {
+      renderNextPage();
+    }
+  }
+}, {
+  root: null,
+  rootMargin: "800px",
+  threshold: 0
+});
+
+if (sentinel) observer.observe(sentinel);
+// 🔥 Extra scroll fallback
+window.addEventListener("scroll", () => {
+  if (
+    !RENDERING &&
+    RENDER_OFFSET < CURRENT_RENDER_LIST.length &&
+    window.innerHeight + window.scrollY >= document.body.offsetHeight - 400
+  ) {
+    renderNextPage();
+  }
+});
+
+function dedupeTasks(tasks) {
+  const map = new Map();
+
+  const rank = {
+    PENDING: 1,
+    OFFLINE_PENDING: 2,
+    PROCESSING: 3,
+    UPLOADING: 4,
+    COMPLETED: 5
+  };
+
+  for (const t of tasks) {
+    if (!t || !t._key) continue;
+
+    const prev = map.get(t._key);
+    if (!prev) {
+      map.set(t._key, t);
+    } else {
+      const r1 = rank[prev.status] || 0;
+      const r2 = rank[t.status] || 0;
+
+      if (r2 >= r1) map.set(t._key, t);
+    }
+  }
+
+  return [...map.values()];
+}
+  
+async function validateDynamic(taskKey) {
+  syncDynamicFields(taskKey);
+
+  // 🔥 SOURCE OF TRUTH = IndexedDB
+  const tasks = await getTasksFromIndexedDB();
+  const task = tasks.find(t => t._key === taskKey);
+
+  if (!task) {
+    alert("Task not found for selected date.\n\nTry changing date or refreshing.");
+    return false;
+  }
+
+  const data = BILLING_CACHE[taskKey];
+
+  // 1️⃣ Delivery method required
+  if (!data?.deliveryType) {
+    alert("Select delivery method");
+    return false;
+  }
+
+  // 2️⃣ Config MUST exist (offline-safe)
+  const jobCfg = DRIVER_UI_CACHE[task.JOBTYPE];
+  if (!jobCfg) {
+    alert("Delivery configuration not available. Please go online once.");
+    return false;
+  }
+
+  const methodCfg = jobCfg[data.deliveryType];
+  if (!methodCfg) {
+    alert("Invalid delivery method. Please reselect.");
+    return false;
+  }
+
+  // 3️⃣ Direct fields
+  for (const key of methodCfg._order || []) {
+    const field = methodCfg.fields[key];
+    if (field.type === "radio") continue;
+    if (field.required && !data[key]) {
+      alert(`${field.label} is required`);
+      return false;
+    }
+  }
+
+  // 4️⃣ Radio child fields
+  const selectedRadio = data.deliverytype_2nd;
+  if (selectedRadio) {
+    const radioField = methodCfg.fields[selectedRadio];
+    const childOrder = radioField?.fields?._order || [];
+
+    for (const k of childOrder) {
+      const f = radioField.fields.options[k];
+      if (f.required && !data[k]) {
+        alert(`${f.label} is required`);
+        return false;
+      }
+    }
+  }
+
+  return true;
+} 
+  // ⏳ Boot Safety (SAFE VERSION)
+setTimeout(() => {
+  if (
+    !BOOT_WATCHDOG_FIRED &&
+    CURRENT_RENDER_LIST.length === 0 &&
+    RENDER_OFFSET === 0 &&
+    LOAD_IN_PROGRESS === false &&
+    TASKS_CACHE.length === 0 // 🔥 critical extra guard
+  ) {
+    showMessage(
+      "📭 No tasks found for selected date.<br><br>" +
+      "<small>If this is unexpected, open ⚙️ and verify Driver ID.</small>"
+    );
+
+    BOOT_WATCHDOG_FIRED = true;
+  }
+}, 20000);
+
+// 🧹 BOOT CLEANUP — REMOVE COMPLETED TASKS + ORPHAN PHOTOS
+(async () => {
+  try {
+    // ✅ REMOVE completed tasks
+    const tasks = await getTasksFromIndexedDB();
+    for (const t of tasks) {
+      if (t.status === "COMPLETED") {
+        await deleteTaskFromIndexedDB(t._key);
+      }
+    }
+
+    // ✅ 🆕 REMOVE orphan photos
+    await cleanOrphanPhotos();
+
+  } catch (e) {
+    console.warn("Boot cleanup failed", e);
+  }
+})();
+
+// 🧹 PRUNE OLD / INVALID TASKS
+await pruneOldTasks();
+
+// 🚀 INITIAL BOOT LOAD
+(async () => {
+
+  try {
+
+    await migrateIndexedDBTasks();
+
+  } catch (err) {
+
+    console.error(
+      "❌ IndexedDB migration failed:",
+      err
+    );
+
+  }
+
+  await loadTasks();
+
+})();
+
+
+function markTaskCompletedInCache(taskKey) {
+  const t = TASKS_CACHE.find(x => x._key === taskKey);
+  if (t) {
+    t.status = "COMPLETED";
+  }
+}
+
+
+window.handleDeliveryMethodLegacy = async function(taskKey, jobType, method) {
+  if (!BILLING_CACHE[taskKey]) BILLING_CACHE[taskKey] = {};
+    BILLING_CACHE[taskKey].deliveryType = method;
+
+  const cfg = await loadDriverUI(jobType);
+  const block = cfg?.[method];
+  const box = document.getElementById(`dyn_${taskKey}`);
+
+  if (!box || !block) return;
+  box.innerHTML = "";
+
+  let html = "";
+
+  for (const key of block._order || []) {
+    const field = block.fields[key];
+    if (!field) continue;
+
+    const req = field.required ? " *" : "";
+
+    // TEXT / TEXTAREA
+    if (field.type === "text" || field.type === "textarea") {
+      if (field.type === "textarea") {
+        html += `
+          <div class="delivery-fields">
+            <label>${field.label}${req}</label>
+            <textarea data-key="${key}"
+              oninput="window.BILLING_CACHE['${taskKey}']['${key}'] = this.value"></textarea>;
+          </div>`;
+      } else {
+        html += `
+          <div class="delivery-fields">
+            <label>${field.label}${req}</label>
+            <input type="text" data-key="${key}"
+              oninput="window.BILLING_CACHE['${taskKey}']['${key}'] = this.value"/>
+          </div>`;
+      }
+    }
+
+    // RADIO TRIGGER
+    if (field.type === "radio") {
+      html += `
+        <div class="radio-group">
+          <label>
+            <input type="radio"
+              name="radio_${taskKey}"
+              value="${key}"
+              onchange="handleRadioTrigger('${taskKey}','${jobType}','${method}','${key}')">
+            ${field.label}
+          </label>
+        </div>
+      `;
+    }
+  }
+
+  html += `<div id="sub_${taskKey}"></div>`;
+  box.innerHTML = html;
+  saveFormCache({
+  ...loadFormCache(),
+  [taskKey]: BILLING_CACHE[taskKey]
+});
+};
+
+window.handleRadioTriggerLegacy = async function(taskKey, jobType, method, radioKey) {
+
+  if (!BILLING_CACHE[taskKey]) {
+    BILLING_CACHE[taskKey] = {};
+  }
+
+  BILLING_CACHE[taskKey].deliverytype_2nd = radioKey;
+
+  const cfg = await loadDriverUI(jobType);
+
+  const radioBlock =
+    cfg?.[method]?.fields?.[radioKey];
+
+  const box =
+    document.getElementById(`sub_${taskKey}`);
+
+  if (!box) return;
+
+  // 🔥 CLEAR OLD CHILD UI
+  box.innerHTML = "";
+
+  // 🔥 REMOVE OLD CHILD DATA
+  syncDynamicFields(taskKey);
+
+  // ❌ No children → STOP
+  if (!radioBlock?.fields?._order?.length) {
+    return;
+  }
+
+  let html = `<div class="delivery-fields">`;
+
+  for (const key of radioBlock.fields._order) {
+
+    const field =
+      radioBlock.fields.options[key];
+
+    if (!field) continue;
+
+    const req =
+      field.required ? " *" : "";
+
+    // =========================
+    // TEXTAREA
+    // =========================
+    if (field.type === "textarea") {
+
+      html += `
+        <label>${field.label}${req}</label>
+
+        <textarea
+          data-key="${key}"
+          oninput="window.BILLING_CACHE['${taskKey}']['${key}'] = this.value"
+        ></textarea>
+      `;
+
+    // =========================
+    // TEXT INPUT
+    // =========================
+    } else {
+
+      html += `
+        <label>${field.label}${req}</label>
+
+        <input
+          type="text"
+          data-key="${key}"
+          oninput="window.BILLING_CACHE['${taskKey}']['${key}'] = this.value"
+        >
+      `;
+    }
+  }
+
+  html += `</div>`;
+
+  box.innerHTML = html;
+
+  // 🔥 RESTORE PREVIOUS VALUES
+  const saved = BILLING_CACHE[taskKey] || {};
+
+  box.querySelectorAll("input, textarea").forEach(el => {
+
+    const key =
+      el.getAttribute("data-key");
+
+    if (key && saved[key] !== undefined) {
+      el.value = saved[key];
+    }
+
+  });
+
+  // 🔥 SAVE FORM STATE
+  saveFormCache({
+    ...loadFormCache(),
+    [taskKey]: BILLING_CACHE[taskKey]
+  });
+};
+
+function escapeDeliveryHTML(value) {
+  return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;");
+}
+
+function deliveryFieldHTML(key, field, radioName = "") {
+  const safeKey = escapeDeliveryHTML(key);
+  const label = escapeDeliveryHTML(field.label || key);
+  const required = field.required ? " *" : "";
+  const numeric = field.numbersOnly ? ' inputmode="numeric" pattern="[0-9]*" data-numbers-only' : "";
+
+  if (field.type === "radio") {
+    return `<label><input type="radio" name="${escapeDeliveryHTML(radioName)}" data-key="${safeKey}" value="${safeKey}"> ${label}${required}</label>`;
+  }
+  if (field.type === "textarea") {
+    return `<div class="delivery-fields"><label>${label}${required}</label><textarea data-key="${safeKey}"${numeric}></textarea></div>`;
+  }
+  if (field.type === "dropdown") {
+    const options = (field.options || []).map(value => {
+      const safeValue = escapeDeliveryHTML(value);
+      return `<option value="${safeValue}">${safeValue}</option>`;
+    }).join("");
+    return `<div class="delivery-fields"><label>${label}${required}</label><select data-key="${safeKey}"><option value="">-- Select --</option>${options}</select></div>`;
+  }
+  return `<div class="delivery-fields"><label>${label}${required}</label><input type="text" data-key="${safeKey}"${numeric}></div>`;
+}
+
+function hydrateDeliveryFields(box, taskKey) {
+  const saved = BILLING_CACHE[taskKey] || {};
+  box.querySelectorAll("[data-key]").forEach(el => {
+    const key = el.dataset.key;
+    if (el.type === "radio") el.checked = saved[key] === el.value;
+    else if (saved[key] !== undefined) el.value = saved[key];
+    el.addEventListener("input", () => {
+      if (el.hasAttribute("data-numbers-only")) el.value = el.value.replace(/[^0-9]/g, "");
+      if (el.type !== "radio" || el.checked) saved[key] = el.value;
+    });
+    el.addEventListener("change", () => syncDynamicFields(taskKey));
+  });
+}
+
+window.handleDeliveryMethod = async function(taskKey, jobType, method) {
+  if (!BILLING_CACHE[taskKey]) BILLING_CACHE[taskKey] = {};
+  const saved = BILLING_CACHE[taskKey];
+  if (saved.deliveryType && saved.deliveryType !== method) delete saved.deliverytype_2nd;
+  saved.deliveryType = method;
+
+  const cfg = await loadDriverUI(jobType);
+  const block = cfg?.[method];
+  const box = document.getElementById(`dyn_${taskKey}`);
+  if (!box || !block) return;
+
+  let html = "";
+  const radioFields = [];
+  for (const key of block._order || []) {
+    const field = block.fields?.[key];
+    if (!field) continue;
+    if (field.type === "radio") radioFields.push({ key, field });
+    else html += deliveryFieldHTML(key, field);
+  }
+  for (const { key, field } of radioFields) {
+    html += `<div class="radio-group"><label><input type="radio" name="radio_${escapeDeliveryHTML(taskKey)}" value="${escapeDeliveryHTML(key)}"> ${escapeDeliveryHTML(field.label || key)}</label></div>`;
+  }
+  html += `<div id="sub_${escapeDeliveryHTML(taskKey)}"></div>`;
+  box.innerHTML = html;
+  hydrateDeliveryFields(box, taskKey);
+
+  const statusRadios = box.querySelectorAll(`input[name="radio_${CSS.escape(taskKey)}"]`);
+  statusRadios.forEach(radio => radio.addEventListener("change", () => {
+    if (radio.checked) handleRadioTrigger(taskKey, jobType, method, radio.value);
+  }));
+  const selected = radioFields.some(item => item.key === saved.deliverytype_2nd)
+    ? saved.deliverytype_2nd : radioFields[0]?.key;
+  if (selected) {
+    const radio = [...statusRadios].find(item => item.value === selected);
+    if (radio) radio.checked = true;
+    await handleRadioTrigger(taskKey, jobType, method, selected);
+  } else syncDynamicFields(taskKey);
+};
+
+window.handleRadioTrigger = async function(taskKey, jobType, method, radioKey) {
+  if (!BILLING_CACHE[taskKey]) BILLING_CACHE[taskKey] = {};
+  syncDynamicFields(taskKey);
+  BILLING_CACHE[taskKey].deliverytype_2nd = radioKey;
+  const cfg = await loadDriverUI(jobType);
+  const radioBlock = cfg?.[method]?.fields?.[radioKey];
+  const box = document.getElementById(`sub_${taskKey}`);
+  if (!box) return;
+
+  let html = "";
+  for (const key of radioBlock?.fields?._order || []) {
+    const field = radioBlock.fields.options?.[key];
+    if (field) html += deliveryFieldHTML(key, field, `conditional_${taskKey}_${radioKey}`);
+  }
+  box.innerHTML = html;
+  hydrateDeliveryFields(box, taskKey);
+  syncDynamicFields(taskKey);
+};
+
+async function exportTasksToFile() {
+
+  const tasks = await getTasksFromIndexedDB();
+  const photos = await getAllPhotosFromDB();
+
+  const completed = tasks.filter(t =>
+    t.status === "LOCAL_COMPLETED" &&
+    !t.exported &&
+    t.driverId === DRIVER_ID
+  );
+
+  if (!completed.length) {
+    alert("No completed tasks to export.");
+    return;
+  }
+
+  const exportData = {
+    exportedAt: new Date().toISOString(),
+    driverId: DRIVER_ID,
+    totalTasks: completed.length,
+    tasks: [],
+    photos: []
+  };
+
+  for (const t of completed) {
+    await saveTasksToIndexedDB([{
+      ...t,
+      exported: true
+    }]);
+  
+    exportData.tasks.push({
+      ...t,
+      exported: true
+    });
+  }
+  
+  // 🔥 RECALCULATE UPLOAD QUEUE AFTER EXPORT
+  const updatedTasks = await getTasksFromIndexedDB();
+  
+  UPLOAD_QUEUE_COUNT = updatedTasks.filter(t =>
+    t.status === "LOCAL_COMPLETED" &&
+    !t.exported &&
+    String(t.driverId || "").toUpperCase() === DRIVER_ID.toUpperCase()
+  ).length;
+  
+  updateUploadCounter();
+
+  const completedKeys = new Set(completed.map(t => t._key));
+
+  for (const p of photos) {
+    if (!completedKeys.has(p.taskKey)) continue; // ✅ CRITICAL FIX
+  
+    const base64 = await blobToBase64(p.blob);
+    const taskData = completed.find(t => t._key === p.taskKey);
+    exportData.photos.push({
+      id: p.id,
+      taskKey: p.taskKey,
+      photoIndex: p.photoIndex,
+      takenAt: p.takenAt,
+      gps: p.gps,
+      deliveryData: taskData?.deliveryData || {},
+      base64
+    });
+  }
+
+  const blob = new Blob(
+    [JSON.stringify(exportData, null, 2)],
+    { type: "application/json" }
+  );
+
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `tasks_export_${Date.now()}.json`;
+
+  document.body.appendChild(a);
+  a.click();
+
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+
+  alert("✅ Export complete");
+}
+
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+  
+</script>
+
+<script>
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("./sw.js");
+}
+</script>
+
+<script>
+let deferredPrompt = null;
+
+function isStandalone() {
+  return window.matchMedia("(display-mode: standalone)").matches ||
+         window.navigator.standalone === true;
+}
+
+window.addEventListener("beforeinstallprompt", e => {
+  // already installed → do nothing
+  if (isStandalone()) return;
+
+  e.preventDefault();
+  deferredPrompt = e;
+
+  // prevent duplicates
+  if (document.getElementById("installBtn")) return;
+
+  const btn = document.createElement("button");
+  btn.id = "installBtn";
+  btn.innerText = "📲 Install Driver App";
+  btn.style = `
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: calc(100% - 40px);
+    max-width: 420px;
+    padding: 14px;
+    font-size: 16px;
+    font-weight: bold;
+    border-radius: 10px;
+    border: none;
+    background: #007bff;
+    color: #fff;
+    z-index: 99999;
+  `;
+
+  btn.onclick = async () => {
+    btn.disabled = true;
+    await deferredPrompt.prompt();
+    await deferredPrompt.userChoice;
+    btn.remove();
+    deferredPrompt = null;
+  };
+
+  document.body.appendChild(btn);
+});
+</script>
+
+
+<script>
+window.addEventListener("appinstalled", () => {
+  const btn = document.getElementById("installBtn");
+  if (btn) btn.remove();
+});
+</script>
+
+</body>
+</html>
