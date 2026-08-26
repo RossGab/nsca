@@ -1,0 +1,4908 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+
+<meta charset="UTF-8">
+
+<meta
+  name="viewport"
+  content="width=device-width, initial-scale=1.0"
+>
+
+<title>Driva Delivery Template Maker</title>
+
+
+<style>
+
+/* =========================================================
+   GLOBAL
+   ========================================================= */
+
+*{
+  box-sizing:border-box;
+}
+
+:root{
+
+  --blue:#087ff5;
+  --border:#d9d9d9;
+  --text:#17202a;
+  --muted:#6b7280;
+  --danger:#d92d20;
+  --bg:#f4f5f7;
+
+}
+
+html{
+  scroll-behavior:smooth;
+}
+
+body{
+
+  margin:0;
+
+  font-family:Arial,sans-serif;
+
+  background:var(--bg);
+
+  color:var(--text);
+
+  font-size:13px;
+
+}
+
+button,
+input,
+select,
+textarea{
+
+  font:inherit;
+
+}
+
+button{
+
+  cursor:pointer;
+
+}
+
+
+/* =========================================================
+   HEADER
+   ========================================================= */
+
+.header{
+
+  position:sticky;
+
+  top:0;
+
+  z-index:100;
+
+  background:#fff;
+
+  border-bottom:1px solid #ddd;
+
+  padding:10px 15px;
+
+  display:flex;
+
+  justify-content:space-between;
+
+  align-items:center;
+
+  gap:10px;
+
+}
+
+.header h1{
+
+  font-size:17px;
+
+  margin:0;
+
+}
+
+.header p{
+
+  font-size:11px;
+
+  color:var(--muted);
+
+  margin:3px 0 0;
+
+}
+
+.actions{
+
+  display:flex;
+
+  gap:6px;
+
+}
+
+.btn{
+
+  border:1px solid #ccc;
+
+  background:#fff;
+
+  border-radius:6px;
+
+  padding:7px 10px;
+
+}
+
+.btn.primary{
+
+  background:var(--blue);
+
+  border-color:var(--blue);
+
+  color:#fff;
+
+}
+
+.btn.danger{
+
+  color:var(--danger);
+
+  border-color:#f2b8b5;
+
+}
+
+.btn.small{
+
+  padding:5px 8px;
+
+  font-size:11px;
+
+}
+
+
+/* =========================================================
+   MAIN LAYOUT
+   ========================================================= */
+
+.layout{
+
+  display:grid;
+
+  grid-template-columns:
+    470px
+    minmax(430px,1fr);
+
+  align-items:start;
+
+  min-height:calc(100vh - 58px);
+
+}
+
+
+/* =========================================================
+   BUILDER
+   ========================================================= */
+
+.builder{
+
+  padding:12px;
+
+  background:#f7f8fa;
+
+  border-right:1px solid #ddd;
+
+  min-width:0;
+
+}
+
+
+/* =========================================================
+   PREVIEW
+   ========================================================= */
+
+.preview{
+
+  padding:12px;
+
+  min-width:0;
+
+  position:sticky;
+
+  top:58px;
+
+  height:calc(100vh - 58px);
+
+  overflow:hidden;
+
+}
+
+.preview-title{
+
+  font-size:13px;
+
+  font-weight:bold;
+
+  margin:0 0 8px;
+
+}
+
+.driver-preview-scroll{
+
+  height:calc(100vh - 105px);
+
+  overflow-y:auto;
+
+  overflow-x:hidden;
+
+  padding-right:4px;
+
+}
+
+
+/* =========================================================
+   PANELS
+   ========================================================= */
+
+.panel{
+
+  background:#fff;
+
+  border:1px solid #ddd;
+
+  border-radius:9px;
+
+  margin-bottom:10px;
+
+}
+
+.panel h2{
+
+  font-size:13px;
+
+  margin:0;
+
+  padding:10px 12px;
+
+  border-bottom:1px solid #eee;
+
+}
+
+.panel-body{
+
+  padding:11px;
+
+}
+
+label.caption{
+
+  display:block;
+
+  font-size:10px;
+
+  font-weight:bold;
+
+  color:#667085;
+
+  text-transform:uppercase;
+
+  margin:0 0 4px;
+
+}
+
+input,
+select,
+textarea{
+
+  width:100%;
+
+  border:1px solid #c8cdd3;
+
+  border-radius:5px;
+
+  padding:7px;
+
+  background:#fff;
+
+}
+
+.grid2{
+
+  display:grid;
+
+  grid-template-columns:
+    1fr
+    1fr;
+
+  gap:7px;
+
+}
+
+.add-row{
+
+  display:flex;
+
+  gap:6px;
+
+}
+
+.add-row input{
+
+  flex:1;
+
+}
+
+
+/* =========================================================
+   METHODS
+   ========================================================= */
+
+.method-list{
+
+  display:flex;
+
+  flex-direction:column;
+
+  gap:5px;
+
+}
+
+.method{
+
+  display:flex;
+
+  align-items:center;
+
+  gap:7px;
+
+  padding:7px 8px;
+
+  border:1px solid #ddd;
+
+  border-radius:6px;
+
+  background:#fff;
+
+}
+
+.method.active{
+
+  border-color:#70aef8;
+
+  background:#f2f8ff;
+
+}
+
+.method-name{
+
+  flex:1;
+
+  font-weight:bold;
+
+  cursor:pointer;
+
+}
+
+.method-meta{
+
+  font-size:10px;
+
+  color:#777;
+
+  font-weight:normal;
+
+  margin-top:2px;
+
+}
+
+.icon{
+
+  width:27px;
+
+  height:27px;
+
+  padding:0;
+
+  border:1px solid #ddd;
+
+  background:#fff;
+
+  border-radius:5px;
+
+}
+
+
+/* =========================================================
+   FIELD EDITOR
+   ========================================================= */
+
+.field{
+
+  border:1px solid #ddd;
+
+  border-radius:7px;
+
+  margin-bottom:7px;
+
+  overflow:hidden;
+
+  background:#fff;
+
+}
+
+.field-head{
+
+  display:flex;
+
+  align-items:center;
+
+  gap:6px;
+
+  padding:8px;
+
+  background:#fafafa;
+
+  border-bottom:1px solid #eee;
+
+}
+
+.field-head b{
+
+  flex:1;
+
+  font-size:12px;
+
+}
+
+.pill{
+
+  font-size:10px;
+
+  background:#e9ecef;
+
+  padding:3px 6px;
+
+  border-radius:10px;
+
+  color:#555;
+
+}
+
+.field-body{
+
+  padding:9px;
+
+}
+
+.req{
+
+  display:flex;
+
+  align-items:center;
+
+  gap:5px;
+
+  font-size:11px;
+
+  margin-top:7px;
+
+}
+
+.req input{
+
+  width:auto;
+
+}
+
+.field-actions{
+
+  display:flex;
+
+  justify-content:flex-end;
+
+  gap:5px;
+
+  margin-top:7px;
+
+}
+
+
+/* =========================================================
+   CONDITIONAL FIELD EDITOR
+   ========================================================= */
+
+.radio-editor{
+
+  margin-top:9px;
+
+  border-left:3px solid #9ac8ff;
+
+  background:#f7fbff;
+
+  padding:8px;
+
+}
+
+.radio-title{
+
+  font-size:10px;
+
+  font-weight:bold;
+
+  color:#52606d;
+
+  margin-bottom:7px;
+
+}
+
+.option{
+
+  display:grid;
+
+  grid-template-columns:
+    minmax(0,1fr)
+    92px
+    auto
+    auto
+    27px;
+
+  align-items:center;
+
+  gap:5px;
+
+  margin-bottom:5px;
+
+}
+
+.option .child-required{
+
+  display:flex;
+
+  align-items:center;
+
+  gap:3px;
+
+  white-space:nowrap;
+
+  font-size:10px;
+
+}
+
+.option .child-required input{
+
+  width:auto;
+
+  margin:0;
+
+}
+
+.option button{
+
+  width:27px;
+
+}
+
+
+/* =========================================================
+   EMPTY / JSON
+   ========================================================= */
+
+.empty{
+
+  border:1px dashed #c7cdd4;
+
+  padding:18px;
+
+  text-align:center;
+
+  color:#7a828c;
+
+  border-radius:6px;
+
+  font-size:11px;
+
+}
+
+.json pre{
+
+  margin:0;
+
+  background:#111827;
+
+  color:#dbeafe;
+
+  border-radius:5px;
+
+  padding:9px;
+
+  font-size:9px;
+
+  line-height:1.45;
+
+  max-height:300px;
+
+  overflow:auto;
+
+}
+
+.note{
+
+  font-size:10px;
+
+  color:#6b7280;
+
+  margin-top:5px;
+
+  line-height:1.4;
+
+}
+
+.status{
+
+  font-size:10px;
+
+  color:#667085;
+
+}
+
+
+/* =========================================================
+   DRIVER PREVIEW
+   ========================================================= */
+
+.driver-wrap{
+
+  width:100%;
+
+  max-width:790px;
+
+  margin:0 auto;
+
+  background:#fff;
+
+  box-shadow:
+    0 0 7px rgba(0,0,0,.12);
+
+  border-left:3px solid #ffb000;
+
+  position:relative;
+
+}
+
+.driver-top{
+
+  padding:9px 12px 7px;
+
+  background:#fff;
+
+}
+
+.driver-top .name{
+
+  font-weight:bold;
+
+  font-size:15px;
+
+}
+
+.driver-top .line{
+
+  font-size:11px;
+
+  line-height:15px;
+
+}
+
+.driver-top .address{
+
+  color:#0867d6;
+
+  text-decoration:underline;
+
+  font-weight:bold;
+
+}
+
+
+/* =========================================================
+   PHOTOS
+   ========================================================= */
+
+.photo-row{
+
+  display:grid;
+
+  grid-template-columns:
+    repeat(3,1fr);
+
+  gap:5px;
+
+  padding:3px 10px 7px;
+
+}
+
+.photo{
+
+  height:32px;
+
+  border:0;
+
+  background:#f1f1f1;
+
+  border-radius:5px;
+
+  text-align:center;
+
+  font-size:11px;
+
+}
+
+.photo.disabled{
+
+  color:#bbb;
+
+}
+
+
+/* =========================================================
+   DRIVER FORM
+   ========================================================= */
+
+.driver-form{
+
+  padding:0 10px 20px;
+
+}
+
+.delivery-title{
+
+  font-weight:bold;
+
+  font-size:13px;
+
+  margin:3px 0 2px;
+
+}
+
+.driver-label{
+
+  font-size:13px;
+
+  font-weight:bold;
+
+  display:block;
+
+  margin:5px 0 4px;
+
+}
+
+.driver-label.required::after{
+
+  content:" *";
+
+}
+
+.driver-input{
+
+  width:100%;
+
+  height:27px;
+
+  padding:4px 6px;
+
+  border:1px solid #777;
+
+  border-radius:0;
+
+}
+
+.driver-textarea{
+
+  width:100%;
+
+  min-height:73px;
+
+  resize:vertical;
+
+  border:1px solid #777;
+
+  border-radius:0;
+
+  padding:5px;
+
+}
+
+
+/* =========================================================
+   MAIN DELIVERY METHOD RADIO
+   ========================================================= */
+
+.driver-radio-line{
+
+  display:flex;
+
+  align-items:center;
+
+  gap:4px;
+
+  min-height:19px;
+
+  font-size:13px;
+
+}
+
+.driver-radio-line input{
+
+  width:auto;
+
+  margin:0;
+
+}
+
+
+/* =========================================================
+   STATUS RADIO GROUP
+   ========================================================= */
+
+.status-radio-group{
+
+  margin-top:7px;
+
+}
+
+.status-option{
+
+  display:flex;
+
+  align-items:center;
+
+  gap:4px;
+
+  min-height:19px;
+
+  font-size:13px;
+
+}
+
+.status-option input{
+
+  width:auto;
+
+  margin:0;
+
+}
+
+
+/* =========================================================
+   CONDITIONAL FIELDS
+   ========================================================= */
+
+.conditional-fields{
+
+  margin:2px 0 6px 0;
+
+  padding-left:0;
+
+}
+
+.conditional-field{
+
+  margin:0 0 5px 0;
+
+}
+
+
+/* =========================================================
+   FOOTER
+   ========================================================= */
+
+.preview-footer{
+
+  position:sticky;
+
+  bottom:0;
+
+  z-index:5;
+
+  background:rgba(255,255,255,.96);
+
+  padding:5px 0;
+
+  border-top:1px solid #eee;
+
+  text-align:center;
+
+}
+
+.install{
+
+  display:inline-block;
+
+  background:#087ff5;
+
+  color:#fff;
+
+  border-radius:8px;
+
+  padding:11px 80px;
+
+  font-weight:bold;
+
+  font-size:12px;
+
+}
+
+.submit-preview{
+
+  font-size:11px;
+
+  color:#aaa;
+
+  margin-top:4px;
+
+}
+
+
+/* =========================================================
+   MOBILE
+   ========================================================= */
+
+@media(max-width:980px){
+
+  .layout{
+
+    grid-template-columns:1fr;
+
+  }
+
+  .builder{
+
+    border-right:0;
+
+    border-bottom:1px solid #ddd;
+
+  }
+
+  .preview{
+
+    position:relative;
+
+    top:auto;
+
+    height:auto;
+
+    overflow:visible;
+
+    padding-top:15px;
+
+  }
+
+  .driver-preview-scroll{
+
+    height:auto;
+
+    overflow:visible;
+
+  }
+
+}
+
+</style>
+
+</head>
+
+
+<body>
+
+
+<!-- =========================================================
+     HEADER
+     ========================================================= -->
+
+<header class="header">
+
+  <div>
+
+    <h1>
+      🚚 Driva Delivery Template Maker V.R.0.0.17.4
+    </h1>
+
+    <p>
+      Build the form on the left. The right side behaves like the actual driver screen.
+    </p>
+
+  </div>
+
+
+  <div class="actions">
+
+    <button
+      class="btn"
+      onclick="loadConfigForEdit()"
+    >
+      ✏️ Load
+    </button>
+
+
+    <button
+      class="btn"
+      onclick="resetBuilder()"
+    >
+      🧹 New
+    </button>
+
+
+    <button
+      class="btn primary"
+      onclick="saveConfig()"
+    >
+      💾 Save
+    </button>
+
+  </div>
+
+</header>
+
+
+<div class="layout">
+
+
+<!-- =========================================================
+     BUILDER
+     ========================================================= -->
+
+<aside class="builder">
+
+
+  <!-- TEMPLATE -->
+
+  <section class="panel">
+
+    <h2>
+      1. Template
+    </h2>
+
+
+    <div class="panel-body">
+
+      <label class="caption">
+        Job Type
+      </label>
+
+
+      <input
+        id="jobTypeInput"
+        placeholder="e.g. NOV"
+      >
+
+
+      <div style="height:8px"></div>
+
+
+      <label class="caption">
+        Add Delivery Method
+      </label>
+
+
+      <div class="add-row">
+
+        <input
+          id="deliveryMethodInput"
+          placeholder="e.g. N1-Received"
+        >
+
+
+        <button
+          class="btn primary"
+          onclick="addDeliveryMethod()"
+        >
+          ＋ Add
+        </button>
+
+      </div>
+
+    </div>
+
+  </section>
+
+
+  <!-- METHODS -->
+
+  <section class="panel">
+
+    <h2>
+
+      2. Delivery Methods
+
+      <span
+        class="status"
+        id="methodCount"
+      ></span>
+
+    </h2>
+
+
+    <div class="panel-body">
+
+      <div
+        id="methodsContainer"
+        class="method-list"
+      ></div>
+
+    </div>
+
+  </section>
+
+
+  <!-- FIELDS -->
+
+  <section class="panel">
+
+    <h2>
+
+      3. Fields for
+
+      <span id="selectedMethodLabel">
+        —
+      </span>
+
+    </h2>
+
+
+    <div class="panel-body">
+
+
+      <div
+        id="fieldEmpty"
+        class="empty"
+      >
+        Select a delivery method first.
+      </div>
+
+
+      <div
+        id="fieldEditor"
+        style="display:none"
+      >
+
+
+        <div class="grid2">
+
+
+          <div>
+
+            <label class="caption">
+              Field Label
+            </label>
+
+
+            <input
+              id="newFieldLabel"
+              placeholder="e.g. Received by"
+            >
+
+          </div>
+
+
+          <div>
+
+            <label class="caption">
+              Field Type
+            </label>
+
+
+            <select id="newFieldType">
+
+              <option value="text">
+                Text
+              </option>
+            
+              <option value="textarea">
+                Textarea
+              </option>
+            
+              <option value="dropdown">
+                Dropdown
+              </option>
+            
+              <option value="radio">
+                Radio Group
+              </option>
+            
+            </select>
+
+          </div>
+
+        </div>
+
+
+        <button
+          class="btn primary small"
+          style="margin-top:7px"
+          onclick="addField()"
+        >
+          ＋ Add Field
+        </button>
+
+
+        <div class="note">
+
+          Radio Group fields become one option in the
+          main status radio group.
+
+          Their child fields appear only when that
+          option is selected.
+
+        </div>
+
+
+        <div
+          id="fieldList"
+          style="margin-top:10px"
+        ></div>
+
+      </div>
+
+    </div>
+
+  </section>
+
+
+  <!-- JSON -->
+
+  <section class="panel json">
+
+    <h2>
+
+      Generated Configuration
+
+
+      <button
+        class="btn small"
+        style="float:right"
+        onclick="copyJSON()"
+      >
+        Copy
+      </button>
+
+    </h2>
+
+
+    <div class="panel-body">
+
+      <pre id="jsonPreview">{}</pre>
+
+    </div>
+
+  </section>
+
+
+</aside>
+
+
+<!-- =========================================================
+     DRIVER PREVIEW
+     ========================================================= -->
+
+<main class="preview">
+
+
+  <p class="preview-title">
+    👀 Live Driver Preview
+  </p>
+
+
+  <div class="driver-preview-scroll">
+
+
+    <div class="driver-wrap">
+
+
+      <!-- DRIVER HEADER -->
+
+      <div class="driver-top">
+
+        <div class="name">
+          Name_test
+        </div>
+
+
+        <div class="line">
+
+          📍
+
+          <span class="address">
+            Address1
+          </span>
+
+        </div>
+
+
+        <div class="line">
+          Account #: 11223
+        </div>
+
+
+        <div class="line">
+          MRU: 548
+        </div>
+
+
+        <div class="line">
+          Meter #: 12345
+        </div>
+
+
+        <div class="line">
+          DMZ: CU814
+        </div>
+
+
+        <div class="line">
+          Sequence: 1100
+        </div>
+
+
+        <div class="line">
+
+          Job Type:
+
+          <span id="previewJobType">
+            NOV
+          </span>
+
+        </div>
+
+
+        <div class="line">
+          Status: PENDING
+        </div>
+
+      </div>
+
+
+      <!-- PHOTOS -->
+
+      <div class="photo-row">
+
+        <button class="photo">
+          📷 Photo 1
+        </button>
+
+
+        <button class="photo disabled">
+          📷 Photo 2
+        </button>
+
+
+        <button class="photo disabled">
+          📷 Photo 3
+        </button>
+
+      </div>
+
+
+      <!-- FORM -->
+
+      <div
+        class="driver-form"
+        id="previewContainer"
+      ></div>
+
+
+      <!-- FOOTER -->
+
+      <div class="preview-footer">
+
+        <span class="install">
+          📲 Install Driver App
+        </span>
+
+
+        <div class="submit-preview">
+          ☑ Submit Task
+        </div>
+
+      </div>
+
+
+    </div>
+
+  </div>
+
+</main>
+
+</div>
+
+
+<script type="module">
+
+
+/* =========================================================
+   FIREBASE
+   ========================================================= */
+
+import {
+  initializeApp
+}
+from
+"https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+
+
+import {
+  getDatabase,
+  ref,
+  update,
+  get
+}
+from
+"https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+
+
+const app =
+  initializeApp({
+
+    apiKey:
+      "AIzaSyDFW61pnwLvh6HGKWt10zLYNr860fI8vkg",
+
+    databaseURL:
+      "https://driva-pwa-default-rtdb.firebaseio.com"
+
+  });
+
+
+const db =
+  getDatabase(app);
+
+
+/* =========================================================
+   STATE
+   ========================================================= */
+
+const STATE = {
+
+  jobType:"",
+
+  methods:{},
+
+  selectedMethod:null,
+
+  /*
+   * Selected status radio per delivery method.
+   *
+   * Example:
+   *
+   * selectedStatus["N1-Received"]
+   * = "c100_disconnected"
+   */
+
+  selectedStatus:{}
+
+};
+
+
+/* =========================================================
+   HELPERS
+   ========================================================= */
+
+const $ =
+  id =>
+    document.getElementById(id);
+
+
+const esc =
+  value =>
+    String(value ?? "")
+      .replaceAll("&","&amp;")
+      .replaceAll("<","&lt;")
+      .replaceAll(">","&gt;")
+      .replaceAll('"',"&quot;")
+      .replaceAll("'","&#039;");
+
+
+const slug =
+  value =>
+
+    String(value || "field")
+      .toLowerCase()
+      .replace(
+        /[^a-z0-9]+/g,
+        "_"
+      )
+      .replace(
+        /^_+|_+$/g,
+        ""
+      )
+      ||
+      ("field_" + Date.now());
+
+
+/* =========================================================
+   NORMALIZE METHOD
+   ========================================================= */
+
+function shape(m){
+
+  if(!m){
+
+    return {
+
+      _order:[],
+
+      fields:{}
+
+    };
+
+  }
+
+
+  m._order ||= [];
+
+  m.fields ||= {};
+
+
+  return m;
+
+}
+
+
+/* =========================================================
+   NORMALIZE RTDB
+   ========================================================= */
+
+function normalizeForRTDB(m){
+
+  shape(m);
+
+
+  for(
+    const key of Object.keys(m.fields)
+  ){
+
+    const f =
+      m.fields[key];
+
+
+    if(!f){
+      continue;
+    }
+
+
+    if(
+      f.type !== "radio"
+    ){
+
+      continue;
+
+    }
+    /*
+     * Radio groups themselves are never required.
+     * Required belongs to their conditional children.
+     */
+    f.required = false;
+
+    f.fields ||= {
+
+      _order:[],
+
+      options:{}
+
+    };
+
+
+    f.fields.options ||=
+      {};
+
+
+    f.fields._order ||=
+      Object.keys(
+        f.fields.options
+      );
+
+
+    /*
+     * -------------------------------------------------------
+     * MIGRATE OLD child_1 / child_2 / child_3 KEYS
+     * -------------------------------------------------------
+     *
+     * Old Template Maker created:
+     *
+     * child_1
+     * child_2
+     *
+     * The driver then saved those exact keys into Firestore.
+     *
+     * Convert them to keys based on the actual label:
+     *
+     * Locking device used
+     *      ↓
+     * locking_device_used
+     *
+     * Last reading
+     *      ↓
+     * last_reading
+     *
+     * Existing correct keys are left untouched.
+     */
+
+    const oldOrder =
+      [...f.fields._order];
+
+
+    const newOrder = [];
+
+
+    const newOptions = {};
+
+
+    oldOrder.forEach(
+      oldKey => {
+
+        const option =
+          f.fields.options[
+            oldKey
+          ];
+
+
+        if(!option){
+
+          return;
+
+        }
+
+
+        let newKey =
+          oldKey;
+        
+        
+        /*
+         * Conditional child keys must always
+         * be unique to their parent radio.
+         *
+         * Example:
+         *
+         * Radio:
+         * c04_with_owner_s_padlock
+         *
+         * Child:
+         * Other Remarks
+         *
+         * Becomes:
+         *
+         * c04_with_owner_s_padlock_other_remarks
+         */
+        
+        
+        /*
+         * Old format:
+         *
+         * child_1
+         * child_2
+         *
+         * Convert those first.
+         */
+        
+        if(
+          /^child_\d+$/.test(
+            oldKey
+          )
+        ){
+        
+          newKey =
+            slug(
+              `${key}_${option.label}`
+            );
+        
+        }
+        
+        
+        /*
+         * Older versions may already have
+         * generated the child key only from
+         * the label:
+         *
+         * other_remarks
+         *
+         * Convert that to:
+         *
+         * c04_with_owner_s_padlock_other_remarks
+         *
+         * unless it is already correctly
+         * prefixed with the radio key.
+         */
+        
+        else if(
+          !oldKey.startsWith(
+            `${key}_`
+          )
+        ){
+        
+          newKey =
+            slug(
+              `${key}_${option.label}`
+            );
+        
+        }
+
+
+        /*
+         * Prevent duplicate keys.
+         */
+
+        let baseKey =
+          newKey;
+
+
+        let counter = 2;
+
+
+        while(
+          newOptions[newKey]
+        ){
+
+          newKey =
+            `${baseKey}_${counter++}`;
+
+        }
+
+
+        newOrder.push(
+          newKey
+        );
+
+
+        newOptions[
+          newKey
+        ] =
+          option;
+
+      }
+    );
+
+
+    f.fields._order =
+      newOrder;
+
+
+    f.fields.options =
+      newOptions;
+
+  }
+
+
+  return m;
+
+}
+
+
+/* =========================================================
+   CURRENT METHOD
+   ========================================================= */
+
+function current(){
+
+  if(
+    !STATE.selectedMethod
+  ){
+
+    return null;
+
+  }
+
+
+  return STATE.methods[
+    STATE.selectedMethod
+  ] || null;
+
+}
+
+
+/* =========================================================
+   GET RADIO FIELDS
+   ========================================================= */
+
+function getRadioFields(
+  method
+){
+
+  if(!method){
+    return [];
+  }
+
+
+  shape(method);
+
+
+  return method._order
+    .map(
+      key =>
+        ({
+          key,
+
+          field:
+            method.fields[key]
+
+        })
+    )
+    .filter(
+      item =>
+        item.field &&
+        item.field.type === "radio"
+    );
+
+}
+
+
+/* =========================================================
+   DEFAULT STATUS
+   ========================================================= */
+
+function getSelectedStatus(
+  methodName,
+  method
+){
+
+  const radios =
+    getRadioFields(
+      method
+    );
+
+
+  if(
+    !radios.length
+  ){
+
+    return null;
+
+  }
+
+
+  const currentSelected =
+    STATE.selectedStatus[
+      methodName
+    ];
+
+
+  if(
+    currentSelected &&
+    method.fields[
+      currentSelected
+    ] &&
+    method.fields[
+      currentSelected
+    ].type === "radio"
+  ){
+
+    return currentSelected;
+
+  }
+
+
+  /*
+   * Match the working driver behavior:
+   * first radio option is selected.
+   */
+
+  return radios[0].key;
+
+}
+
+
+/* =========================================================
+   RENDER
+   ========================================================= */
+
+function render(){
+
+  renderMethods();
+
+  renderFields();
+
+  renderPreview();
+
+  renderJSON();
+
+
+  $("methodCount").textContent =
+    `(${Object.keys(
+      STATE.methods
+    ).length})`;
+
+}
+
+
+/* =========================================================
+   RENDER METHODS
+   ========================================================= */
+
+function renderMethods(){
+
+  const box =
+    $("methodsContainer");
+
+
+  box.innerHTML = "";
+
+
+  const entries =
+    Object.entries(
+      STATE.methods
+    );
+
+
+  if(
+    !entries.length
+  ){
+
+    box.innerHTML =
+      '<div class="empty">No delivery methods yet.</div>';
+
+    return;
+
+  }
+
+
+  entries.forEach(
+    ([name,m]) => {
+
+      shape(m);
+
+
+      const row =
+        document.createElement(
+          "div"
+        );
+
+
+      row.className =
+        "method" +
+        (
+          name ===
+          STATE.selectedMethod
+            ? " active"
+            : ""
+        );
+
+
+      row.innerHTML = `
+
+        <div class="method-name">
+
+          ${esc(name)}
+
+          <div class="method-meta">
+
+            ${m._order.length}
+
+            field${
+
+              m._order.length === 1
+                ? ""
+                : "s"
+
+            }
+
+          </div>
+
+        </div>
+
+
+        <button
+          class="icon"
+          title="Move up"
+        >
+          ↑
+        </button>
+
+
+        <button
+          class="icon"
+          title="Move down"
+        >
+          ↓
+        </button>
+
+
+        <button
+          class="icon"
+          title="Duplicate"
+        >
+          ⧉
+        </button>
+
+
+        <button
+          class="icon"
+          title="Delete"
+        >
+          ×
+        </button>
+
+      `;
+
+
+      row.querySelector(
+        ".method-name"
+      ).onclick =
+        () => {
+
+          STATE.selectedMethod =
+            name;
+
+          render();
+
+        };
+
+
+      const buttons =
+        row.querySelectorAll(
+          "button"
+        );
+
+
+      buttons[0].onclick =
+        () =>
+          moveMethod(
+            name,
+            -1
+          );
+
+
+      buttons[1].onclick =
+        () =>
+          moveMethod(
+            name,
+            1
+          );
+
+
+      buttons[2].onclick =
+        () =>
+          duplicateMethod(
+            name
+          );
+
+
+      buttons[3].onclick =
+        () =>
+          removeMethod(
+            name
+          );
+
+
+      box.appendChild(
+        row
+      );
+
+    }
+  );
+
+}
+
+
+/* =========================================================
+   MOVE METHOD
+   ========================================================= */
+
+function moveMethod(
+  name,
+  delta
+){
+
+  const a =
+    Object.keys(
+      STATE.methods
+    );
+
+
+  const i =
+    a.indexOf(name);
+
+
+  const j =
+    i + delta;
+
+
+  if(
+    j < 0 ||
+    j >= a.length
+  ){
+
+    return;
+
+  }
+
+
+  [
+    a[i],
+    a[j]
+  ] =
+  [
+    a[j],
+    a[i]
+  ];
+
+
+  STATE.methods =
+    Object.fromEntries(
+      a.map(
+        key => [
+          key,
+          STATE.methods[key]
+        ]
+      )
+    );
+
+
+  render();
+
+}
+
+
+/* =========================================================
+   RENDER FIELDS
+   ========================================================= */
+
+function renderFields(){
+
+  const m =
+    current();
+
+
+  $("fieldEmpty").style.display =
+    m
+      ? "none"
+      : "block";
+
+
+  $("fieldEditor").style.display =
+    m
+      ? "block"
+      : "none";
+
+
+  $("selectedMethodLabel").textContent =
+    STATE.selectedMethod ||
+    "—";
+
+
+  if(!m){
+    return;
+  }
+
+
+  shape(m);
+
+
+  const list =
+    $("fieldList");
+
+
+  list.innerHTML = "";
+
+
+  if(
+    !m._order.length
+  ){
+
+    list.innerHTML =
+      '<div class="empty">No fields. Add one above.</div>';
+
+    return;
+
+  }
+
+
+  m._order.forEach(
+    key => {
+
+      const f =
+        m.fields[key];
+
+
+      if(!f){
+        return;
+      }
+
+
+      const card =
+        document.createElement(
+          "div"
+        );
+
+
+      card.className =
+        "field";
+
+
+      card.innerHTML = `
+
+        <div class="field-head">
+
+          <b>
+            ${esc(
+              f.label ||
+              key
+            )}
+          </b>
+
+
+          <span class="pill">
+
+            ${esc(
+              f.type
+            )}
+
+          </span>
+
+        </div>
+
+
+        <div class="field-body">
+
+          <div class="grid2">
+
+            <div>
+
+              <label class="caption">
+                Label
+              </label>
+
+
+              <input
+                data-label
+                value="${esc(
+                  f.label ||
+                  ""
+                )}"
+              >
+
+            </div>
+
+
+            <div>
+
+              <label class="caption">
+                Type
+              </label>
+
+
+              <select data-type>
+
+                <option
+                  value="text"
+                  ${
+                    f.type === "text"
+                      ? "selected"
+                      : ""
+                  }
+                >
+                  Text
+                </option>
+
+
+                <option
+                  value="textarea"
+                  ${
+                    f.type === "textarea"
+                      ? "selected"
+                      : ""
+                  }
+                >
+                  Textarea
+                </option>
+
+                <option
+                  value="dropdown"
+                  ${
+                    f.type === "dropdown"
+                      ? "selected"
+                      : ""
+                  }
+                >
+                  Dropdown
+                </option>
+
+                <option
+                  value="radio"
+                  ${
+                    f.type === "radio"
+                      ? "selected"
+                      : ""
+                  }
+                >
+                  Radio Group
+                </option>
+
+              </select>
+
+            </div>
+
+          </div>
+
+
+          ${
+            f.type !== "radio"
+              ? `
+                <label class="req">
+          
+                  <input
+                    data-required
+                    type="checkbox"
+                    ${
+                      f.required
+                        ? "checked"
+                        : ""
+                    }
+                  >
+          
+                  Required
+          
+                </label>
+          
+          
+                <label class="req">
+          
+                  <input
+                    data-numbers-only
+                    type="checkbox"
+                    ${
+                      f.numbersOnly
+                        ? "checked"
+                        : ""
+                    }
+                  >
+          
+                  Numbers only
+          
+                </label>
+              `
+              : ""
+          }
+
+          ${
+            f.type === "dropdown"
+              ? dropdownEditor(f)
+              : ""
+          }
+
+          ${
+            f.type === "radio"
+              ? conditionalEditor(f, key)
+              : ""
+          }
+
+
+          <div class="field-actions">
+
+            <button
+              class="btn small"
+              data-up
+            >
+              ↑
+            </button>
+
+
+            <button
+              class="btn small"
+              data-down
+            >
+              ↓
+            </button>
+
+
+            <button
+              class="btn small danger"
+              data-remove
+            >
+              Remove
+            </button>
+
+          </div>
+
+        </div>
+
+      `;
+
+
+      card.querySelector(
+        "[data-label]"
+      ).onchange =
+        e => {
+
+          f.label =
+            e.target.value.trim() ||
+            f.label;
+
+
+          render();
+
+        };
+
+
+      card.querySelector(
+        "[data-type]"
+      ).onchange =
+        e => {
+
+          f.type =
+            e.target.value;
+
+
+          if(
+            f.type === "radio"
+          ){
+          
+            f.fields ||= {
+          
+              _order:[],
+          
+              options:{}
+          
+            };
+          
+          
+            delete f.options;
+          
+            f.numbersOnly = false;
+          
+          }
+          
+          else if(
+            f.type === "dropdown"
+          ){
+          
+            delete f.fields;
+          
+            f.options ||=
+              [];
+          
+            f.numbersOnly = false;
+          
+          }
+          
+          else{
+          
+            delete f.fields;
+          
+            delete f.options;
+          
+          }
+
+
+          render();
+
+        };
+
+
+      const requiredCheckbox =
+        card.querySelector(
+          "[data-required]"
+        );
+      
+      
+      
+      if(requiredCheckbox){
+      
+        requiredCheckbox.onchange =
+          e => {
+      
+            f.required =
+              e.target.checked;
+      
+      
+            renderPreview();
+      
+            renderJSON();
+      
+          };
+      
+      }
+
+      const numbersOnlyCheckbox =
+      card.querySelector(
+        "[data-numbers-only]"
+      );
+    
+    
+    if(numbersOnlyCheckbox){
+    
+      numbersOnlyCheckbox.onchange =
+        e => {
+    
+          f.numbersOnly =
+            e.target.checked;
+    
+          renderPreview();
+    
+          renderJSON();
+    
+        };
+    
+    }
+
+      card.querySelector(
+        "[data-up]"
+      ).onclick =
+        () =>
+          moveField(
+            key,
+            -1
+          );
+
+
+      card.querySelector(
+        "[data-down]"
+      ).onclick =
+        () =>
+          moveField(
+            key,
+            1
+          );
+
+
+      card.querySelector(
+        "[data-remove]"
+      ).onclick =
+        () => {
+
+          if(
+            !confirm(
+              `Remove "${f.label}"?`
+            )
+          ){
+
+            return;
+
+          }
+
+
+          m._order =
+            m._order.filter(
+              k => k !== key
+            );
+
+
+          delete m.fields[
+            key
+          ];
+
+
+          if(
+            STATE.selectedStatus[
+              STATE.selectedMethod
+            ] === key
+          ){
+
+            delete STATE.selectedStatus[
+              STATE.selectedMethod
+            ];
+
+          }
+
+
+          render();
+
+        };
+
+
+      wireConditionalEditor(
+        card,
+        f,
+        key
+      );
+
+      wireDropdownEditor(
+        card,
+        f
+      );
+
+
+      list.appendChild(
+        card
+      );
+
+    }
+  );
+
+}
+
+/* =========================================================
+   DROPDOWN EDITOR
+   ========================================================= */
+
+function dropdownEditor(
+  field
+){
+
+  field.options ||=
+    [];
+
+
+  return `
+
+    <div class="radio-editor">
+
+      <div class="radio-title">
+        DROPDOWN OPTIONS
+      </div>
+
+
+      <div
+        class="note"
+        style="margin-bottom:7px"
+      >
+        Add the choices that the driver can select.
+      </div>
+
+
+      ${
+        field.options
+          .map(
+            (option,index) => `
+
+              <div
+                style="
+                  display:grid;
+                  grid-template-columns:1fr 27px;
+                  gap:5px;
+                  margin-bottom:5px;
+                "
+              >
+
+                <input
+                  data-dropdown-option="${index}"
+                  value="${esc(option)}"
+                  placeholder="Option"
+                >
+
+
+                <button
+                  class="icon"
+                  data-dropdown-remove="${index}"
+                  title="Remove option"
+                >
+                  ×
+                </button>
+
+              </div>
+
+            `
+          )
+          .join("")
+      }
+
+
+      <button
+        class="btn small"
+        data-dropdown-add
+      >
+        ＋ Add Dropdown Option
+      </button>
+
+    </div>
+
+  `;
+
+}
+
+/* =========================================================
+   WIRE DROPDOWN EDITOR
+   ========================================================= */
+
+function wireDropdownEditor(
+  card,
+  field
+){
+
+  if(
+    field.type !== "dropdown"
+  ){
+
+    return;
+
+  }
+
+
+  field.options ||=
+    [];
+
+
+  const addButton =
+    card.querySelector(
+      "[data-dropdown-add]"
+    );
+
+
+  if(addButton){
+
+    addButton.onclick =
+      () => {
+
+        field.options.push(
+          `Option ${field.options.length + 1}`
+        );
+
+
+        render();
+
+      };
+
+  }
+
+
+  card.querySelectorAll(
+    "[data-dropdown-option]"
+  ).forEach(
+    input => {
+
+      input.onchange =
+        () => {
+
+          const index =
+            Number(
+              input.dataset.dropdownOption
+            );
+
+
+          field.options[index] =
+            input.value.trim();
+
+
+          renderPreview();
+
+          renderJSON();
+
+        };
+
+    }
+  );
+
+
+  card.querySelectorAll(
+    "[data-dropdown-remove]"
+  ).forEach(
+    button => {
+
+      button.onclick =
+        () => {
+
+          const index =
+            Number(
+              button.dataset.dropdownRemove
+            );
+
+
+          field.options.splice(
+            index,
+            1
+          );
+
+
+          render();
+
+        };
+
+    }
+  );
+
+}
+
+
+/* =========================================================
+   MOVE FIELD
+   ========================================================= */
+
+function moveField(
+  key,
+  delta
+){
+
+  const m =
+    current();
+
+
+  if(!m){
+    return;
+  }
+
+
+  const i =
+    m._order.indexOf(
+      key
+    );
+
+
+  const j =
+    i + delta;
+
+
+  if(
+    j < 0 ||
+    j >= m._order.length
+  ){
+
+    return;
+
+  }
+
+
+  [
+    m._order[i],
+    m._order[j]
+  ] =
+  [
+    m._order[j],
+    m._order[i]
+  ];
+
+
+  render();
+
+}
+
+
+/* =========================================================
+   CONDITIONAL FIELD EDITOR
+   ========================================================= */
+
+function conditionalEditor(
+  f,
+  parentKey
+){
+
+  f.fields ||= {
+
+    _order:[],
+
+    options:{}
+
+  };
+
+
+  f.fields.options ||= {};
+
+  f.fields._order ||= [];
+
+
+  return `
+
+    <div class="radio-editor">
+
+
+      <div class="radio-title">
+
+        CONDITIONAL FIELDS
+
+      </div>
+
+
+      <div
+        class="note"
+        style="margin-bottom:7px"
+      >
+
+        These fields appear when this radio
+        option is selected in the driver app.
+        
+        They can be Text, Textarea, or Radio Button fields.
+
+      </div>
+
+
+      ${
+        f.fields._order
+          .map(
+            key => {
+
+              const option =
+                f.fields.options[
+                  key
+                ];
+
+
+              if(!option){
+                return "";
+              }
+
+
+              return `
+
+                <div class="option">
+
+
+                  <input
+                    data-opt-label="${esc(key)}"
+                    value="${esc(
+                      option.label ||
+                      ""
+                    )}"
+                    placeholder="Conditional field label"
+                  >
+
+
+                  <select
+                    data-opt-type="${esc(key)}"
+                  >
+                  
+                    <option
+                      value="text"
+                      ${
+                        option.type === "text"
+                          ? "selected"
+                          : ""
+                      }
+                    >
+                      Text
+                    </option>
+                  
+                  
+                    <option
+                      value="textarea"
+                      ${
+                        option.type === "textarea"
+                          ? "selected"
+                          : ""
+                      }
+                    >
+                      Textarea
+                    </option>
+                  
+                  
+                    <option
+                      value="radio"
+                      ${
+                        option.type === "radio"
+                          ? "selected"
+                          : ""
+                      }
+                    >
+                      Radio Button
+                    </option>
+                  
+                  </select>
+                  
+                  
+                  <label class="child-required">
+                  
+                    <input
+                      type="checkbox"
+                      data-opt-required="${esc(key)}"
+                      ${
+                        option.required
+                          ? "checked"
+                          : ""
+                      }
+                    >
+                  
+                    Required
+                  
+                  </label>
+
+                  <label class="child-required">
+
+                    <input
+                      type="checkbox"
+                      data-opt-numbers-only="${esc(key)}"
+                      ${
+                        option.numbersOnly
+                          ? "checked"
+                          : ""
+                      }
+                    >
+                  
+                    Numbers only
+                  
+                  </label>
+                  
+                  
+                  <button
+                    class="icon"
+                    data-opt-remove="${esc(key)}"
+                    title="Remove conditional field"
+                  >
+                    ×
+                  </button>
+
+
+                </div>
+
+              `;
+
+            }
+          )
+          .join("")
+      }
+
+
+      <button
+        class="btn small"
+        data-add-option
+      >
+        ＋ Add Conditional Field
+      </button>
+
+    </div>
+
+  `;
+
+}
+
+
+/* =========================================================
+   WIRE CONDITIONAL EDITOR
+   ========================================================= */
+
+function wireConditionalEditor(
+  card,
+  f,
+  parentKey
+){
+
+  if(
+    f.type !== "radio"
+  ){
+
+    return;
+
+  }
+
+
+  f.fields ||= {
+
+    _order:[],
+
+    options:{}
+
+  };
+
+
+  f.fields.options ||= {};
+
+  f.fields._order ||= [];
+
+
+  const addButton =
+    card.querySelector(
+      "[data-add-option]"
+    );
+
+
+  if(addButton){
+
+    addButton.onclick =
+      () => {
+    
+        /*
+         * Ask for the actual field label first.
+         *
+         * This allows us to create the correct
+         * RTDB key immediately.
+         */
+    
+        const label =
+          prompt(
+            "Enter the conditional field label:"
+          );
+    
+    
+        if(
+          label === null
+        ){
+    
+          return;
+    
+        }
+    
+    
+        const cleanLabel =
+          label.trim();
+    
+    
+        if(
+          !cleanLabel
+        ){
+    
+          alert(
+            "Field label cannot be blank."
+          );
+    
+          return;
+    
+        }
+    
+    
+        /*
+         * Generate RTDB-safe key from label.
+         *
+         * Example:
+         *
+         * Locking device used
+         *      ↓
+         * locking_device_used
+         */
+    
+        const baseKey =
+          slug(
+            `${parentKey}_${cleanLabel}`
+          );
+        
+        let key =
+          baseKey;
+        
+        let counter = 2;
+        
+        while(
+          f.fields.options[key]
+        ){
+        
+          key =
+            `${baseKey}_${counter++}`;
+        
+        }
+    
+    
+        f.fields._order.push(
+          key
+        );
+    
+    
+        f.fields.options[
+          key
+        ] = {
+        
+          label:
+            cleanLabel,
+        
+          required:false,
+        
+          numbersOnly:false,
+        
+          type:"text"
+        
+        };
+    
+    
+        render();
+    
+      };
+
+  }
+
+
+  card.querySelectorAll(
+    "[data-opt-label]"
+  ).forEach(
+    input => {
+
+      input.onchange =
+        () => {
+
+          const key =
+            input.dataset.optLabel;
+
+
+          const child =
+            f.fields.options[
+              key
+            ];
+
+
+          if(!child){
+            return;
+          }
+
+
+          child.label =
+            input.value.trim() ||
+            child.label;
+
+
+          render();
+
+        };
+
+    }
+  );
+
+
+  card.querySelectorAll(
+    "[data-opt-type]"
+  ).forEach(
+    select => {
+
+      select.onchange =
+        () => {
+
+          const key =
+            select.dataset.optType;
+
+
+          const child =
+            f.fields.options[
+              key
+            ];
+
+
+          if(!child){
+            return;
+          }
+
+
+          child.type =
+            select.value;
+
+
+          renderPreview();
+
+          renderJSON();
+
+        };
+
+    }
+  );
+
+  card.querySelectorAll(
+  "[data-opt-required]"
+).forEach(
+  checkbox => {
+
+    checkbox.onchange =
+      () => {
+
+        const key =
+          checkbox.dataset.optRequired;
+
+
+        const child =
+          f.fields.options[
+            key
+          ];
+
+
+        if(!child){
+          return;
+        }
+
+
+        child.required =
+          checkbox.checked;
+
+
+        renderPreview();
+
+        renderJSON();
+
+      };
+
+  }
+);
+
+card.querySelectorAll(
+  "[data-opt-numbers-only]"
+).forEach(
+  checkbox => {
+
+    checkbox.onchange =
+      () => {
+
+        const key =
+          checkbox.dataset.optNumbersOnly;
+
+
+        const child =
+          f.fields.options[
+            key
+          ];
+
+
+        if(!child){
+          return;
+        }
+
+
+        child.numbersOnly =
+          checkbox.checked;
+
+
+        renderPreview();
+
+        renderJSON();
+
+      };
+
+  }
+);
+
+
+  card.querySelectorAll(
+    "[data-opt-remove]"
+  ).forEach(
+    button => {
+
+      button.onclick =
+        () => {
+
+          const key =
+            button.dataset.optRemove;
+
+
+          f.fields._order =
+            f.fields._order.filter(
+              k => k !== key
+            );
+
+
+          delete f.fields.options[
+            key
+          ];
+
+
+          render();
+
+        };
+
+    }
+  );
+
+}
+
+
+/* =========================================================
+   ADD DELIVERY METHOD
+   ========================================================= */
+
+window.addDeliveryMethod =
+  () => {
+
+    const jt =
+      $("jobTypeInput")
+        .value
+        .trim();
+
+
+    const name =
+      $("deliveryMethodInput")
+        .value
+        .trim();
+
+
+    if(!jt){
+
+      alert(
+        "Enter Job Type first."
+      );
+
+      return;
+
+    }
+
+
+    if(!name){
+
+      alert(
+        "Enter Delivery Method."
+      );
+
+      return;
+
+    }
+
+
+    STATE.jobType =
+      jt;
+
+
+    if(
+      !STATE.methods[name]
+    ){
+
+      STATE.methods[name] = {
+
+        _order:[],
+
+        fields:{}
+
+      };
+
+    }
+
+
+    STATE.selectedMethod =
+      name;
+
+
+    if(
+      !STATE.selectedStatus[name]
+    ){
+
+      STATE.selectedStatus[name] =
+        getSelectedStatus(
+          name,
+          STATE.methods[name]
+        );
+
+    }
+
+
+    $("deliveryMethodInput")
+      .value = "";
+
+
+    render();
+
+  };
+
+
+/* =========================================================
+   REMOVE METHOD
+   ========================================================= */
+
+window.removeMethod =
+  name => {
+
+    if(
+      !confirm(
+        `Delete "${name}"?`
+      )
+    ){
+
+      return;
+
+    }
+
+
+    delete STATE.methods[
+      name
+    ];
+
+
+    delete STATE.selectedStatus[
+      name
+    ];
+
+
+    if(
+      STATE.selectedMethod === name
+    ){
+
+      STATE.selectedMethod =
+        Object.keys(
+          STATE.methods
+        )[0] ||
+        null;
+
+    }
+
+
+    render();
+
+  };
+
+
+/* =========================================================
+   DUPLICATE METHOD
+   ========================================================= */
+
+window.duplicateMethod =
+  name => {
+
+    let copy =
+      name + " Copy";
+
+
+    let n = 2;
+
+
+    while(
+      STATE.methods[copy]
+    ){
+
+      copy =
+        name +
+        " Copy " +
+        n++;
+
+    }
+
+
+    STATE.methods[copy] =
+      JSON.parse(
+        JSON.stringify(
+          STATE.methods[name]
+        )
+      );
+
+
+    delete STATE.selectedStatus[
+      copy
+    ];
+
+
+    STATE.selectedMethod =
+      copy;
+
+
+    render();
+
+  };
+
+
+/* =========================================================
+   ADD FIELD
+   ========================================================= */
+
+window.addField =
+  () => {
+
+    const m =
+      current();
+
+
+    if(!m){
+
+      alert(
+        "Select a delivery method."
+      );
+
+      return;
+
+    }
+
+
+    const label =
+      $("newFieldLabel")
+        .value
+        .trim();
+
+
+    const type =
+      $("newFieldType")
+        .value;
+
+
+    if(!label){
+
+      alert(
+        "Enter Field Label."
+      );
+
+      return;
+
+    }
+
+
+    let key =
+      slug(label);
+
+
+    let n = 2;
+
+
+    while(
+      m.fields[key]
+    ){
+
+      key =
+        `${slug(label)}_${n++}`;
+
+    }
+
+
+    m._order.push(
+      key
+    );
+
+
+    m.fields[key] = {
+
+      label,
+    
+      type,
+    
+      required:false,
+    
+      numbersOnly:false
+    
+    };
+
+
+    if(
+      type === "radio"
+    ){
+
+      m.fields[key].fields = {
+
+        _order:[],
+
+        options:{}
+
+      };
+
+    }
+    
+    if(
+      type === "dropdown"
+    ){
+    
+      m.fields[key].options =
+        [];
+    
+    }
+
+
+    $("newFieldLabel")
+      .value = "";
+
+
+    render();
+
+  };
+
+
+/* =========================================================
+   CREATE NORMAL FIELD
+   ========================================================= */
+
+function createDriverField(
+  fieldKey,
+  field
+){
+
+  const wrap =
+    document.createElement(
+      "div"
+    );
+
+
+  const label =
+    document.createElement(
+      "label"
+    );
+
+
+  label.className =
+    "driver-label";
+
+
+  label.textContent =
+    field.label ||
+    fieldKey;
+
+
+  if(
+    field.required
+  ){
+
+    label.classList.add(
+      "required"
+    );
+
+  }
+
+
+  wrap.appendChild(
+    label
+  );
+
+
+  if(
+  field.type === "dropdown"
+){
+
+  const select =
+    document.createElement(
+      "select"
+    );
+
+
+  select.className =
+    "driver-input";
+
+
+  const emptyOption =
+    document.createElement(
+      "option"
+    );
+
+
+  emptyOption.value =
+    "";
+
+  emptyOption.textContent =
+    "-- Select --";
+
+
+  select.appendChild(
+    emptyOption
+  );
+
+
+  (
+    field.options ||
+    []
+  ).forEach(
+    optionValue => {
+
+      const option =
+        document.createElement(
+          "option"
+        );
+
+
+      option.value =
+        optionValue;
+
+      option.textContent =
+        optionValue;
+
+
+      select.appendChild(
+        option
+      );
+
+    }
+  );
+
+
+  wrap.appendChild(
+    select
+  );
+
+}
+
+else if(
+  field.type === "textarea"
+){
+
+  const textarea =
+    document.createElement(
+      "textarea"
+    );
+
+
+  textarea.className =
+    "driver-textarea";
+
+
+  if(
+    field.numbersOnly
+  ){
+
+    textarea.inputMode =
+      "numeric";
+
+
+    textarea.addEventListener(
+      "input",
+      () => {
+
+        textarea.value =
+          textarea.value.replace(
+            /[^0-9]/g,
+            ""
+          );
+
+      }
+    );
+
+  }
+
+
+  wrap.appendChild(
+    textarea
+  );
+
+}else{
+
+    const input =
+      document.createElement(
+        "input"
+      );
+    
+    
+    input.type =
+      "text";
+    
+    
+    input.className =
+      "driver-input";
+    
+    
+    if(
+      field.numbersOnly
+    ){
+    
+      input.inputMode =
+        "numeric";
+    
+      input.pattern =
+        "[0-9]*";
+    
+    
+      input.addEventListener(
+        "input",
+        () => {
+    
+          input.value =
+            input.value.replace(
+              /[^0-9]/g,
+              ""
+            );
+    
+        }
+      );
+    
+    }
+
+
+    wrap.appendChild(
+      input
+    );
+
+  }
+
+
+  return wrap;
+
+}
+
+/* =========================================================
+   CREATE CONDITIONAL FIELD — LIVE PREVIEW
+   ========================================================= */
+
+function createConditionalField(
+  fieldKey,
+  field,
+  radioGroupName
+){
+
+  const wrap =
+    document.createElement(
+      "div"
+    );
+
+  wrap.className =
+    "conditional-field";
+
+
+  /* =======================================================
+     RADIO BUTTON CHILD
+     ======================================================= */
+
+  if(
+    field.type === "radio"
+  ){
+
+    const row =
+      document.createElement(
+        "label"
+      );
+
+    row.className =
+      "status-option";
+
+
+    const radio =
+      document.createElement(
+        "input"
+      );
+
+    radio.type =
+      "radio";
+
+    /*
+     * All Radio Button children under the
+     * same Radio Group share the same name.
+     *
+     * Therefore only ONE can be selected.
+     */
+
+    radio.name =
+      radioGroupName ||
+      "conditional_radio_preview";
+
+
+    const text =
+      document.createElement(
+        "span"
+      );
+
+    text.textContent =
+      field.label ||
+      fieldKey;
+
+
+    row.appendChild(
+      radio
+    );
+
+    row.appendChild(
+      text
+    );
+
+
+    wrap.appendChild(
+      row
+    );
+
+
+    return wrap;
+
+  }
+
+
+  /* =======================================================
+     NORMAL CONDITIONAL FIELD
+     ======================================================= */
+
+  const label =
+    document.createElement(
+      "label"
+    );
+
+  label.className =
+    "driver-label";
+
+  label.textContent =
+    field.label ||
+    fieldKey;
+
+
+  if(
+    field.required
+  ){
+
+    label.classList.add(
+      "required"
+    );
+
+  }
+
+
+  wrap.appendChild(
+    label
+  );
+
+
+  /* =======================================================
+     TEXTAREA
+     ======================================================= */
+
+  if(
+      field.type === "textarea"
+    ){
+    
+      const textarea =
+        document.createElement(
+          "textarea"
+        );
+    
+      textarea.className =
+        "driver-textarea";
+    
+    
+      if(
+        field.numbersOnly
+      ){
+    
+        textarea.inputMode =
+          "numeric";
+    
+        textarea.pattern =
+          "[0-9]*";
+    
+    
+        textarea.addEventListener(
+          "input",
+          () => {
+    
+            textarea.value =
+              textarea.value.replace(
+                /[^0-9]/g,
+                ""
+              );
+    
+          }
+        );
+    
+      }
+    
+    
+      wrap.appendChild(
+        textarea
+      );
+    
+    }
+
+
+  /* =======================================================
+     TEXT
+     ======================================================= */
+
+  else{
+
+    const input =
+      document.createElement(
+        "input"
+      );
+  
+  
+    input.type =
+      "text";
+  
+  
+    input.className =
+      "driver-input";
+  
+  
+    if(
+      field.numbersOnly
+    ){
+  
+      input.inputMode =
+        "numeric";
+  
+      input.pattern =
+        "[0-9]*";
+  
+  
+      input.addEventListener(
+        "input",
+        () => {
+  
+          input.value =
+            input.value.replace(
+              /[^0-9]/g,
+              ""
+            );
+  
+        }
+      );
+  
+    }
+  
+  
+    wrap.appendChild(
+      input
+    );
+  
+  }
+
+
+  return wrap;
+
+}
+
+
+/* =========================================================
+   RENDER MAIN STATUS RADIO GROUP
+   ========================================================= */
+
+function createStatusRadioGroup(
+  methodName,
+  method
+){
+
+  const container =
+    document.createElement(
+      "div"
+    );
+
+
+  container.className =
+    "status-radio-group";
+
+
+  const radioFields =
+    getRadioFields(
+      method
+    );
+
+
+  if(
+    !radioFields.length
+  ){
+
+    return container;
+
+  }
+
+
+  let selectedKey =
+    getSelectedStatus(
+      methodName,
+      method
+    );
+
+
+  STATE.selectedStatus[
+    methodName
+  ] =
+    selectedKey;
+
+
+  /*
+   * Store all conditional containers.
+   */
+
+  const conditionalContainers =
+    {};
+
+
+  radioFields.forEach(
+    ({key,field}) => {
+
+      /* ---------------------------------------------------
+         MAIN RADIO
+         --------------------------------------------------- */
+
+      const row =
+        document.createElement(
+          "label"
+        );
+
+
+      row.className =
+        "status-option";
+
+
+      const radio =
+        document.createElement(
+          "input"
+        );
+
+
+      radio.type =
+        "radio";
+
+
+      /*
+       * ALL CXX RADIO FIELDS MUST SHARE
+       * ONE RADIO GROUP.
+       */
+
+      radio.name =
+        `status_${methodName}`;
+
+
+      radio.checked =
+        key === selectedKey;
+
+
+      const text =
+        document.createElement(
+          "span"
+        );
+
+
+      text.textContent =
+        field.label ||
+        key;
+
+
+      row.appendChild(
+        radio
+      );
+
+
+      row.appendChild(
+        text
+      );
+
+
+      container.appendChild(
+        row
+      );
+
+
+      /* ---------------------------------------------------
+         CONDITIONAL FIELDS
+         --------------------------------------------------- */
+
+      const conditional =
+        document.createElement(
+          "div"
+        );
+
+
+      conditional.className =
+        "conditional-fields";
+
+
+      const childOrder =
+        field.fields?._order ||
+        [];
+
+
+      const childOptions =
+        field.fields?.options ||
+        {};
+
+
+      /*
+       * IMPORTANT:
+       *
+       * Children are NOT radio buttons.
+       *
+       * They are normal text / textarea
+       * fields shown when their parent
+       * radio is selected.
+       */
+
+      childOrder.forEach(
+        childKey => {
+
+          const child =
+            childOptions[
+              childKey
+            ];
+
+
+          if(!child){
+            return;
+          }
+
+
+          conditional.appendChild(
+            createConditionalField(
+              childKey,
+              child,
+              `conditional_${methodName}_${key}`
+            )
+          );
+
+        }
+      );
+
+
+      /*
+       * No child fields = no conditional
+       * content.
+       */
+
+      if(
+        !childOrder.length
+      ){
+
+        conditional.style.display =
+          "none";
+
+      }else{
+
+        conditional.style.display =
+          key === selectedKey
+            ? "block"
+            : "none";
+
+      }
+
+
+      conditionalContainers[
+        key
+      ] =
+        conditional;
+
+
+      container.appendChild(
+        conditional
+      );
+
+
+      /* ---------------------------------------------------
+         CHANGE RADIO
+         --------------------------------------------------- */
+
+      radio.onchange =
+        () => {
+
+          STATE.selectedStatus[
+            methodName
+          ] =
+            key;
+
+
+          Object.entries(
+            conditionalContainers
+          ).forEach(
+            ([otherKey,element]) => {
+
+              element.style.display =
+                otherKey === key
+                  ? "block"
+                  : "none";
+
+            }
+          );
+
+        };
+
+    }
+  );
+
+
+  return container;
+
+}
+
+
+/* =========================================================
+   RENDER PREVIEW
+   ========================================================= */
+
+function renderPreview(){
+
+  const box =
+    $("previewContainer");
+
+
+  box.innerHTML = "";
+
+
+  $("previewJobType")
+    .textContent =
+      STATE.jobType ||
+      "NOV";
+
+
+  if(
+    !Object.keys(
+      STATE.methods
+    ).length
+  ){
+
+    box.innerHTML =
+      '<div class="empty">Add a delivery method to preview the real form.</div>';
+
+    return;
+
+  }
+
+
+  /* =======================================================
+     DELIVERY METHOD RADIO GROUP
+     ======================================================= */
+
+  const title =
+    document.createElement(
+      "div"
+    );
+
+
+  title.className =
+    "delivery-title";
+
+
+  title.textContent =
+    "Delivery Method";
+
+
+  box.appendChild(
+    title
+  );
+
+
+  const deliveryGroup =
+    document.createElement(
+      "div"
+    );
+
+
+  Object.keys(
+    STATE.methods
+  ).forEach(
+    name => {
+
+      const row =
+        document.createElement(
+          "label"
+        );
+
+
+      row.className =
+        "driver-radio-line";
+
+
+      const radio =
+        document.createElement(
+          "input"
+        );
+
+
+      radio.type =
+        "radio";
+
+
+      radio.name =
+        "delivery_preview";
+
+
+      radio.checked =
+        name ===
+        STATE.selectedMethod;
+
+
+      const text =
+        document.createElement(
+          "span"
+        );
+
+
+      text.textContent =
+        name;
+
+
+      row.appendChild(
+        radio
+      );
+
+
+      row.appendChild(
+        text
+      );
+
+
+      deliveryGroup.appendChild(
+        row
+      );
+
+
+      radio.onchange =
+        () => {
+
+          STATE.selectedMethod =
+            name;
+
+
+          if(
+            !STATE.selectedStatus[name]
+          ){
+
+            STATE.selectedStatus[name] =
+              getSelectedStatus(
+                name,
+                STATE.methods[name]
+              );
+
+          }
+
+
+          render();
+
+        };
+
+    }
+  );
+
+
+  box.appendChild(
+    deliveryGroup
+  );
+
+
+  /* =======================================================
+     SELECTED DELIVERY METHOD
+     ======================================================= */
+
+  const method =
+    STATE.methods[
+      STATE.selectedMethod
+    ];
+
+
+  if(!method){
+    return;
+  }
+
+
+  shape(method);
+
+
+  /*
+   * Normal fields are displayed first.
+   *
+   * Radio fields are NOT rendered here.
+   *
+   * They are rendered together below as
+   * ONE main status radio group.
+   */
+
+  method._order.forEach(
+    fieldKey => {
+
+      const field =
+        method.fields[
+          fieldKey
+        ];
+
+
+      if(!field){
+        return;
+      }
+
+
+      if(
+        field.type === "radio"
+      ){
+
+        return;
+
+      }
+
+
+      box.appendChild(
+        createDriverField(
+          fieldKey,
+          field
+        )
+      );
+
+    }
+  );
+
+
+  /* =======================================================
+     MAIN STATUS RADIO GROUP
+     ======================================================= */
+
+  const statusGroup =
+    createStatusRadioGroup(
+      STATE.selectedMethod,
+      method
+    );
+
+
+  box.appendChild(
+    statusGroup
+  );
+
+}
+
+
+/* =========================================================
+   JSON
+   ========================================================= */
+
+function renderJSON(){
+
+  const output = {
+
+    [
+      STATE.jobType ||
+      "JOBTYPE"
+    ]:
+      STATE.methods
+
+  };
+
+
+  $("jsonPreview")
+    .textContent =
+      JSON.stringify(
+        output,
+        null,
+        2
+      );
+
+}
+
+
+/* =========================================================
+   COPY JSON
+   ========================================================= */
+
+window.copyJSON =
+  async () => {
+
+    const output = {
+
+      [
+        STATE.jobType ||
+        "JOBTYPE"
+      ]:
+        STATE.methods
+
+    };
+
+
+    try{
+
+      await navigator.clipboard.writeText(
+        JSON.stringify(
+          output,
+          null,
+          2
+        )
+      );
+
+
+      alert(
+        "JSON copied."
+      );
+
+
+    }catch(error){
+
+      console.error(
+        error
+      );
+
+
+      alert(
+        "Unable to copy JSON."
+      );
+
+    }
+
+  };
+
+
+/* =========================================================
+   LOAD
+   ========================================================= */
+
+window.loadConfigForEdit =
+  async () => {
+
+    const jt =
+      $("jobTypeInput")
+        .value
+        .trim();
+
+
+    if(!jt){
+
+      alert(
+        "Enter Job Type."
+      );
+
+      return;
+
+    }
+
+
+    try{
+
+      const snap =
+        await get(
+          ref(
+            db,
+            `config/driverUI/jobTypes/${jt}/deliveryMethods`
+          )
+        );
+
+
+      if(
+        !snap.exists()
+      ){
+
+        alert(
+          `No configuration found for ${jt}.`
+        );
+
+        return;
+
+      }
+
+
+      STATE.jobType =
+        jt;
+
+
+      STATE.methods =
+        snap.val() ||
+        {};
+
+
+      STATE.selectedMethod =
+        Object.keys(
+          STATE.methods
+        )[0] ||
+        null;
+
+
+      STATE.selectedStatus =
+        {};
+
+
+      Object.entries(
+        STATE.methods
+      ).forEach(
+        ([name,method]) => {
+
+          normalizeForRTDB(
+            method
+          );
+
+
+          STATE.selectedStatus[name] =
+            getSelectedStatus(
+              name,
+              method
+            );
+
+        }
+      );
+
+
+      render();
+
+
+      alert(
+        "Configuration loaded."
+      );
+
+
+    }catch(error){
+
+      console.error(
+        error
+      );
+
+
+      alert(
+        "Failed to load configuration. Check Firebase access."
+      );
+
+    }
+
+  };
+
+
+/* =========================================================
+   RESET
+   ========================================================= */
+
+window.resetBuilder =
+  () => {
+
+    if(
+      !confirm(
+        "Clear current template?"
+      )
+    ){
+
+      return;
+
+    }
+
+
+    STATE.jobType =
+      "";
+
+    STATE.methods =
+      {};
+
+    STATE.selectedMethod =
+      null;
+
+    STATE.selectedStatus =
+      {};
+
+
+    $("jobTypeInput")
+      .value = "";
+
+
+    $("deliveryMethodInput")
+      .value = "";
+
+
+    $("newFieldLabel")
+      .value = "";
+
+
+    render();
+
+  };
+
+
+/* =========================================================
+   SAVE
+   ========================================================= */
+
+window.saveConfig =
+  async () => {
+
+    const jt =
+      $("jobTypeInput")
+        .value
+        .trim() ||
+      STATE.jobType;
+
+
+    if(!jt){
+
+      alert(
+        "Enter Job Type."
+      );
+
+      return;
+
+    }
+
+
+    if(
+      !Object.keys(
+        STATE.methods
+      ).length
+    ){
+
+      alert(
+        "Add at least one delivery method."
+      );
+
+      return;
+
+    }
+
+
+    STATE.jobType =
+      jt;
+
+
+    /*
+     * Normalize but DO NOT alter
+     * the intended RTDB structure.
+     */
+
+    Object.values(
+      STATE.methods
+    ).forEach(
+      normalizeForRTDB
+    );
+
+
+    try{
+
+      await update(
+
+        ref(
+          db,
+          `config/driverUI/jobTypes/${jt}`
+        ),
+
+        {
+
+          deliveryMethods:
+            STATE.methods,
+
+          updatedAt:
+            new Date()
+              .toISOString()
+
+        }
+
+      );
+
+
+      alert(
+        "✅ Configuration saved."
+      );
+
+
+    }catch(error){
+
+      console.error(
+        error
+      );
+
+
+      alert(
+        "❌ Save failed. Check Firebase permissions."
+      );
+
+    }
+
+  };
+
+
+/* =========================================================
+   INITIAL
+   ========================================================= */
+
+render();
+
+</script>
+
+</body>
+</html>
