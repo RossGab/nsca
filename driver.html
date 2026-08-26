@@ -629,7 +629,7 @@ import {
 import { getStorage, ref as sRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js";
 import { increment } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
   
-const VERSION = "V.R.0.0.16.1.4.0";
+const VERSION = "V.R.0.0.16.1.4.2";
 const BILLING_CACHE = {};
 window.BILLING_CACHE = BILLING_CACHE;
 const DRIVER_UI_CACHE = {};
@@ -1729,8 +1729,14 @@ function applyFiltersOnly() {
   // correct date
   if (t.dateKey !== dateKey) return false;
 
-  // hide completed
-  if (resolveStatus(t) === "COMPLETED") return false;
+  // Search and the working list contain ongoing tasks only. Locally completed
+  // records stay safely in IndexedDB and in the upload queue.
+  const taskStatus = resolveStatus(t);
+  if (
+    taskStatus === "COMPLETED" ||
+    taskStatus === "SYNC_PENDING" ||
+    taskStatus === "EXPORTED"
+  ) return false;
 
   return true;
 });
@@ -6826,18 +6832,73 @@ function canUploadNow() {
   }
   return true;
 }
-function matchesSearch(task, term) {
-  if (!term) return true;
-  term = term.toLowerCase();
+const TASK_SEARCH_INDEX = new WeakMap();
 
-  return (
-    String(task.CUSTOMERNAME || "").toLowerCase().includes(term) ||
-    String(task.ADDRESS || "").toLowerCase().includes(term) ||
-    String(task.ACCOUNTNUMBER || "").toLowerCase().includes(term) ||
-    String(task.METERNUMBER || "").toLowerCase().includes(term) ||
-    String(task.DMZ || "").toLowerCase().includes(term) ||
-    String(task.SEQUENCE || "").toLowerCase().includes(term)
-  );
+function buildTaskSearchText(task) {
+  if (!task || typeof task !== "object") return "";
+
+  const cached = TASK_SEARCH_INDEX.get(task);
+  if (cached !== undefined) return cached;
+
+  const values = [];
+  const visited = new WeakSet();
+
+  function collect(value) {
+    if (value === null || value === undefined) return;
+
+    const type = typeof value;
+    if (type === "string" || type === "number" || type === "boolean" || type === "bigint") {
+      values.push(String(value));
+      return;
+    }
+
+    if (value instanceof Date) {
+      values.push(value.toISOString());
+      return;
+    }
+
+    // Photo blobs and binary buffers are stored separately and must not be
+    // converted into search text on memory-limited phones.
+    if (
+      value instanceof Blob ||
+      value instanceof ArrayBuffer ||
+      ArrayBuffer.isView(value)
+    ) return;
+
+    if (type !== "object" || visited.has(value)) return;
+    visited.add(value);
+
+    // Include readable Firestore timestamp values.
+    if (typeof value.toDate === "function") {
+      try {
+        collect(value.toDate());
+        return;
+      } catch {}
+    }
+
+    for (const [key, child] of Object.entries(value)) {
+      values.push(key);
+      collect(child);
+    }
+  }
+
+  collect(task);
+  const searchText = values.join(" ").toLowerCase();
+  TASK_SEARCH_INDEX.set(task, searchText);
+  return searchText;
+}
+
+function matchesSearch(task, term) {
+  const words = String(term || "")
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  if (!words.length) return true;
+
+  const searchText = buildTaskSearchText(task);
+  return words.every(word => searchText.includes(word));
 }
   
 async function renderDynamicDelivery(t) {
