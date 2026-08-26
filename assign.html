@@ -1,0 +1,1461 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Manage Tasks</title>
+
+<style>
+body {
+  font-family: Arial, sans-serif;
+  background:#f3f3f3;
+  padding:10px;
+}
+
+h2 { text-align:center; }
+
+.panel {
+  background:#fff;
+  padding:14px;
+  border-radius:10px;
+  box-shadow:0 0 4px rgba(0,0,0,.1);
+  margin-bottom:12px;
+}
+
+.blue { border-left:5px solid #007bff; }
+
+.small-btn {
+  background:#444;
+  color:#fff;
+  padding:6px 10px;
+  border:none;
+  border-radius:6px;
+  font-size:13px;
+}
+
+table {
+  width:100%;
+  border-collapse:collapse;
+  font-size:12px;
+}
+
+th, td {
+  border-bottom:1px solid #eee;
+  padding:6px;
+  text-align:left;
+  white-space:nowrap;
+}
+
+th {
+  background:#f5f5f5;
+  font-weight:bold;
+}
+
+tr:hover { background:#f9f9f9; }
+
+#bulkBtn {
+  background:#007bff;
+  color:#fff;
+  border:none;
+  border-radius:6px;
+  padding:10px 14px;
+  font-weight:bold;
+}
+
+#bulkBtn:disabled { background:#aaa; }
+
+.actions {
+  display:flex;
+  gap:6px;
+  flex-wrap:wrap;
+}
+
+select, input[type="date"] {
+  padding:8px;
+  border-radius:6px;
+  border:1px solid #ccc;
+  font-size:13px;
+}
+</style>
+</head>
+
+<body>
+
+<h2>Manage Tasks V_R_1.0.13.2-WIP</h2>
+
+<button onclick="location.href='admin_selected_v2.html'" class="small-btn">⬅ Back</button>
+
+<!-- BULK UPLOAD -->
+<div class="panel">
+  <b>📤 Bulk Upload Tasks</b><br>
+
+  <div style="
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:10px;
+    flex-wrap:wrap;
+    margin-top:6px;
+  ">
+
+    <!-- LEFT SIDE -->
+    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+      <input type="file" id="csvFile" accept=".csv">
+
+      <button onclick="uploadCSV(this)" style="
+        padding:8px 12px;
+        border-radius:6px;
+        border:1px solid #ccc;
+        background:#f5f5f5;
+        cursor:pointer;
+      ">
+        Upload CSV
+      </button>
+    </div>
+
+  </div>
+
+  <div id="uploadStatus" style="font-size:13px;margin-top:6px;"></div>
+</div>
+
+<!-- FILTERS + BULK ACTION -->
+<div class="panel blue">
+  <div class="actions">
+    <input type="date" id="filterDateFrom">
+    <input type="date" id="filterDateTo">
+    <button id="loadBtn" onclick="loadTasks()" style="
+  background:#28a745;
+  color:#fff;
+  border:none;
+  border-radius:6px;
+  padding:8px 12px;
+  font-weight:bold;
+">
+  🔄 Load Tasks
+</button>
+    <select id="filterDriver"><option value="">All Drivers</option></select>
+    <select id="filterJob"><option value="">All Job Types</option></select>
+    <select id="filterBA"><option value="">All BA</option></select>
+    <select id="filterDMZ"><option value="">All DMZ</option></select>
+    <select id="filterMRU"><option value="">All MRU</option></select>
+    <button id="bulkBtn" disabled onclick="openBulkActions()">Bulk Action</button>
+    <span id="selectedCount" style="font-size:12px;color:#555;"></span>
+    <input
+  type="text"
+  id="searchBox"
+  placeholder="Search customer, address, account, meter…"
+  style="min-width:220px;"
+>
+  </div>
+</div>
+
+<!-- TASK TABLE -->
+  <div style="font-size:12px;color:#777;text-align:center;">
+  Bulk actions apply to ALL selected rows
+</div>
+  <div id="paginationControls"
+     style="margin-top:10px;text-align:center;"></div>
+<div class="panel">
+  <div style="display:flex;align-items:center;gap:10px;">
+  <input type="checkbox" id="checkAll">
+  <b>📝Open Tasks</b>
+</div>
+
+<div id="loadingBar" style="display:none;margin-bottom:10px;">
+
+  <div style="
+    position:relative;
+    height:20px;
+    background:#eee;
+    border-radius:6px;
+    overflow:hidden;
+  ">
+
+    <!-- progress -->
+    <div id="loadingProgress" style="
+      height:100%;
+      width:0%;
+      background:#007bff;
+      transition:width 0.3s;
+    "></div>
+
+    <!-- text overlay -->
+    <div id="loadingText" style="
+      position:absolute;
+      top:0;
+      left:0;
+      width:100%;
+      height:100%;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-size:12px;
+      color:#fff;
+      font-weight:bold;
+      pointer-events:none;
+    ">
+      Loading tasks...
+    </div>
+
+  </div>
+
+</div>
+  
+<div id="taskList" style="margin-top:6px;"></div>
+
+
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+
+<script type="module">
+import { initializeApp } from
+  "https://www.gstatic.com/firebasejs/12.9.0/firebase-app.js";
+
+import {
+  initializeFirestore,
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  query,
+  where,
+  orderBy,
+  limit,
+  startAfter,
+  writeBatch,
+  setDoc,
+  updateDoc,
+  deleteDoc,
+  serverTimestamp
+} from
+"https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyDFW61pnwLvh6HGKWt10zLYNr860fI8vkg",
+  authDomain: "driva-pwa.firebaseapp.com",
+  databaseURL: "https://driva-pwa-default-rtdb.firebaseio.com",
+  projectId: "driva-pwa",
+  storageBucket: "driva-pwa.firebasestorage.app",
+  messagingSenderId: "299138219722",
+  appId: "1:299138219722:web:623ff6b0a067ea822dfe33"
+};
+
+
+const app = initializeApp(firebaseConfig);
+
+const db = initializeFirestore(
+  app,
+  {},
+  "drver-task"
+);
+
+console.log("Firestore database initialized:", db);
+
+const bulkBtn = document.getElementById("bulkBtn");
+
+const filterDateFrom = document.getElementById("filterDateFrom");
+const filterDateTo = document.getElementById("filterDateTo");
+const filterDriver = document.getElementById("filterDriver");
+const filterJob = document.getElementById("filterJob");
+const filterBA = document.getElementById("filterBA");
+const filterDMZ = document.getElementById("filterDMZ");
+const filterMRU = document.getElementById("filterMRU");
+
+const checkAll = document.getElementById("checkAll");
+
+const searchBox = document.getElementById("searchBox");
+let SEARCH_TERM = "";
+
+const ROW_HEIGHT = 42;   // adjust if row height changes
+const BUFFER = 10;
+
+const loadingBar = document.getElementById("loadingBar");
+const loadingProgress = document.getElementById("loadingProgress");
+const loadingText = document.getElementById("loadingText");
+const loadBtn = document.getElementById("loadBtn");
+  
+let TASK_MAP = {};
+let LAST_FILTER_HASH = "";
+let VISIBLE_START = 0;
+let VISIBLE_END = 0;
+
+  
+let SELECTED_IDS = new Set();
+
+let SEARCH_TIMER;
+
+searchBox.addEventListener("input", e => {
+  clearTimeout(SEARCH_TIMER);
+
+  SEARCH_TIMER = setTimeout(() => {
+    SEARCH_TERM = e.target.value.toLowerCase().trim();
+    applyFilters();
+  }, 300);
+});
+
+let TASKS = [];
+window.__TASKS_DATA__ = [];
+
+const PAGE_SIZE = 100;
+const FIRESTORE_PAGE_SIZE = 100;
+
+let FIRESTORE_LAST_DOC = null;
+let FIRESTORE_HAS_MORE = false;
+let FIRESTORE_CURRENT_DATE = null;
+let FIRESTORE_PAGE = 0;
+let FIRESTORE_LOADING = false;
+
+let CURRENT_PAGE = 0;
+let FILTERED_TASKS = [];
+
+const today = getTodayPH();
+filterDateFrom.value = today;
+filterDateTo.value = today;
+// Manual load only (via button)
+filterDateFrom.onchange = null;
+filterDateTo.onchange = null;
+filterDriver.onchange =
+filterJob.onchange =
+filterBA.onchange =
+filterDMZ.onchange =
+filterMRU.onchange = applyFilters;
+
+function getTodayPH() {
+  return new Date().toLocaleDateString("en-CA", {
+    timeZone: "Asia/Manila"
+  });
+}
+
+function normalizeDate(dateStr) {
+  if (!dateStr || typeof dateStr !== "string") return null;
+
+  // 🔥 FAST PATH: already YYYY-MM-DD or ISO
+  if (dateStr.length >= 10) {
+    const part = dateStr.slice(0, 10);
+
+    // quick validation: YYYY-MM-DD
+    if (/^\d{4}-\d{2}-\d{2}$/.test(part)) {
+      return part;
+    }
+  }
+
+  // ❌ skip expensive parsing for bad data
+  return null;
+}
+
+/* ===== PH TIME ===== */
+function toPHTime(ts) {
+
+  if (!ts) return "";
+
+  // Firestore Timestamp
+  if (typeof ts.toDate === "function") {
+    return ts.toDate().toLocaleString("en-PH", {
+      timeZone: "Asia/Manila",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit"
+    });
+  }
+
+  // Normal Date / string
+  const date = ts instanceof Date
+    ? ts
+    : new Date(ts);
+
+  if (isNaN(date.getTime())) {
+    return "";
+  }
+
+  return date.toLocaleString("en-PH", {
+    timeZone: "Asia/Manila",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  });
+}
+
+async function loadLiveTasksFromFirebase(
+  dateKey,
+  onProgress,
+  direction = "first"
+) {
+
+  if (FIRESTORE_LOADING) {
+    console.log("🔥 Firestore load already running");
+    return [];
+  }
+
+  FIRESTORE_LOADING = true;
+
+  try {
+
+    const firestoreDate =
+      `${dateKey.slice(0, 4)}-${dateKey.slice(4, 6)}-${dateKey.slice(6, 8)}`;
+
+    console.log(
+      `🔥 Firestore ${direction}: ${firestoreDate}`
+    );
+
+    const tasksRef = collection(db, "TASK");
+
+    let q;
+
+    if (
+      direction === "first" ||
+      !FIRESTORE_LAST_DOC
+    ) {
+
+      q = query(
+        tasksRef,
+        where("assignedDate", "==", firestoreDate),
+        orderBy("createdAt"),
+        limit(FIRESTORE_PAGE_SIZE)
+      );
+
+    } else {
+
+      q = query(
+        tasksRef,
+        where("assignedDate", "==", firestoreDate),
+        orderBy("createdAt"),
+        startAfter(FIRESTORE_LAST_DOC),
+        limit(FIRESTORE_PAGE_SIZE)
+      );
+
+    }
+
+    const snapshot = await getDocs(q);
+
+    const results = [];
+
+    snapshot.forEach(docSnap => {
+
+      results.push({
+        _key: docSnap.id,
+        ...docSnap.data()
+      });
+
+    });
+
+    if (snapshot.docs.length > 0) {
+      FIRESTORE_LAST_DOC =
+        snapshot.docs[snapshot.docs.length - 1];
+    }
+
+    FIRESTORE_HAS_MORE =
+      snapshot.docs.length === FIRESTORE_PAGE_SIZE;
+
+    FIRESTORE_CURRENT_DATE = dateKey;
+
+    console.log(
+      `🔥 Firestore returned ${results.length} tasks`
+    );
+
+    console.log(
+      `🔥 Has more: ${FIRESTORE_HAS_MORE}`
+    );
+
+    if (onProgress) {
+      onProgress(
+        100,
+        results.length,
+        results.length
+      );
+    }
+
+    return results;
+
+  } catch (e) {
+
+    console.error(
+      "🔥 Firestore load failed:",
+      e
+    );
+
+    return [];
+
+  } finally {
+
+    FIRESTORE_LOADING = false;
+
+  }
+}
+
+/* ===== LOAD TASKS - FIRESTORE ONLY ===== */
+async function loadTasks() {
+  if (loadBtn.disabled) return;
+
+  loadBtn.disabled = true;
+  loadBtn.innerText = "Loading...";
+
+  try {
+    const from = filterDateFrom.value;
+    const to   = filterDateTo.value;
+
+    if (!from || !to) {
+      alert("Select date range");
+
+      loadBtn.disabled = false;
+      loadBtn.innerText = "🔄 Load Tasks";
+      return;
+    }
+
+    document.getElementById("taskList").innerHTML = "";
+    loadingBar.style.display = "block";
+    loadingProgress.style.width = "0%";
+    loadingText.innerText = "Starting...";
+
+    const dateKeys = [];
+
+    for (
+      let d = new Date(from);
+      d <= new Date(to);
+      d.setDate(d.getDate() + 1)
+    ) {
+      dateKeys.push(
+        d.toLocaleDateString("en-CA", {
+          timeZone: "Asia/Manila"
+        }).replace(/-/g, "")
+      );
+    }
+
+    let allTasks = [];
+
+    // 🔥 FIRESTORE ONLY
+    // Load the selected dates directly from Firestore.
+    for (let i = 0; i < dateKeys.length; i++) {
+
+      const key = dateKeys[i];
+
+      // Reset Firestore pagination for every date.
+      FIRESTORE_LAST_DOC = null;
+      FIRESTORE_HAS_MORE = false;
+      FIRESTORE_CURRENT_DATE = null;
+      FIRESTORE_PAGE = 0;
+
+      loadingText.innerText =
+        `Loading Firestore ${i + 1} / ${dateKeys.length}`;
+
+      const result = await loadLiveTasksFromFirebase(
+        key,
+        (p, loaded, total) => {
+
+          const dateProgress =
+            ((i + (p / 100)) / dateKeys.length) * 100;
+
+          loadingProgress.style.width =
+            Math.min(100, dateProgress) + "%";
+
+          loadingText.innerText =
+            `Loading Firestore... (${loaded}/${total})`;
+        },
+        "first"
+      );
+
+      result.forEach(t => {
+        if (t.status !== "COMPLETED") {
+          allTasks.push(t);
+        }
+      });
+    }
+
+    // 🔥 INIT INDEXES
+    window.__TASKS_BY_DATE__ = {};
+    window.__TASKS_BY_DRIVER__ = {};
+    window.__TASKS_BY_JOB__ = {};
+
+    TASK_MAP = {};
+
+    // ===== BUILD INDEXES =====
+    allTasks.forEach(t => {
+
+      TASK_MAP[t._key] = t;
+
+      // ===== CACHE =====
+      let d = normalizeDate(t.createdAt);
+
+      // 🔥 Prefer assignedDate because that is the Firestore
+      // field used by the task query.
+      if (!d && t.assignedDate) {
+        d = normalizeDate(t.assignedDate);
+      }
+
+      // 🔥 fallback to filter date if missing
+      if (!d) {
+        d = filterDateFrom.value;
+      }
+
+      t._date = d;
+
+      if (!window.__TASKS_BY_DATE__[d]) {
+        window.__TASKS_BY_DATE__[d] = [];
+      }
+
+      window.__TASKS_BY_DATE__[d].push(t);
+
+      t._search = Object.values(t)
+        .map(v => (v || "").toString().toLowerCase())
+        .join(" ");
+
+      // ===== DRIVER INDEX =====
+      if (t.agentId) {
+
+        if (!window.__TASKS_BY_DRIVER__[t.agentId]) {
+          window.__TASKS_BY_DRIVER__[t.agentId] = [];
+        }
+
+        window.__TASKS_BY_DRIVER__[t.agentId].push(t);
+      }
+
+      // ===== JOB INDEX =====
+      if (t.jobType) {
+
+        if (!window.__TASKS_BY_JOB__[t.jobType]) {
+          window.__TASKS_BY_JOB__[t.jobType] = [];
+        }
+
+        window.__TASKS_BY_JOB__[t.jobType].push(t);
+      }
+
+    });
+
+    // 🔥 RESET SELECTION STATE
+    SELECTED_IDS.clear();
+    checkAll.checked = false;
+
+    LAST_FILTER_HASH = "";
+
+    // Store the loaded Firestore tasks in the main dataset.
+    window.__TASKS_DATA__ = allTasks;
+
+    buildFilterLists();
+
+    applyFilters();
+
+    loadingProgress.style.width = "100%";
+    loadingText.innerText =
+      `Done (${allTasks.length} tasks loaded)`;
+
+    setTimeout(() => {
+      loadingBar.style.display = "none";
+    }, 500);
+
+  } catch (err) {
+
+    console.error("❌ loadTasks failed:", err);
+    alert("Something went wrong while loading tasks");
+
+  } finally {
+
+    loadBtn.disabled = false;
+    loadBtn.innerText = "🔄 Load Tasks";
+  }
+}
+
+
+checkAll.onchange = () => {
+  const start = CURRENT_PAGE * PAGE_SIZE;
+  const end = start + PAGE_SIZE;
+
+  const pageData = FILTERED_TASKS.slice(start, end);
+
+  if (checkAll.checked) {
+    pageData.forEach(t => SELECTED_IDS.add(t._key));
+  } else {
+    pageData.forEach(t => SELECTED_IDS.delete(t._key));
+  }
+
+  renderCurrentPage();
+};
+
+function renderCurrentPage() {
+  const start = CURRENT_PAGE * PAGE_SIZE;
+  const end = start + PAGE_SIZE;
+
+  const pageData = FILTERED_TASKS.slice(start, end);
+
+  renderTasks(pageData);
+  renderPaginationControls();
+}
+
+function buildFilterLists() {
+  const drivers = new Set();
+  const jobs = new Set();
+  const bas = new Set();
+  const dmzs = new Set();
+  const mrus = new Set();
+
+  const data = window.__TASKS_DATA__ || [];
+
+  // ✅ FIX: LOOP WITH BODY
+  for (let i = 0; i < data.length; i++) {
+    const t = data[i];
+
+    if (t.agentId) drivers.add(t.agentId);
+    if (t.jobType) jobs.add(t.jobType);
+    if (t.ba) bas.add(t.ba);
+    if (t.dmz) dmzs.add(t.dmz);
+    if (t.mru) mrus.add(t.mru);
+  }
+
+  // ✅ populate dropdowns
+  filterDriver.innerHTML = `<option value="">All Drivers</option>`;
+  filterJob.innerHTML = `<option value="">All Job Types</option>`;
+  filterBA.innerHTML = `<option value="">All BA</option>`;
+  filterDMZ.innerHTML = `<option value="">All DMZ</option>`;
+  filterMRU.innerHTML = `<option value="">All MRU</option>`;
+
+  drivers.forEach(v => filterDriver.innerHTML += `<option>${v}</option>`);
+  jobs.forEach(v => filterJob.innerHTML += `<option>${v}</option>`);
+  bas.forEach(v => filterBA.innerHTML += `<option>${v}</option>`);
+  dmzs.forEach(v => filterDMZ.innerHTML += `<option>${v}</option>`);
+  mrus.forEach(v => filterMRU.innerHTML += `<option>${v}</option>`);
+}
+
+function renderPaginationControls() {
+  const el = document.getElementById("paginationControls");
+  if (!el) return;
+
+  const totalPages = Math.ceil(FILTERED_TASKS.length / PAGE_SIZE);
+
+  if (totalPages <= 1) {
+    el.innerHTML = "";
+    return;
+  }
+
+  el.innerHTML = `
+    <button ${CURRENT_PAGE === 0 ? "disabled" : ""}
+      onclick="prevPage()">⬅ Prev</button>
+
+    <span style="margin:0 12px;">
+      Page ${CURRENT_PAGE + 1} of ${totalPages}
+      (${FILTERED_TASKS.length} tasks)
+    </span>
+
+    <button ${CURRENT_PAGE >= totalPages - 1 ? "disabled" : ""}
+      onclick="nextPage()">Next ➡</button>
+  `;
+}
+
+window.prevPage = function () {
+  if (CURRENT_PAGE > 0) {
+    CURRENT_PAGE--;
+    renderCurrentPage();
+  }
+};
+
+window.nextPage = function () {
+  const totalPages = Math.ceil(FILTERED_TASKS.length / PAGE_SIZE);
+  if (CURRENT_PAGE < totalPages - 1) {
+    CURRENT_PAGE++;
+    renderCurrentPage();
+  }
+};
+  
+function applyFilters() {
+
+  const filterHash = JSON.stringify({
+    from: filterDateFrom.value,
+    to: filterDateTo.value,
+    driver: filterDriver.value,
+    job: filterJob.value,
+    ba: filterBA.value,
+    dmz: filterDMZ.value,
+    mru: filterMRU.value,
+    search: SEARCH_TERM
+  });
+
+  const prevPage = CURRENT_PAGE;
+
+  const isSame = filterHash === LAST_FILTER_HASH;
+
+    LAST_FILTER_HASH = filterHash;
+    
+    if (!isSame) {
+      CURRENT_PAGE = 0;
+    }
+
+  let base = [];
+
+// 🔥 PRIORITY: DRIVER → JOB → DATE → ALL
+
+if (filterDriver.value && window.__TASKS_BY_DRIVER__[filterDriver.value]) {
+  base = window.__TASKS_BY_DRIVER__[filterDriver.value];
+}
+else if (filterJob.value && window.__TASKS_BY_JOB__[filterJob.value]) {
+  base = window.__TASKS_BY_JOB__[filterJob.value];
+}
+else {
+  // fallback to date filter
+  const from = filterDateFrom.value;
+  const to   = filterDateTo.value;
+
+  if (from || to) {
+    const start = from || "0000-00-00";
+    const end   = to   || "9999-99-99";
+
+    const map = window.__TASKS_BY_DATE__ || {};
+
+    for (const d in map) {
+      if (d >= start && d <= end) {
+        base.push(...map[d]);
+      }
+    }
+  } else {
+    base = window.__TASKS_DATA__ || [];
+  }
+}
+
+
+
+const hasSearch = !!SEARCH_TERM;
+let result = [];
+
+for (let i = 0; i < base.length; i++) {
+  const t = base[i];
+
+  // DATE
+  if (filterDateFrom.value || filterDateTo.value) {
+    const from = filterDateFrom.value || "0000-00-00";
+    const to   = filterDateTo.value   || "9999-99-99";
+
+    const d = t._date;
+    if (d && (d < from || d > to)) continue;
+  }
+
+  // OTHER FILTERS
+  if (filterDriver.value && t.agentId !== filterDriver.value) continue;
+  if (filterJob.value && t.jobType !== filterJob.value) continue;
+  if (filterBA.value && t.ba !== filterBA.value) continue;
+  if (filterDMZ.value && t.dmz !== filterDMZ.value) continue;
+  if (filterMRU.value && t.mru !== filterMRU.value) continue;
+
+  // SEARCH
+ if (hasSearch && (!t._search || !t._search.includes(SEARCH_TERM))) continue;
+
+  result.push(t);
+}
+
+  FILTERED_TASKS = result;
+
+  const totalPages = Math.ceil(FILTERED_TASKS.length / PAGE_SIZE);
+
+  // 🔥 KEEP PAGE IF STILL VALID
+  if (prevPage < totalPages) {
+    CURRENT_PAGE = prevPage;
+  } else {
+    CURRENT_PAGE = Math.max(0, totalPages - 1);
+  }
+
+  renderCurrentPage();
+}
+
+window.toggleSelect = function (el) {
+  const id = el.dataset.id;
+
+  if (el.checked) {
+    SELECTED_IDS.add(id);
+  } else {
+    SELECTED_IDS.delete(id);
+  }
+
+  checkSelection();
+};
+
+/* ===== RENDER ===== */
+function renderTasks(data) {
+
+  const container =
+    document.getElementById("taskList");
+
+  container.textContent = "";
+
+  if (!data.length) {
+    container.innerHTML =
+      `<div>No matching tasks</div>`;
+    return;
+  }
+
+  const frag =
+    document.createDocumentFragment();
+
+  data.forEach(t => {
+
+    const div =
+      document.createElement("div");
+
+    div.style.cssText = `
+      background:#fff;
+      padding:10px;
+      margin-bottom:8px;
+      border-radius:8px;
+      box-shadow:0 0 4px rgba(0,0,0,.1);
+      border-left:4px solid orange;
+    `;
+
+    div.innerHTML = `
+
+      <!-- HEADER -->
+      <div style="
+        display:flex;
+        justify-content:space-between;
+        align-items:center;
+      ">
+
+        <input
+          type="checkbox"
+          data-id="${t._key}"
+          onchange="toggleSelect(this)"
+        >
+
+        <div style="
+          font-size:11px;
+          color:#777;
+        ">
+          ${t.workStatus || "fordownload"}
+        </div>
+
+      </div>
+
+      <!-- CUSTOMER -->
+      <div>
+        <b>${t.customerName || ""}</b>
+      </div>
+
+      <!-- ADDRESS -->
+      <div style="
+        font-size:12px;
+        color:#555;
+      ">
+        ${t.address || ""}
+      </div>
+
+      <!-- ACCOUNT / METER -->
+      <div style="
+        font-size:12px;
+        margin-top:3px;
+      ">
+        Account:
+        <b>${t.accountNumber || "—"}</b>
+
+        &nbsp;|&nbsp;
+
+        Meter:
+        <b>${t.meterNumber || "—"}</b>
+      </div>
+
+      <!-- DRIVER -->
+      <div style="
+        font-size:12px;
+        margin-top:3px;
+      ">
+        🚗
+        <b>${t.agentId || "—"}</b>
+
+        |
+        ${t.agentName || "—"}
+      </div>
+
+      <!-- JOB INFORMATION -->
+      <div style="
+        font-size:12px;
+        margin-top:3px;
+      ">
+
+        Job:
+        <b>${t.jobType || "—"}</b>
+
+        |
+        BA:
+        <b>${t.ba || "—"}</b>
+
+        |
+        DMZ:
+        <b>${t.dmz || "—"}</b>
+
+        |
+        MRU:
+        <b>${t.mru || "—"}</b>
+
+      </div>
+
+      <!-- SEQUENCE -->
+      <div style="
+        font-size:12px;
+        margin-top:3px;
+      ">
+        Sequence:
+        <b>${t.sequence || "—"}</b>
+      </div>
+
+      <!-- LOCATION -->
+      <div style="
+        font-size:11px;
+        color:#777;
+        margin-top:3px;
+      ">
+
+        📍
+        ${t.latitude ?? "—"},
+        ${t.longitude ?? "—"}
+
+        ${t.zipCode
+          ? `| ZIP: ${t.zipCode}`
+          : ""
+        }
+
+      </div>
+
+      <!-- CREATED -->
+      <div style="
+        font-size:11px;
+        color:#999;
+        margin-top:4px;
+      ">
+
+        Created:
+        ${toPHTime(t.createdAt)}
+
+      </div>
+
+    `;
+
+    frag.appendChild(div);
+
+  });
+
+  container.appendChild(frag);
+
+  // Sync checkbox state
+  const checkboxes =
+    container.querySelectorAll(
+      "input[type=checkbox]"
+    );
+
+  checkboxes.forEach(cb => {
+
+    cb.checked =
+      SELECTED_IDS.has(cb.dataset.id);
+
+  });
+
+  // Sync header checkbox
+  const pageIds =
+    data.map(t => t._key);
+
+  checkAll.checked =
+    pageIds.length > 0 &&
+    pageIds.every(
+      id => SELECTED_IDS.has(id)
+    );
+
+  checkSelection();
+}
+
+/* ===== SELECTION ===== */
+
+const selectedCountEl = document.getElementById("selectedCount");
+
+window.checkSelection = function () {
+  const count = SELECTED_IDS.size;
+
+  bulkBtn.disabled = count === 0;
+
+  selectedCountEl.innerText =
+  count > 0 ? `${count} selected (ALL FILTERED)` : "";
+};
+
+/* ===== BULK ACTION ===== */
+window.openBulkActions = function () {
+  
+  const ids = [...SELECTED_IDS];
+
+  console.log("Selected IDs:", ids);
+  
+  if (!ids.length) return;
+
+  const action = prompt("Type: TRANSFER or DELETE");
+
+  if (!action) return;
+
+  const cmd = action.toUpperCase().trim();
+
+  if (cmd === "DELETE") bulkDelete(ids);
+  else if (cmd === "TRANSFER") bulkTransfer(ids);
+  else alert("Invalid action. Use TRANSFER or DELETE.");
+};
+
+async function bulkDelete(ids) {
+
+  if (!confirm(`Delete ${ids.length} tasks?`)) return;
+
+  try {
+
+    const batch = writeBatch(db);
+
+    ids.forEach(id => {
+
+      const taskRef = doc(db, "TASK", id);
+
+      batch.delete(taskRef);
+    });
+
+    await batch.commit();
+
+    // Remove from local UI
+    ids.forEach(id => {
+      delete TASK_MAP[id];
+    });
+
+    window.__TASKS_DATA__ =
+      window.__TASKS_DATA__.filter(
+        t => !ids.includes(t._key)
+      );
+
+    SELECTED_IDS.clear();
+
+    applyFilters();
+
+    alert(`✅ ${ids.length} tasks deleted.`);
+
+  } catch (error) {
+
+    console.error("❌ Firestore delete failed:", error);
+
+    alert("❌ Failed to delete tasks.");
+
+  }
+}
+
+async function bulkTransfer(ids) {
+
+  const newDriver = prompt("Enter NEW DRIVER ID:");
+
+  if (!newDriver) return;
+
+  try {
+
+    const batch = writeBatch(db);
+
+    ids.forEach(id => {
+
+      const taskRef = doc(db, "TASK", id);
+
+      batch.update(taskRef, {
+        agentId: newDriver,
+        updatedAt: serverTimestamp()
+      });
+
+    });
+
+    await batch.commit();
+
+    // Local update
+    ids.forEach(id => {
+
+      if (TASK_MAP[id]) {
+
+        TASK_MAP[id].agentId = newDriver;
+
+        // Keep compatibility with existing UI
+        TASK_MAP[id].driverId = newDriver;
+
+      }
+
+    });
+
+    SELECTED_IDS.clear();
+
+    applyFilters();
+
+    alert(`✅ ${ids.length} tasks transferred.`);
+
+  } catch (error) {
+
+    console.error("❌ Firestore transfer failed:", error);
+
+    alert("❌ Failed to transfer tasks.");
+
+  }
+}
+
+
+/* ===== BULK UPLOAD ===== */
+const REQUIRED_HEADERS = [
+  "JOBTYPE",
+  "BA",
+  "DMZ",
+  "MRU",
+  "SEQUENCE",
+  "METERNUMBER",
+  "ACCOUNTNUMBER",
+  "CUSTOMERNAME",
+  "ADDRESS",
+  "ZIPCODE",
+  "LATITUDE",
+  "LONGITUDE",
+  "AGENTID",
+  "AGENTNAME"
+];
+
+function appendTasksToLocalState(newTasks) {
+  const existing = new Set(
+    (window.__TASKS_DATA__ || []).map(t => t._key)
+  );
+
+  const unique = newTasks.filter(t => !existing.has(t._key));
+
+  // 🔥 inject into main dataset
+  window.__TASKS_DATA__.push(...unique);
+
+  // 🔥 update TASK_MAP too (important for delete/transfer)
+  unique.forEach(t => {
+    TASK_MAP[t._key] = t;
+  });
+
+  // rebuild filters (so new drivers/jobtypes appear)
+  window.__FILTER_BUILT__ = false;
+  buildFilterLists();
+  window.__FILTER_BUILT__ = true;
+
+  applyFilters();
+}
+
+window.uploadCSV = async function(btn){
+  const file = document.getElementById("csvFile").files[0];
+
+  if (!file) {
+    alert("❌ Please select a CSV file");
+    return;
+  }
+
+  btn.disabled = true;
+  btn.innerText = "Uploading…";
+
+  try {
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: async function(results) {
+
+        const rows = results.data;
+
+        if (!rows.length) {
+          alert("❌ CSV has no data rows");
+          btn.disabled = false;
+          btn.innerText = "Upload CSV";
+          return;
+        }
+
+        /* ===== VALIDATE HEADERS ===== */
+        const headers = Object.keys(rows[0] || {});
+        const missing = REQUIRED_HEADERS.filter(h => !headers.includes(h));
+        const extra = headers.filter(h => !REQUIRED_HEADERS.includes(h));
+
+        if (missing.length) {
+          alert("❌ Missing required columns:\n\n" + missing.join(", "));
+          btn.disabled = false;
+          btn.innerText = "Upload CSV";
+          return;
+        }
+
+        if (extra.length) {
+          alert("❌ Extra columns not allowed:\n\n" + extra.join(", "));
+          btn.disabled = false;
+          btn.innerText = "Upload CSV";
+          return;
+        }
+
+        /* ===== BUILD UPDATES ===== */
+
+        const base = Date.now();
+        
+        const now = new Date().toLocaleString("sv-SE", {
+          timeZone: "Asia/Manila"
+        }).replace(" ", "T");
+        
+        const assignedDate = now.slice(0, 10);
+        
+        // ==========================================
+        // FIRESTORE BULK WRITE
+        // Firestore maximum = 500 writes per batch
+        // ==========================================
+        
+        const BATCH_SIZE = 500;
+        
+        for (
+          let start = 0;
+          start < rows.length;
+          start += BATCH_SIZE
+        ) {
+        
+          const end = Math.min(
+            start + BATCH_SIZE,
+            rows.length
+          );
+        
+          // NEW batch for every 500 tasks
+          const batch = writeBatch(db);
+        
+          console.log(
+            `Creating Firestore batch: ${start + 1}-${end}`
+          );
+        
+          for (
+            let index = start;
+            index < end;
+            index++
+          ) {
+        
+            const task = rows[index];
+        
+            const taskId =
+              `TASK_${base}_${index}`;
+        
+            const taskRef =
+              doc(db, "TASK", taskId);
+        
+            const taskData = {
+        
+              taskId: taskId,
+        
+              jobType: task.JOBTYPE || "",
+              ba: task.BA || "",
+              dmz: task.DMZ || "",
+              mru: task.MRU || "",
+        
+              sequence: task.SEQUENCE || "",
+              meterNumber: task.METERNUMBER || "",
+              accountNumber: task.ACCOUNTNUMBER || "",
+        
+              customerName: task.CUSTOMERNAME || "",
+              address: task.ADDRESS || "",
+              zipCode: task.ZIPCODE || "",
+        
+              latitude:
+                task.LATITUDE === ""
+                  ? null
+                  : Number(task.LATITUDE),
+        
+              longitude:
+                task.LONGITUDE === ""
+                  ? null
+                  : Number(task.LONGITUDE),
+        
+              agentId: task.AGENTID || "",
+              agentName: task.AGENTNAME || "",
+        
+              assignedDate: assignedDate,
+        
+              workStatus: "fordownload",
+        
+              rowIndex: index + 1,
+        
+              uploadBatch: base,
+        
+              createdAt: serverTimestamp(),
+              updatedAt: serverTimestamp()
+            };
+        
+            // Add task to the current batch
+            batch.set(
+              taskRef,
+              taskData
+            );
+          }
+        
+          // Commit AFTER all tasks have been added
+          console.log(
+            `ABOUT TO COMMIT BATCH: ${start + 1}-${end}`
+          );
+        
+          await batch.commit();
+        
+          console.log(
+            `BATCH COMMITTED SUCCESSFULLY: ${start + 1}-${end}`
+          );
+        }
+
+        
+
+        // ✅ Build local task objects (NO DB READ)
+        const newTasks = rows.map((task, index) => {
+
+          const taskId = `TASK_${base}_${index}`;
+        
+          return {
+            _key: taskId,
+        
+            taskId: taskId,
+        
+            jobType: task.JOBTYPE || "",
+            ba: task.BA || "",
+            dmz: task.DMZ || "",
+            mru: task.MRU || "",
+        
+            sequence: task.SEQUENCE || "",
+            meterNumber: task.METERNUMBER || "",
+            accountNumber: task.ACCOUNTNUMBER || "",
+        
+            customerName: task.CUSTOMERNAME || "",
+            address: task.ADDRESS || "",
+            zipCode: task.ZIPCODE || "",
+        
+            latitude: task.LATITUDE === ""
+              ? null
+              : Number(task.LATITUDE),
+        
+            longitude: task.LONGITUDE === ""
+              ? null
+              : Number(task.LONGITUDE),
+        
+            agentId: task.AGENTID || "",
+            agentName: task.AGENTNAME || "",
+        
+            assignedDate: assignedDate,
+        
+            workStatus: "fordownload",
+        
+            rowIndex: index + 1,
+        
+            uploadBatch: base,
+        
+            createdAt: now,
+            updatedAt: now
+          };
+        });
+        
+        // ✅ Inject directly into UI state
+        appendTasksToLocalState(newTasks);
+
+        // 🔁 Ensure filters include upload date
+        filterDateFrom.value = now.slice(0, 10);
+        filterDateTo.value   = now.slice(0, 10);
+        
+        alert(`✅ Upload successful!\n\n${rows.length} tasks added.`);
+        btn.innerText = "✔ Done";
+      }
+    });
+
+  } catch (err) {
+    console.error(err);
+    alert("❌ Upload failed. Check console for details.");
+    btn.disabled = false;
+    btn.innerText = "Upload CSV";
+  }
+};
+
+// 🔥 EXPOSE FUNCTIONS TO HTML BUTTONS
+window.loadTasks = loadTasks;
+window.openBulkActions = openBulkActions;
+window.toggleSelect = toggleSelect;
+
+</script>
+</body>
+</html>
