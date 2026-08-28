@@ -126,6 +126,9 @@ select, input[type="date"] {
   </div>
 
   <div id="uploadStatus" style="font-size:13px;margin-top:6px;"></div>
+  <div id="uploadProgressTrack" style="display:none;height:18px;background:#e5e7eb;border-radius:6px;overflow:hidden;margin-top:8px;">
+    <div id="uploadProgressBar" style="height:100%;width:0%;background:#007bff;transition:width .25s ease;"></div>
+  </div>
 </div>
 
 <!-- FILTERS + BULK ACTION -->
@@ -1253,8 +1256,26 @@ function appendTasksToLocalState(newTasks) {
   applyFilters();
 }
 
+const csvFileInput = document.getElementById("csvFile");
+const uploadStatus = document.getElementById("uploadStatus");
+const uploadProgressTrack = document.getElementById("uploadProgressTrack");
+const uploadProgressBar = document.getElementById("uploadProgressBar");
+
+function updateUploadProgress(percent, message, color = "#007bff") {
+  const safePercent = Math.max(0, Math.min(100, percent));
+  uploadProgressTrack.style.display = "block";
+  uploadProgressBar.style.width = `${safePercent}%`;
+  uploadProgressBar.style.background = color;
+  uploadStatus.textContent = message;
+}
+
+function finishUploadAttempt(btn) {
+  btn.disabled = false;
+  btn.innerText = "Upload CSV";
+}
+
 window.uploadCSV = async function(btn){
-  const file = document.getElementById("csvFile").files[0];
+  const file = csvFileInput.files[0];
 
   if (!file) {
     alert("❌ Please select a CSV file");
@@ -1263,6 +1284,7 @@ window.uploadCSV = async function(btn){
 
   btn.disabled = true;
   btn.innerText = "Uploading…";
+  updateUploadProgress(0, `Reading ${file.name}...`);
 
   try {
     Papa.parse(file, {
@@ -1270,12 +1292,14 @@ window.uploadCSV = async function(btn){
       skipEmptyLines: true,
       complete: async function(results) {
 
+        try {
+
         const rows = results.data;
 
         if (!rows.length) {
           alert("❌ CSV has no data rows");
-          btn.disabled = false;
-          btn.innerText = "Upload CSV";
+          updateUploadProgress(0, "Upload stopped: CSV has no data rows.", "#dc3545");
+          finishUploadAttempt(btn);
           return;
         }
 
@@ -1286,15 +1310,15 @@ window.uploadCSV = async function(btn){
 
         if (missing.length) {
           alert("❌ Missing required columns:\n\n" + missing.join(", "));
-          btn.disabled = false;
-          btn.innerText = "Upload CSV";
+          updateUploadProgress(0, "Upload stopped: required columns are missing.", "#dc3545");
+          finishUploadAttempt(btn);
           return;
         }
 
         if (extra.length) {
           alert("❌ Extra columns not allowed:\n\n" + extra.join(", "));
-          btn.disabled = false;
-          btn.innerText = "Upload CSV";
+          updateUploadProgress(0, "Upload stopped: unexpected columns were found.", "#dc3545");
+          finishUploadAttempt(btn);
           return;
         }
 
@@ -1313,7 +1337,11 @@ window.uploadCSV = async function(btn){
         // Firestore maximum = 500 writes per batch
         // ==========================================
         
-        const BATCH_SIZE = 500;
+        // Smaller batches provide useful progress updates while staying
+        // comfortably below Firestore's 500-write batch limit.
+        const BATCH_SIZE = 100;
+
+        updateUploadProgress(0, `Uploading 0 of ${rows.length} tasks...`);
         
         for (
           let start = 0;
@@ -1397,6 +1425,12 @@ window.uploadCSV = async function(btn){
           );
         
           await batch.commit();
+
+          const percent = Math.round((end / rows.length) * 100);
+          updateUploadProgress(
+            percent,
+            `Uploaded ${end} of ${rows.length} tasks (${percent}%)`
+          );
         
           console.log(
             `BATCH COMMITTED SUCCESSFULLY: ${start + 1}-${end}`
@@ -1449,23 +1483,38 @@ window.uploadCSV = async function(btn){
           };
         });
         
-        // ✅ Inject directly into UI state
-        appendTasksToLocalState(newTasks);
-
         // 🔁 Ensure filters include upload date
         filterDateFrom.value = now.slice(0, 10);
         filterDateTo.value   = now.slice(0, 10);
+
+        // ✅ Inject directly into UI state
+        appendTasksToLocalState(newTasks);
         
+        updateUploadProgress(100, `Upload complete: ${rows.length} tasks added.`, "#28a745");
+        csvFileInput.value = "";
+        finishUploadAttempt(btn);
         alert(`✅ Upload successful!\n\n${rows.length} tasks added.`);
-        btn.innerText = "✔ Done";
+
+        } catch (err) {
+          console.error(err);
+          updateUploadProgress(0, "Upload failed. Check the browser console for details.", "#dc3545");
+          finishUploadAttempt(btn);
+          alert("❌ Upload failed. Check console for details.");
+        }
+      },
+      error: function(err) {
+        console.error(err);
+        updateUploadProgress(0, "Could not read the selected CSV file.", "#dc3545");
+        finishUploadAttempt(btn);
+        alert("❌ Could not read the selected CSV file.");
       }
     });
 
   } catch (err) {
     console.error(err);
+    updateUploadProgress(0, "Upload failed. Check the browser console for details.", "#dc3545");
     alert("❌ Upload failed. Check console for details.");
-    btn.disabled = false;
-    btn.innerText = "Upload CSV";
+    finishUploadAttempt(btn);
   }
 };
 
