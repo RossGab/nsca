@@ -238,9 +238,20 @@ import {
   setDoc,
   updateDoc,
   deleteDoc,
-  serverTimestamp
+  serverTimestamp,
+  Timestamp
 } from
 "https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js";
+
+import {
+  TASK_CACHE_OVERLAP_MS,
+  excludeDeletedTasks,
+  mergeTaskUpdates,
+  readTaskCache,
+  removeTasksFromAllCaches,
+  taskCacheNeedsFullRefresh,
+  writeTaskCache
+} from "./task-cache.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyDFW61pnwLvh6HGKWt10zLYNr860fI8vkg",
@@ -539,6 +550,36 @@ async function loadTasks() {
     }
 
     let allTasks = [];
+    let rangeTasks = [];
+    const cached = await readTaskCache(from, to);
+
+    if (!taskCacheNeedsFullRefresh(cached)) {
+      rangeTasks = cached.tasks || [];
+      const since = Math.max(
+        0,
+        (cached.syncedAt || 0) - TASK_CACHE_OVERLAP_MS
+      );
+      loadingText.innerText =
+        `Checking updates for ${rangeTasks.length} cached tasks...`;
+
+      const snapshot = await getDocs(query(
+        collection(db, "TASK"),
+        where("updatedAt", ">", Timestamp.fromMillis(since)),
+        orderBy("updatedAt")
+      ));
+      const updates = [];
+      snapshot.forEach(docSnap => {
+        updates.push({ _key: docSnap.id, ...docSnap.data() });
+      });
+
+      rangeTasks = mergeTaskUpdates(rangeTasks, updates, from, to);
+      await writeTaskCache(from, to, rangeTasks, {
+        previousFullSyncedAt: cached.fullSyncedAt,
+        previousWatermark: cached.watermarkMillis
+      });
+      loadingProgress.style.width = "100%";
+      loadingText.innerText = `Cache updated (${updates.length} change(s))`;
+    } else {
 
     // 🔥 FIRESTORE ONLY
     // Load the selected dates directly from Firestore.
@@ -572,11 +613,26 @@ async function loadTasks() {
       );
 
       result.forEach(t => {
+        if (t.deleted === true) return;
+        rangeTasks.push(t);
         if (t.status !== "COMPLETED") {
           allTasks.push(t);
         }
       });
+
+      while (FIRESTORE_HAS_MORE) {
+        const nextPage = await loadLiveTasksFromFirebase(key, null, "next");
+        rangeTasks.push(...excludeDeletedTasks(nextPage));
+      }
     }
+
+      await writeTaskCache(from, to, rangeTasks, { full: true });
+    }
+
+    allTasks = rangeTasks.filter(task =>
+      task.status !== "COMPLETED" &&
+      String(task.workStatus || "").toUpperCase() !== "COMPLETED"
+    );
 
     // 🔥 INIT INDEXES
     window.__TASKS_BY_DATE__ = {};
@@ -1120,10 +1176,15 @@ async function bulkDelete(ids) {
 
       const taskRef = doc(db, "TASK", id);
 
-      batch.delete(taskRef);
+      batch.update(taskRef, {
+        deleted: true,
+        deletedAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
     });
 
     await batch.commit();
+    await removeTasksFromAllCaches(ids);
 
     // Remove from local UI
     ids.forEach(id => {

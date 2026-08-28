@@ -179,7 +179,10 @@ async function fetchTasks(from,to){
   const snap=await getDocs(q);
   const tasks=[];
 
-  snap.forEach(docSnap=>tasks.push(normalizeTask(docSnap)));
+  snap.forEach(docSnap=>{
+    const task=normalizeTask(docSnap);
+    if(task.deleted!==true)tasks.push(task);
+  });
 
   tasks.sort((a,b)=>{
     const da=toJSDate(a.createdAt)?.getTime()||0;

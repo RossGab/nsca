@@ -4229,10 +4229,16 @@ async function loadDriverTasksFromFirestore(selectedDate) {
     await getDocs(q);
 
   const tasks = [];
+  const deletedTaskIds = [];
 
   snapshot.forEach(docSnap => {
 
     const data = docSnap.data();
+
+    if (data.deleted === true) {
+      deletedTaskIds.push(docSnap.id);
+      return;
+    }
   
     console.log(
       "🔥 FIRESTORE RAW TASK:",
@@ -4249,6 +4255,10 @@ async function loadDriverTasksFromFirestore(selectedDate) {
   
     tasks.push(normalizedTask);
   });
+
+  for (const taskId of deletedTaskIds) {
+    await deleteTaskFromIndexedDB(taskId);
+  }
 
   // Sort locally instead of using Firestore orderBy().
   // This avoids another composite-index requirement.

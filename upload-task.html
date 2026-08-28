@@ -301,6 +301,9 @@ async function uploadTask(task, relatedPhotos) {
   if (!snapshot.exists()) throw new Error("Task does not exist in Firestore.");
 
   const existing = snapshot.data() || {};
+  if (existing.deleted === true) {
+    return { skipped: true, reason: "task was deleted by an administrator" };
+  }
   const expectedDriver = safeId(task.driverId || exportData.driverId).toUpperCase();
   const actualDriver = safeId(existing.driverId || existing.agentId).toUpperCase();
   if (expectedDriver && actualDriver && expectedDriver !== actualDriver) {
