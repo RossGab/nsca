@@ -1119,6 +1119,15 @@ function completedTaskMillis(task) {
   );
 }
 
+function escapeAdminHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 function renderTaskCompletionTimes(task) {
   if (!task || task.status !== "COMPLETED") return "";
 
@@ -1127,13 +1136,13 @@ function renderTaskCompletionTimes(task) {
   const rows = [];
 
   if (completedAt) {
-    rows.push(`<div class="small" style="color:#18733c;font-weight:600;">Completed: ${escapeHtml(completedAt)}</div>`);
+    rows.push(`<div class="small" style="color:#18733c;font-weight:600;">Completed: ${escapeAdminHtml(completedAt)}</div>`);
   }
   if (uploadedAt) {
-    rows.push(`<div class="small" style="color:#35658f;">Uploaded: ${escapeHtml(uploadedAt)}</div>`);
+    rows.push(`<div class="small" style="color:#35658f;">Uploaded: ${escapeAdminHtml(uploadedAt)}</div>`);
   }
   if (!rows.length && task.updatedAt) {
-    rows.push(`<div class="small" style="color:#18733c;font-weight:600;">Completed/updated: ${escapeHtml(formatFirestoreDate(task.updatedAt))}</div>`);
+    rows.push(`<div class="small" style="color:#18733c;font-weight:600;">Completed/updated: ${escapeAdminHtml(formatFirestoreDate(task.updatedAt))}</div>`);
   }
 
   return rows.join("");
