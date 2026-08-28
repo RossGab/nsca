@@ -1085,6 +1085,40 @@ function formatFirestoreDate(value) {
   }
 }
 
+function firestoreDateMillis(value) {
+  if (!value) return 0;
+
+  try {
+    if (typeof value.toMillis === "function") {
+      return value.toMillis();
+    }
+    if (typeof value.toDate === "function") {
+      return value.toDate().getTime();
+    }
+    if (typeof value.seconds === "number") {
+      return (value.seconds * 1000) +
+        Math.floor((value.nanoseconds || 0) / 1000000);
+    }
+
+    const millis = value instanceof Date
+      ? value.getTime()
+      : new Date(value).getTime();
+
+    return Number.isFinite(millis) ? millis : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function completedTaskMillis(task) {
+  return firestoreDateMillis(
+    task.completedAt ||
+    task.uploadedAt ||
+    task.updatedAt ||
+    task.createdAt
+  );
+}
+
 function renderDynamicCompletedFields(t) {
 
   if (
@@ -1924,6 +1958,14 @@ async function loadAdminPageFromFirestore(status) {
 
   if (FILTER_BA.size) {
     tasks = tasks.filter(t => FILTER_BA.has(t.BA));
+  }
+
+  if (status === "COMPLETED") {
+    tasks.sort((a, b) => {
+      const timeDifference = completedTaskMillis(b) - completedTaskMillis(a);
+      if (timeDifference !== 0) return timeDifference;
+      return String(b._key || "").localeCompare(String(a._key || ""));
+    });
   }
 
   FILTERED_TASK_IDS = tasks.map(t => t._key);
