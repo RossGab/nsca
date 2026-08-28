@@ -1038,6 +1038,7 @@ textarea{
 
 
     <button
+      id="saveConfigBtn"
       class="btn primary"
       onclick="saveConfig()"
     >
@@ -1443,6 +1444,13 @@ import {
 from
 "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 
+import {
+  getAuth,
+  onAuthStateChanged
+}
+from
+"https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+
 
 const app =
   initializeApp({
@@ -1450,14 +1458,50 @@ const app =
     apiKey:
       "AIzaSyDFW61pnwLvh6HGKWt10zLYNr860fI8vkg",
 
+    authDomain:
+      "driva-pwa.firebaseapp.com",
+
+    projectId:
+      "driva-pwa",
+
     databaseURL:
-      "https://driva-pwa-default-rtdb.firebaseio.com"
+      "https://driva-pwa-default-rtdb.firebaseio.com",
+
+    storageBucket:
+      "driva-pwa.firebasestorage.app",
+
+    messagingSenderId:
+      "299138219722",
+
+    appId:
+      "1:299138219722:web:623ff6b0a067ea822dfe33"
 
   });
 
 
 const db =
   getDatabase(app);
+
+const auth =
+  getAuth(app);
+
+const authReady =
+  new Promise((resolve, reject) => {
+
+    const unsubscribe =
+      onAuthStateChanged(
+        auth,
+        user => {
+          unsubscribe();
+          resolve(user);
+        },
+        error => {
+          unsubscribe();
+          reject(error);
+        }
+      );
+
+  });
 
 
 /* =========================================================
