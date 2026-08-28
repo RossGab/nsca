@@ -3932,6 +3932,11 @@ function normalizeFirestoreTask(data, taskId, dateKey) {
       "mru"
     ),
 
+    BG: findValue(
+      "BG",
+      "bg"
+    ),
+
     METERNUMBER: findValue(
       "METERNUMBER",
       "meterNumber",
@@ -4032,6 +4037,11 @@ function normalizeFirestoreTask(data, taskId, dateKey) {
     "mru"
   );
 
+  task.BG = findValue(
+    "BG",
+    "bg"
+  );
+
   task.METERNUMBER = findValue(
     "METERNUMBER",
     "meterNumber",
@@ -4083,6 +4093,7 @@ function normalizeFirestoreTask(data, taskId, dateKey) {
     ADDRESS: task.ADDRESS,
     ACCOUNTNUMBER: task.ACCOUNTNUMBER,
     MRU: task.MRU,
+    BG: task.BG,
     METERNUMBER: task.METERNUMBER,
     DMZ: task.DMZ,
     SEQUENCE: task.SEQUENCE,
@@ -6158,6 +6169,11 @@ function renderDriverTaskMap() {
 
         <br>
 
+        <b>BG:</b>
+        ${task.BG || "—"}
+
+        <br>
+
         <b>Job:</b>
         ${task.JOBTYPE || "—"}
 
@@ -6630,6 +6646,7 @@ function renderOneTask(t) {
     <div class="small">${addressHTML}</div>
     <div class="small"><b>Account #:</b> ${t.ACCOUNTNUMBER || "—"}</div>
     <div class="small"><b>MRU:</b> ${t.MRU || "—"}</div>
+    <div class="small"><b>BG:</b> ${t.BG || "—"}</div>
     <div class="small"><b>Meter #:</b> ${t.METERNUMBER || "—"}</div>
     <div class="small"><b>DMZ:</b> ${t.DMZ || "—"}</div>
     <div class="small"><b>Sequence:</b> ${t.SEQUENCE || "—"}</div>

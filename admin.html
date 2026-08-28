@@ -809,6 +809,7 @@ const EDITABLE_FIELDS = [
   "BA",
   "DMZ",
   "MRU",
+  "BG",
   "SEQUENCE",
   "METERNUMBER",
   "ACCOUNTNUMBER",
@@ -1617,6 +1618,9 @@ function renderTaskDetails(t) {
       <label>MRU</label>
       <input data-field="MRU" value="${t.MRU || ""}" disabled>
 
+      <label>BG</label>
+      <input data-field="BG" value="${t.BG || ""}" disabled>
+
       <label>SEQUENCE</label>
       <input data-field="SEQUENCE" value="${t.SEQUENCE || ""}" disabled>
 
@@ -1703,6 +1707,7 @@ window.revertToPending = async function (taskKey) {
         k !== "BA" &&
         k !== "DMZ" &&
         k !== "MRU" &&
+        k !== "BG" &&
         k !== "SEQUENCE" &&
         k !== "METERNUMBER" &&
         k !== "ACCOUNTNUMBER" &&
@@ -1911,6 +1916,7 @@ window.loadTasks = async function (status) {
           BA: raw.BA ?? raw.ba ?? "",
           DMZ: raw.DMZ ?? raw.dmz ?? "",
           MRU: raw.MRU ?? raw.mru ?? "",
+          BG: raw.BG ?? raw.bg ?? "",
           SEQUENCE: raw.SEQUENCE ?? raw.sequence ?? "",
           METERNUMBER: raw.METERNUMBER ?? raw.meterNumber ?? "",
           ACCOUNTNUMBER: raw.ACCOUNTNUMBER ?? raw.accountNumber ?? "",
@@ -2423,6 +2429,7 @@ window.cancelEdit = function (btn) {
       "BA",
       "DMZ",
       "MRU",
+      "BG",
       "SEQUENCE",
       "METERNUMBER",
       "ACCOUNTNUMBER",
