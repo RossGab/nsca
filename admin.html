@@ -950,11 +950,37 @@ async function loadDriverSnapshot() {
   }
 }
 
-function updateDataSourceStatus(message = "☁ Firestore") {
+const LAST_ADMIN_SYNC_KEY = "nsca-admin-last-task-sync";
+
+function formatLastAdminSync(millis) {
+  return new Date(millis).toLocaleString("en-PH", {
+    timeZone: "Asia/Manila",
+    month: "2-digit",
+    day: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  });
+}
+
+function updateDataSourceStatus(detail = "Firestore", successfulSyncMillis = null) {
   const btn = document.getElementById("dataSourceStatusBtn");
   if (!btn) return;
+
+  if (successfulSyncMillis) {
+    localStorage.setItem(LAST_ADMIN_SYNC_KEY, String(successfulSyncMillis));
+  }
+
+  const lastSync = Number(
+    successfulSyncMillis || localStorage.getItem(LAST_ADMIN_SYNC_KEY) || 0
+  );
+
   btn.className = "snapshot-btn data-fresh";
-  btn.textContent = message;
+  btn.textContent = lastSync
+    ? `☁ Last sync: ${formatLastAdminSync(lastSync)}`
+    : "☁ Not synced yet";
+  btn.title = `${detail}. Click to check for task updates.`;
 }
 
 window.onerror = (msg, src, line) => {
@@ -1968,7 +1994,10 @@ async function loadTasksFromFirestoreLegacy(status) {
 
     renderGlobalBAFilters();
 
-    updateDataSourceStatus("☁ Firestore");
+    updateDataSourceStatus(
+      `Full Firestore fallback loaded ${firestoreTasks.length} task(s)`,
+      Date.now()
+    );
     refreshDashboard();
 
     await loadAdminPageFromFirestore(status);
@@ -2046,7 +2075,10 @@ window.loadTasks = async function (status) {
     if (taskCacheNeedsFullRefresh(cached)) {
       rawTasks = excludeDeletedTasks(await fetchFullTaskRange(dateKeys));
       await writeTaskCache(DATE_FROM, DATE_TO, rawTasks, { full: true });
-      updateDataSourceStatus(`☁ Synced ${rawTasks.length}`);
+      updateDataSourceStatus(
+        `Full sync loaded ${rawTasks.length} task(s)`,
+        Date.now()
+      );
     } else {
       rawTasks = cached.tasks || [];
       const since = Math.max(
@@ -2068,7 +2100,10 @@ window.loadTasks = async function (status) {
         previousFullSyncedAt: cached.fullSyncedAt,
         previousWatermark: cached.watermarkMillis
       });
-      updateDataSourceStatus(`⚡ Cache + ${updates.length} update(s)`);
+      updateDataSourceStatus(
+        `Incremental sync received ${updates.length} update(s)`,
+        Date.now()
+      );
     }
 
     const tasks = rawTasks.map(normalizeAdminCachedTask);
@@ -2086,7 +2121,7 @@ window.loadTasks = async function (status) {
     await loadAdminPageFromFirestore(status);
   } catch (error) {
     console.error("Task cache sync failed:", error);
-    updateDataSourceStatus("☁ Cache unavailable");
+    updateDataSourceStatus("Cache unavailable; using Firestore fallback");
     await loadTasksFromFirestoreLegacy(status);
   } finally {
     hideLoader();
