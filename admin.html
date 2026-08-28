@@ -1119,6 +1119,26 @@ function completedTaskMillis(task) {
   );
 }
 
+function renderTaskCompletionTimes(task) {
+  if (!task || task.status !== "COMPLETED") return "";
+
+  const completedAt = formatFirestoreDate(task.completedAt);
+  const uploadedAt = formatFirestoreDate(task.uploadedAt);
+  const rows = [];
+
+  if (completedAt) {
+    rows.push(`<div class="small" style="color:#18733c;font-weight:600;">Completed: ${escapeHtml(completedAt)}</div>`);
+  }
+  if (uploadedAt) {
+    rows.push(`<div class="small" style="color:#35658f;">Uploaded: ${escapeHtml(uploadedAt)}</div>`);
+  }
+  if (!rows.length && task.updatedAt) {
+    rows.push(`<div class="small" style="color:#18733c;font-weight:600;">Completed/updated: ${escapeHtml(formatFirestoreDate(task.updatedAt))}</div>`);
+  }
+
+  return rows.join("");
+}
+
 function renderDynamicCompletedFields(t) {
 
   if (
@@ -2042,6 +2062,7 @@ function renderAdminTasks(tasks) {
     <b>${t.CUSTOMERNAME || ""}</b>
         <div class="small">${t.ADDRESS || ""}</div>
         <div class="small">Driver: ${t.driverId || "—"}</div>
+        ${renderTaskCompletionTimes(t)}
         ${sla ? `<div class="small ${sla.cls}">⏱ ${sla.text}</div>` : ""}
       </div>
 
