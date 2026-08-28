@@ -646,13 +646,12 @@ async function loadTasks() {
 
       TASK_MAP[t._key] = t;
 
-      // ===== CACHE =====
-      let d = normalizeDate(t.createdAt);
+      // Use the same date field as the Firestore query. createdAt is UTC
+      // and can fall on the previous date before 08:00 in Manila.
+      let d = normalizeDate(t.assignedDate);
 
-      // 🔥 Prefer assignedDate because that is the Firestore
-      // field used by the task query.
-      if (!d && t.assignedDate) {
-        d = normalizeDate(t.assignedDate);
+      if (!d) {
+        d = normalizeDate(t.createdAt);
       }
 
       // 🔥 fallback to filter date if missing
