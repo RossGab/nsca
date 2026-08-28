@@ -1488,7 +1488,9 @@ const auth =
 const authReady =
   new Promise((resolve, reject) => {
 
-    const unsubscribe =
+    let unsubscribe = () => {};
+
+    unsubscribe =
       onAuthStateChanged(
         auth,
         user => {
@@ -3427,6 +3429,19 @@ window.addDeliveryMethod =
     }
 
 
+    const invalidKeyMessage =
+      validateRealtimeDatabaseKey(jt);
+
+
+    if(invalidKeyMessage){
+
+      alert(invalidKeyMessage);
+
+      return;
+
+    }
+
+
     if(!name){
 
       alert(
@@ -4850,6 +4865,37 @@ window.resetBuilder =
    SAVE
    ========================================================= */
 
+function validateRealtimeDatabaseKey(value){
+  const key = String(value || "").trim();
+  if(!key) return "Job Type is required.";
+  if(/[.#$\[\]/\u0000-\u001F\u007F]/.test(key)){
+    return "Job Type cannot contain . # $ [ ] / or control characters.";
+  }
+  if(new TextEncoder().encode(key).length > 768){
+    return "Job Type is too long.";
+  }
+  return "";
+}
+
+function getConfigSaveErrorMessage(error, user){
+  const code = String(error?.code || "");
+  const detail = String(error?.message || error || "Unknown error");
+  const normalized = `${code} ${detail}`.toLowerCase();
+
+  if(normalized.includes("permission")){
+    return user
+      ? `Firebase denied this account (${user.email || user.uid}) permission to save configuration. Ask an administrator to verify its RTDB role/rules.`
+      : "You are not signed in. Sign in with an authorized administrator account, then reopen this page.";
+  }
+  if(normalized.includes("network")){
+    return "The configuration could not reach Firebase. Check the connection and try again.";
+  }
+  if(normalized.includes("unauthenticated")){
+    return "You are not signed in. Sign in with an authorized administrator account, then reopen this page.";
+  }
+  return `Configuration save failed.\n\nCode: ${code || "unknown"}\nDetails: ${detail}`;
+}
+
 window.saveConfig =
   async () => {
 
@@ -4865,6 +4911,19 @@ window.saveConfig =
       alert(
         "Enter Job Type."
       );
+
+      return;
+
+    }
+
+
+    const invalidKeyMessage =
+      validateRealtimeDatabaseKey(jt);
+
+
+    if(invalidKeyMessage){
+
+      alert(invalidKeyMessage);
 
       return;
 
@@ -4902,7 +4961,28 @@ window.saveConfig =
     );
 
 
+    const saveButton =
+      $("saveConfigBtn");
+
+
+    if(saveButton){
+      saveButton.disabled = true;
+      saveButton.textContent = "Saving...";
+    }
+
+
+    let currentUser = null;
+
+
     try{
+
+      currentUser =
+        await authReady;
+
+
+      if(currentUser){
+        await currentUser.getIdToken(true);
+      }
 
       await update(
 
@@ -4926,7 +5006,7 @@ window.saveConfig =
 
 
       alert(
-        "✅ Configuration saved."
+        "Configuration saved."
       );
 
 
@@ -4938,8 +5018,18 @@ window.saveConfig =
 
 
       alert(
-        "❌ Save failed. Check Firebase permissions."
+        getConfigSaveErrorMessage(
+          error,
+          currentUser
+        )
       );
+
+    }finally{
+
+      if(saveButton){
+        saveButton.disabled = false;
+        saveButton.textContent = "Save";
+      }
 
     }
 
