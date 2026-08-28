@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Upload Driver Task Export</title>
+
+<style>
+.upload-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(280px,.65fr);gap:16px}
+.section-title{font-size:16px;font-weight:700;margin-bottom:10px}
+.file-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.file-row input[type="file"]{max-width:100%;padding:9px}
+.button-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+.button-row button{padding:10px 16px;border:0;border-radius:8px;font-weight:700;cursor:pointer}
+.button-row button:disabled{opacity:.55;cursor:not-allowed}
+.load{background:#28a745;color:#fff}.preview{background:#6c757d;color:#fff}.upload{background:#0b5cab;color:#fff}
+.summary{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:14px}
+.summary-item{padding:12px;border:1px solid #d9e2ec;border-radius:9px;background:#f8fafc;text-align:center}
+.summary-value{font-size:22px;font-weight:700;color:#0b5cab}.summary-label{font-size:11px;color:#64748b;text-transform:uppercase}
+#progressBar{width:100%;height:14px;margin-top:16px;border-radius:10px;overflow:hidden;background:#dbe3eb}
+#progressFill{width:0;height:100%;background:#28a745;transition:width .2s ease}
+#progressText{margin-top:5px;color:#555;font-size:12px;text-align:center}
+#status{height:330px;overflow:auto;padding:12px;border-radius:10px;background:#101820;color:#b8ffd9;font:12px/1.55 Consolas,monospace;white-space:pre-wrap}
+.hint{margin-top:10px;color:#64748b;font-size:12px;line-height:1.5}
+.error-text{color:#ff9f9f}.warn-text{color:#ffe28a}.success-text{color:#99f6c6}
+#uploadOverlay{position:fixed;inset:0;z-index:100000;display:none;align-items:center;justify-content:center;padding:20px;background:rgba(15,23,42,.58)}
+#uploadOverlay.visible{display:flex}.loader{width:min(340px,100%);padding:24px;border-radius:14px;background:#fff;text-align:center;box-shadow:0 18px 45px rgba(0,0,0,.25)}
+.spinner{width:42px;height:42px;margin:0 auto 14px;border:4px solid #dbe7f3;border-top-color:#0b5cab;border-radius:50%;animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
+@media(max-width:800px){.upload-grid{grid-template-columns:1fr}.summary{grid-template-columns:1fr 1fr 1fr}}
+@media(max-width:430px){.summary{grid-template-columns:1fr}.button-row button{width:100%}}
+</style>
+<link rel="stylesheet" href="./admin-theme.css">
+</head>
+
+<body>
+<div id="uploadOverlay" role="status" aria-live="polite" aria-hidden="true">
+  <div class="loader">
+    <div class="spinner" aria-hidden="true"></div>
+    <div style="font-weight:700">Uploading completed tasks</div>
+    <div id="overlayMessage" style="margin-top:6px;color:#64748b;font-size:13px">Preparing export...</div>
+  </div>
+</div>
+
+<header class="app-header">
+  <div class="app-brand">
+    <img src="./logo.jpg" class="app-logo" alt="Company Logo">
+    <div class="app-brand-copy">
+      <div class="app-eyebrow">NSCA Task Administration</div>
+      <h1 class="app-title">Upload Driver Task Export <span class="app-version">V.R.1.1.0</span></h1>
+      <p class="app-subtitle">Imports files produced by Driver Sync Option 2.</p>
+    </div>
+  </div>
+  <div class="app-header-actions">
+    <a class="app-nav-button" href="admin.html">Back to Dashboard</a>
+  </div>
+</header>
+
+<main class="upload-grid">
+  <section class="card">
+    <div class="section-title">Select exported JSON file</div>
+    <div class="file-row">
+      <input type="file" id="fileInput" accept=".json,application/json">
+      <span id="fileName">No file selected</span>
+    </div>
+
+    <div class="button-row">
+      <button id="loadBtn" class="load" type="button">Load and Validate</button>
+      <button id="previewBtn" class="preview" type="button" disabled>Preview</button>
+      <button id="uploadBtn" class="upload" type="button" disabled>Upload to Firestore</button>
+    </div>
+
+    <div class="summary">
+      <div class="summary-item"><div id="taskCount" class="summary-value">0</div><div class="summary-label">Tasks</div></div>
+      <div class="summary-item"><div id="photoCount" class="summary-value">0</div><div class="summary-label">Photos</div></div>
+      <div class="summary-item"><div id="driverName" class="summary-value">-</div><div class="summary-label">Driver</div></div>
+    </div>
+
+    <div id="progressBar" aria-label="Upload progress"><div id="progressFill"></div></div>
+    <div id="progressText">0%</div>
+    <p class="hint">Only existing documents in <b>drver-task / TASK</b> are updated. The importer does not create unknown tasks or overwrite original assignment details.</p>
+  </section>
+
+  <section class="card">
+    <div class="section-title">Validation and upload log</div>
+    <div id="status" role="log" aria-live="polite">Ready. Select a Driver Sync Option 2 JSON export.</div>
+  </section>
+</main>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+import {
+  initializeFirestore,
+  doc,
+  getDoc,
+  updateDoc,
+  serverTimestamp
+} from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+import {
+  getStorage,
+  ref as storageRef,
+  uploadBytes,
+  getDownloadURL
+} from "https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyDFW61pnwLvh6HGKWt10zLYNr860fI8vkg",
+  authDomain: "driva-pwa.firebaseapp.com",
+  databaseURL: "https://driva-pwa-default-rtdb.firebaseio.com",
+  projectId: "driva-pwa",
+  storageBucket: "driva-pwa.firebasestorage.app",
+  messagingSenderId: "299138219722",
+  appId: "1:299138219722:web:623ff6b0a067ea822dfe33"
+};
+
+const app = initializeApp(firebaseConfig);
+const firestore = initializeFirestore(app, {}, "drver-task");
+const storage = getStorage(app);
+const auth = getAuth(app);
+
+const authReady = new Promise((resolve, reject) => {
+  let unsubscribe = () => {};
+  unsubscribe = onAuthStateChanged(auth, user => {
+    unsubscribe();
+    resolve(user);
+  }, error => {
+    unsubscribe();
+    reject(error);
+  });
+});
+
+const elements = {
+  fileInput: document.getElementById("fileInput"),
+  fileName: document.getElementById("fileName"),
+  loadBtn: document.getElementById("loadBtn"),
+  previewBtn: document.getElementById("previewBtn"),
+  uploadBtn: document.getElementById("uploadBtn"),
+  taskCount: document.getElementById("taskCount"),
+  photoCount: document.getElementById("photoCount"),
+  driverName: document.getElementById("driverName"),
+  progressFill: document.getElementById("progressFill"),
+  progressText: document.getElementById("progressText"),
+  status: document.getElementById("status"),
+  overlay: document.getElementById("uploadOverlay"),
+  overlayMessage: document.getElementById("overlayMessage")
+};
+
+let exportData = null;
+let isUploading = false;
+
+function appendLog(message, type = "") {
+  const line = document.createElement("div");
+  if (type) line.className = `${type}-text`;
+  line.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+  elements.status.appendChild(line);
+  elements.status.scrollTop = elements.status.scrollHeight;
+}
+
+function resetLog(message = "") {
+  elements.status.textContent = "";
+  if (message) appendLog(message);
+}
+
+function setProgress(current, total, message = "") {
+  const percent = total ? Math.round((current / total) * 100) : 0;
+  elements.progressFill.style.width = `${percent}%`;
+  elements.progressText.textContent = message || `${percent}% (${current}/${total})`;
+  elements.overlayMessage.textContent = message || `Processing ${current} of ${total}`;
+}
+
+function setUploading(active) {
+  isUploading = active;
+  elements.overlay.classList.toggle("visible", active);
+  elements.overlay.setAttribute("aria-hidden", String(!active));
+  document.body.setAttribute("aria-busy", String(active));
+  elements.fileInput.disabled = active;
+  elements.loadBtn.disabled = active;
+  elements.previewBtn.disabled = active || !exportData;
+  elements.uploadBtn.disabled = active || !exportData;
+}
+
+function safeId(value) {
+  return String(value || "").trim();
+}
+
+function parseBase64Photo(value) {
+  if (typeof value !== "string") throw new Error("Photo has no base64 data.");
+  const match = value.match(/^data:([^;,]+);base64,([A-Za-z0-9+/=\s]+)$/);
+  if (!match) throw new Error("Photo is not a valid base64 data URL.");
+
+  const binary = atob(match[2].replace(/\s/g, ""));
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  if (!bytes.length) throw new Error("Photo is empty.");
+  return new Blob([bytes], { type: match[1] || "image/jpeg" });
+}
+
+function validateExport(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("The JSON root must be an object.");
+  }
+  if (!Array.isArray(raw.tasks) || !Array.isArray(raw.photos)) {
+    throw new Error("This is not a Driver Sync Option 2 export: tasks/photos arrays are missing.");
+  }
+  if (!raw.tasks.length) throw new Error("The export contains no completed tasks.");
+
+  const driverId = safeId(raw.driverId);
+  const seenTasks = new Set();
+  const tasks = raw.tasks.map((task, index) => {
+    const taskId = safeId(task?._key);
+    if (!taskId) throw new Error(`Task ${index + 1} has no _key.`);
+    if (taskId.includes("/")) throw new Error(`Task ID ${taskId} contains an invalid slash.`);
+    if (seenTasks.has(taskId)) throw new Error(`Duplicate task ID: ${taskId}`);
+    if (task.status !== "LOCAL_COMPLETED") {
+      throw new Error(`Task ${taskId} is not LOCAL_COMPLETED.`);
+    }
+    if (driverId && safeId(task.driverId).toUpperCase() !== driverId.toUpperCase()) {
+      throw new Error(`Task ${taskId} belongs to a different driver.`);
+    }
+    seenTasks.add(taskId);
+    return { ...task, _key: taskId };
+  });
+
+  const seenPhotos = new Set();
+  const photos = raw.photos.map((photo, index) => {
+    const taskKey = safeId(photo?.taskKey);
+    const photoIndex = Number(photo?.photoIndex);
+    if (!seenTasks.has(taskKey)) throw new Error(`Photo ${index + 1} references unknown task ${taskKey || "(blank)"}.`);
+    if (!Number.isInteger(photoIndex) || photoIndex < 1 || photoIndex > 3) {
+      throw new Error(`Photo for task ${taskKey} has invalid photoIndex ${photo?.photoIndex}.`);
+    }
+    const uniqueKey = `${taskKey}:${photoIndex}`;
+    if (seenPhotos.has(uniqueKey)) throw new Error(`Duplicate photo ${photoIndex} for task ${taskKey}.`);
+    parseBase64Photo(photo.base64);
+    seenPhotos.add(uniqueKey);
+    return { ...photo, taskKey, photoIndex };
+  });
+
+  for (const task of tasks) {
+    if (!photos.some(photo => photo.taskKey === task._key)) {
+      throw new Error(`Task ${task._key} has no exported photos.`);
+    }
+  }
+
+  return {
+    exportedAt: raw.exportedAt || "",
+    driverId: driverId || safeId(tasks[0]?.driverId),
+    tasks,
+    photos
+  };
+}
+
+async function loadFile() {
+  const file = elements.fileInput.files[0];
+  if (!file) return alert("Select a Driver Sync Option 2 JSON file.");
+  if (file.size > 250 * 1024 * 1024) {
+    return alert("The export is larger than 250 MB. Split the driver workload into smaller exports.");
+  }
+
+  exportData = null;
+  elements.previewBtn.disabled = true;
+  elements.uploadBtn.disabled = true;
+  resetLog(`Reading ${file.name}...`);
+
+  try {
+    const raw = JSON.parse(await file.text());
+    exportData = validateExport(raw);
+    elements.taskCount.textContent = exportData.tasks.length.toLocaleString();
+    elements.photoCount.textContent = exportData.photos.length.toLocaleString();
+    elements.driverName.textContent = exportData.driverId || "-";
+    elements.previewBtn.disabled = false;
+    elements.uploadBtn.disabled = false;
+    setProgress(0, exportData.tasks.length);
+    appendLog(`Valid Option 2 export for driver ${exportData.driverId || "unknown"}.`, "success");
+    appendLog(`${exportData.tasks.length} task(s) and ${exportData.photos.length} photo(s) validated.`, "success");
+  } catch (error) {
+    console.error(error);
+    elements.taskCount.textContent = "0";
+    elements.photoCount.textContent = "0";
+    elements.driverName.textContent = "-";
+    appendLog(error.message || String(error), "error");
+    alert(`File validation failed:\n\n${error.message || error}`);
+  }
+}
+
+function previewData() {
+  if (!exportData) return alert("Load and validate a file first.");
+  const firstIds = exportData.tasks.slice(0, 10).map(task => task._key).join("\n");
+  alert(
+    `Driver: ${exportData.driverId || "Unknown"}\n` +
+    `Exported: ${exportData.exportedAt || "Unknown"}\n` +
+    `Tasks: ${exportData.tasks.length}\n` +
+    `Photos: ${exportData.photos.length}\n\n` +
+    `First task IDs:\n${firstIds}`
+  );
+}
+
+async function uploadTask(task, relatedPhotos) {
+  const taskRef = doc(firestore, "TASK", task._key);
+  const snapshot = await getDoc(taskRef);
+  if (!snapshot.exists()) throw new Error("Task does not exist in Firestore.");
+
+  const existing = snapshot.data() || {};
+  const expectedDriver = safeId(task.driverId || exportData.driverId).toUpperCase();
+  const actualDriver = safeId(existing.driverId || existing.agentId).toUpperCase();
+  if (expectedDriver && actualDriver && expectedDriver !== actualDriver) {
+    throw new Error(`Driver mismatch: export=${expectedDriver}, Firestore=${actualDriver}.`);
+  }
+  if (String(existing.status || "").toUpperCase() === "COMPLETED") {
+    return { skipped: true, reason: "already completed" };
+  }
+
+  const updatePayload = { ...(task.deliveryData || {}) };
+  const orderedPhotos = [...relatedPhotos].sort((a, b) => a.photoIndex - b.photoIndex);
+
+  for (const photo of orderedPhotos) {
+    const urlField = `photo${photo.photoIndex}Url`;
+    let url = existing[urlField] || "";
+    const filename = `${task._key}_photo_${photo.photoIndex}.jpg`;
+
+    if (!url) {
+      const blob = parseBase64Photo(photo.base64);
+      const target = storageRef(storage, `tasks/${task._key}/${filename}`);
+      await uploadBytes(target, blob, { contentType: blob.type || "image/jpeg" });
+      url = await getDownloadURL(target);
+    }
+
+    updatePayload[urlField] = url;
+    updatePayload[`photo${photo.photoIndex}Filename`] = filename;
+    updatePayload[`photo${photo.photoIndex}TakenAt`] = photo.takenAt || null;
+    if (photo.gps) updatePayload[`photo${photo.photoIndex}GPS`] = photo.gps;
+  }
+
+  Object.assign(updatePayload, {
+    workStatus: "completed",
+    status: "COMPLETED",
+    forceReopen: false,
+    completedAt: serverTimestamp(),
+    completedBy: task.driverId || exportData.driverId || actualDriver,
+    uploadedAt: serverTimestamp(),
+    updatedAt: serverTimestamp()
+  });
+
+  await updateDoc(taskRef, updatePayload);
+  return { skipped: false };
+}
+
+async function uploadData() {
+  if (!exportData || isUploading) return;
+  if (!navigator.onLine) return alert("Connect this device to the internet before uploading.");
+  if (!confirm(`Upload ${exportData.tasks.length} completed task(s) to Firestore?`)) return;
+
+  resetLog("Starting Firestore import...");
+  setProgress(0, exportData.tasks.length, "Preparing upload...");
+  setUploading(true);
+
+  let completed = 0;
+  let skipped = 0;
+  let failed = 0;
+
+  try {
+    const user = await authReady;
+    if (user) {
+      await user.getIdToken(true);
+      appendLog(`Authenticated as ${user.email || user.uid}.`);
+    } else {
+      appendLog("No Firebase Auth session detected; database rules may reject this upload.", "warn");
+    }
+
+    for (let index = 0; index < exportData.tasks.length; index++) {
+      const task = exportData.tasks[index];
+      const related = exportData.photos.filter(photo => photo.taskKey === task._key);
+      setProgress(index, exportData.tasks.length, `Task ${index + 1} of ${exportData.tasks.length}: ${task._key}`);
+      appendLog(`Processing ${task._key} (${related.length} photo(s))...`);
+
+      try {
+        const result = await uploadTask(task, related);
+        if (result.skipped) {
+          skipped++;
+          appendLog(`${task._key}: skipped (${result.reason}).`, "warn");
+        } else {
+          completed++;
+          appendLog(`${task._key}: completed in Firestore.`, "success");
+        }
+      } catch (error) {
+        failed++;
+        console.error("Task import failed", task._key, error);
+        appendLog(`${task._key}: ${error.code || error.message || error}`, "error");
+      }
+
+      setProgress(index + 1, exportData.tasks.length);
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+
+    appendLog(`Finished: ${completed} completed, ${skipped} skipped, ${failed} failed.`, failed ? "warn" : "success");
+    alert(
+      `Upload finished.\n\nCompleted: ${completed}\nSkipped: ${skipped}\nFailed: ${failed}` +
+      (failed ? "\n\nReview the upload log for failed task IDs." : "")
+    );
+  } catch (error) {
+    console.error(error);
+    appendLog(error.code || error.message || String(error), "error");
+    alert(`Upload could not start:\n\n${error.code || error.message || error}`);
+  } finally {
+    setUploading(false);
+  }
+}
+
+elements.fileInput.addEventListener("change", () => {
+  exportData = null;
+  elements.fileName.textContent = elements.fileInput.files[0]?.name || "No file selected";
+  elements.previewBtn.disabled = true;
+  elements.uploadBtn.disabled = true;
+});
+elements.loadBtn.addEventListener("click", loadFile);
+elements.previewBtn.addEventListener("click", previewData);
+elements.uploadBtn.addEventListener("click", uploadData);
+</script>
+</body>
+</html>
