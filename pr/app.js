@@ -1,258 +1,63 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-import {
-  collection,
-  doc,
-  getDocs,
-  initializeFirestore,
-  query,
-  serverTimestamp,
-  setDoc,
-  where
-} from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+import { collection, doc, getDoc, getDocs, initializeFirestore, query, serverTimestamp, setDoc, where } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
-const firebaseConfig = {
-  apiKey: "AIzaSyDFW61pnwLvh6HGKWt10zLYNr860fI8vkg",
-  authDomain: "driva-pwa.firebaseapp.com",
-  databaseURL: "https://driva-pwa-default-rtdb.firebaseio.com",
-  projectId: "driva-pwa",
-  storageBucket: "driva-pwa.firebasestorage.app",
-  messagingSenderId: "299138219722",
-  appId: "1:299138219722:web:623ff6b0a067ea822dfe33"
-};
+const firebaseConfig={apiKey:"AIzaSyDFW61pnwLvh6HGKWt10zLYNr860fI8vkg",authDomain:"driva-pwa.firebaseapp.com",databaseURL:"https://driva-pwa-default-rtdb.firebaseio.com",projectId:"driva-pwa",storageBucket:"driva-pwa.firebasestorage.app",messagingSenderId:"299138219722",appId:"1:299138219722:web:623ff6b0a067ea822dfe33"};
+const db=initializeFirestore(initializeApp(firebaseConfig),{},"drver-task");
+const peso=new Intl.NumberFormat("en-PH",{style:"currency",currency:"PHP"});
+const $=id=>document.getElementById(id);
+const ui={dateFrom:$("dateFrom"),dateTo:$("dateTo"),loadBtn:$("loadBtn"),saveDraftBtn:$("saveDraftBtn"),finalizeBtn:$("finalizeBtn"),markPaidBtn:$("markPaidBtn"),exportBtn:$("exportBtn"),printBtn:$("printBtn"),searchBox:$("searchBox"),message:$("message"),runStatus:$("runStatus"),periodLabel:$("periodLabel"),payrollBody:$("payrollBody"),employeeCount:$("employeeCount"),workdayCount:$("workdayCount"),taskCount:$("taskCount"),grossTotal:$("grossTotal"),employeeForm:$("employeeForm"),employeeFormTitle:$("employeeFormTitle"),employeeId:$("employeeId"),employeeName:$("employeeName"),employeePosition:$("employeePosition"),employeeStartDate:$("employeeStartDate"),employeeRate:$("employeeRate"),employeeActive:$("employeeActive"),saveEmployeeBtn:$("saveEmployeeBtn"),cancelEmployeeBtn:$("cancelEmployeeBtn"),employeeSearch:$("employeeSearch"),employeeBody:$("employeeBody"),historyBody:$("historyBody"),refreshHistoryBtn:$("refreshHistoryBtn")};
+let employees=new Map(),payrollRows=[],payrollHistory=[],editingEmployeeId="",currentRun=null;
 
-const app = initializeApp(firebaseConfig);
-const db = initializeFirestore(app, {}, "drver-task");
-const peso = new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" });
+function esc(v){return String(v??"").replace(/[&<>'"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"})[c]);}
+function todayPH(){return new Date().toLocaleDateString("en-CA",{timeZone:"Asia/Manila"});}
+function money(v){return peso.format(Number(v)||0);}
+function dateText(v){if(!v)return "—";const d=typeof v.toDate==="function"?v.toDate():new Date(v);return isNaN(d)?"—":d.toLocaleString("en-PH",{timeZone:"Asia/Manila"});}
+function message(text,type=""){ui.message.className=`message${type?` ${type}`:""}`;ui.message.textContent=text;}
+function taskDriver(task){return String(task.completedBy||task.agentId||task.driverId||"").trim();}
+function completed(task){return String(task.status||"").toUpperCase()==="COMPLETED"||String(task.workStatus||"").toUpperCase()==="COMPLETED";}
+function runId(){return `${ui.dateFrom.value}_${ui.dateTo.value}`;}
 
-const ui = {
-  dateFrom: document.getElementById("dateFrom"),
-  dateTo: document.getElementById("dateTo"),
-  loadBtn: document.getElementById("loadBtn"),
-  exportBtn: document.getElementById("exportBtn"),
-  printBtn: document.getElementById("printBtn"),
-  searchBox: document.getElementById("searchBox"),
-  message: document.getElementById("message"),
-  body: document.getElementById("payrollBody"),
-  employeeCount: document.getElementById("employeeCount"),
-  workdayCount: document.getElementById("workdayCount"),
-  taskCount: document.getElementById("taskCount"),
-  grossTotal: document.getElementById("grossTotal")
-};
+function showView(id){document.querySelectorAll(".view").forEach(v=>v.classList.toggle("hidden",v.id!==id));document.querySelectorAll(".tab").forEach(t=>t.classList.toggle("active",t.dataset.view===id));if(id==="employeesView")loadEmployees();if(id==="historyView")loadHistory();}
+document.querySelectorAll(".tab").forEach(tab=>tab.addEventListener("click",()=>showView(tab.dataset.view)));
 
-let payrollRows = [];
-
-function todayPH() {
-  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Manila" });
+async function loadEmployees(){
+  ui.employeeBody.innerHTML='<tr><td colspan="7" class="empty">Loading employees...</td></tr>';
+  try{
+    const snap=await getDocs(collection(db,"payrollEmployees"));employees=new Map();
+    snap.forEach(d=>{const data=d.data()||{};const id=String(data.employeeId||d.id).trim();employees.set(id.toUpperCase(),{...data,employeeId:id});});
+    renderEmployees();
+  }catch(error){console.error(error);ui.employeeBody.innerHTML='<tr><td colspan="7" class="empty">Unable to load employees.</td></tr>';message("Unable to load payroll employees.","error");}
 }
-
-function firstDayOfMonth(dateText) {
-  return `${dateText.slice(0, 7)}-01`;
+function renderEmployees(){
+  const term=ui.employeeSearch.value.trim().toLowerCase();const rows=[...employees.values()].filter(e=>`${e.employeeId} ${e.name} ${e.position}`.toLowerCase().includes(term)).sort((a,b)=>a.employeeId.localeCompare(b.employeeId));
+  ui.employeeBody.innerHTML=rows.length?rows.map(e=>`<tr><td><strong>${esc(e.employeeId)}</strong></td><td>${esc(e.name)}</td><td>${esc(e.position||"—")}</td><td>${esc(e.startDate||"—")}</td><td class="number">${money(e.dailyRate)}</td><td><span class="status-pill ${e.active===false?"inactive":"active"}">${e.active===false?"Inactive":"Active"}</span></td><td><div class="action-row"><button class="small-btn" data-edit="${esc(e.employeeId)}">Edit</button><button class="small-btn" data-toggle="${esc(e.employeeId)}">${e.active===false?"Activate":"Deactivate"}</button></div></td></tr>`).join(""):'<tr><td colspan="7" class="empty">No employees found.</td></tr>';
 }
-
-function safeText(value) {
-  return String(value ?? "").replace(/[&<>'"]/g, char => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;"
-  })[char]);
+function resetEmployeeForm(){editingEmployeeId="";ui.employeeForm.reset();ui.employeeActive.checked=true;ui.employeeId.readOnly=false;ui.employeeFormTitle.textContent="Add Employee";ui.saveEmployeeBtn.textContent="Save Employee";ui.cancelEmployeeBtn.classList.add("hidden");}
+function editEmployee(id){const e=employees.get(id.toUpperCase());if(!e)return;editingEmployeeId=e.employeeId;ui.employeeId.value=e.employeeId;ui.employeeId.readOnly=true;ui.employeeName.value=e.name||"";ui.employeePosition.value=e.position||"";ui.employeeStartDate.value=e.startDate||"";ui.employeeRate.value=Number(e.dailyRate)||0;ui.employeeActive.checked=e.active!==false;ui.employeeFormTitle.textContent="Edit Employee";ui.saveEmployeeBtn.textContent="Save Changes";ui.cancelEmployeeBtn.classList.remove("hidden");window.scrollTo({top:0,behavior:"smooth"});}
+async function saveEmployee(event){
+  event.preventDefault();const id=ui.employeeId.value.trim();const rate=Number(ui.employeeRate.value);if(!id||!ui.employeeName.value.trim())return message("Employee ID and name are required.","error");if(id.includes("/"))return message("Employee ID cannot contain a slash.","error");if(!Number.isFinite(rate)||rate<0)return message("Enter a valid daily rate.","error");
+  if(!editingEmployeeId&&employees.has(id.toUpperCase()))return message("That Employee ID already exists. Use Edit instead.","error");
+  ui.saveEmployeeBtn.disabled=true;try{await setDoc(doc(db,"payrollEmployees",id),{employeeId:id,name:ui.employeeName.value.trim(),position:ui.employeePosition.value.trim(),startDate:ui.employeeStartDate.value,dailyRate:rate,active:ui.employeeActive.checked,updatedAt:serverTimestamp(),...(!editingEmployeeId?{createdAt:serverTimestamp()}:{})},{merge:true});message(`Employee ${id} saved.`,"success");resetEmployeeForm();await loadEmployees();}catch(error){console.error(error);message(`Employee could not be saved: ${error.message||error}`,"error");}finally{ui.saveEmployeeBtn.disabled=false;}
 }
+async function toggleEmployee(id){const e=employees.get(id.toUpperCase());if(!e)return;const active=e.active===false;try{await setDoc(doc(db,"payrollEmployees",e.employeeId),{active,updatedAt:serverTimestamp()},{merge:true});message(`${e.employeeId} is now ${active?"active":"inactive"}.`,"success");await loadEmployees();}catch(error){console.error(error);message("Employee status could not be changed.","error");}}
 
-function driverIdOf(task) {
-  return String(task.agentId || task.driverId || task.completedBy || "").trim();
-}
+async function loadCompletedTasks(from,to){const q=query(collection(db,"TASK"),where("assignedDate",">=",from),where("assignedDate","<=",to));const snap=await getDocs(q);const tasks=[];snap.forEach(d=>{const t={_key:d.id,...d.data()};if(t.deleted!==true&&completed(t))tasks.push(t);});return tasks;}
+function calculatePayroll(tasks){const grouped=new Map();tasks.forEach(task=>{const raw=taskDriver(task);if(!raw)return;const key=raw.toUpperCase();if(!grouped.has(key))grouped.set(key,{key,employeeId:raw,taskCount:0,dates:new Set()});const row=grouped.get(key);row.taskCount++;const day=String(task.assignedDate||"").slice(0,10);if(day)row.dates.add(day);});return [...grouped.values()].map(row=>{const e=employees.get(row.key);const paidDays=row.dates.size,dailyRate=Number(e?.dailyRate)||0;return{employeeId:e?.employeeId||row.employeeId,name:e?.name||"Unregistered employee",position:e?.position||"",registered:!!e,active:e?.active!==false,taskCount:row.taskCount,paidDays,dailyRate,grossPay:paidDays*dailyRate};}).sort((a,b)=>a.employeeId.localeCompare(b.employeeId));}
+function totals(){return{employeeCount:payrollRows.length,paidDays:payrollRows.reduce((s,r)=>s+r.paidDays,0),taskCount:payrollRows.reduce((s,r)=>s+r.taskCount,0),grossPay:payrollRows.reduce((s,r)=>s+r.grossPay,0)};}
+function setRunStatus(status="UNSAVED"){if(!currentRun)status="UNSAVED";ui.runStatus.className=`run-status ${status}`;ui.runStatus.textContent=status==="UNSAVED"?"Unsaved payroll":`Payroll status: ${status}`;const has=payrollRows.length>0,editable=status==="UNSAVED"||status==="DRAFT";ui.saveDraftBtn.disabled=!has||!editable;ui.finalizeBtn.disabled=!has||!editable;ui.markPaidBtn.disabled=!has||status!=="FINALIZED";ui.exportBtn.disabled=!has;ui.printBtn.disabled=!has;}
+function renderPayroll(){const term=ui.searchBox.value.trim().toLowerCase();const rows=payrollRows.filter(r=>`${r.employeeId} ${r.name} ${r.position}`.toLowerCase().includes(term));ui.payrollBody.innerHTML=rows.length?rows.map(r=>`<tr><td><strong>${esc(r.employeeId)}</strong></td><td>${esc(r.name)}</td><td>${esc(r.position||"—")}</td><td class="number">${r.taskCount}</td><td class="number">${r.paidDays}</td><td class="number">${money(r.dailyRate)}</td><td class="number gross">${money(r.grossPay)}</td><td class="${r.registered?"rate-saved":"rate-missing"}">${r.registered?(r.active?"Registered":"Inactive"):"Add employee"}</td></tr>`).join(""):'<tr><td colspan="8" class="empty">No matching payroll records.</td></tr>';const t=totals();ui.employeeCount.textContent=t.employeeCount;ui.workdayCount.textContent=t.paidDays;ui.taskCount.textContent=t.taskCount;ui.grossTotal.textContent=money(t.grossPay);ui.periodLabel.textContent=ui.dateFrom.value&&ui.dateTo.value?`${ui.dateFrom.value} to ${ui.dateTo.value} · One paid day per assigned date with completed work.`:"Generate a payroll period to see results.";setRunStatus(currentRun?.status);}
+async function generatePayroll(){const from=ui.dateFrom.value,to=ui.dateTo.value;if(!from||!to)return message("Select both payroll dates.","error");if(from>to)return message("Starting date cannot be after ending date.","error");ui.loadBtn.disabled=true;message("Reading employees and completed tasks...");try{await loadEmployees();const existing=await getDoc(doc(db,"payrollRuns",runId()));if(existing.exists()&&["FINALIZED","PAID"].includes(existing.data().status)){currentRun={id:existing.id,...existing.data()};payrollRows=currentRun.rows||[];message(`Loaded the existing ${currentRun.status.toLowerCase()} payroll.`,"success");}else{const tasks=await loadCompletedTasks(from,to);payrollRows=calculatePayroll(tasks);currentRun={id:runId(),status:existing.exists()?"DRAFT":"UNSAVED"};const missing=payrollRows.filter(r=>!r.registered).length;message(payrollRows.length?`Payroll generated.${missing?` Add ${missing} missing employee record(s) before saving.`:" Review and save the draft."}`:"No completed tasks found for this period.",missing?"error":"success");}renderPayroll();}catch(error){console.error(error);payrollRows=[];currentRun=null;renderPayroll();message(`Could not generate payroll: ${error.message||error}`,"error");}finally{ui.loadBtn.disabled=false;}}
+function validateRun(){if(!payrollRows.length){message("There is no payroll to save.","error");return false;}const missing=payrollRows.filter(r=>!r.registered||r.dailyRate<=0);if(missing.length){message(`Add employee records and daily rates for: ${missing.map(r=>r.employeeId).join(", ")}.`,"error");return false;}return true;}
+async function saveRun(status){if(!validateRun())return false;const t=totals();const payload={periodFrom:ui.dateFrom.value,periodTo:ui.dateTo.value,status,rows:payrollRows.map(({key,dates,...r})=>r),totals:t,updatedAt:serverTimestamp(),...(status==="DRAFT"?{draftedAt:serverTimestamp()}:{finalizedAt:serverTimestamp()})};await setDoc(doc(db,"payrollRuns",runId()),payload,{merge:true});currentRun={id:runId(),...payload,status};setRunStatus(status);return true;}
+async function saveDraft(){try{if(await saveRun("DRAFT"))message("Payroll draft saved.","success");}catch(error){console.error(error);message(`Draft could not be saved: ${error.message||error}`,"error");}}
+async function finalizeRun(){if(!confirm("Finalize this payroll? Employee amounts will be locked."))return;try{if(await saveRun("FINALIZED"))message("Payroll finalized.","success");}catch(error){console.error(error);message(`Payroll could not be finalized: ${error.message||error}`,"error");}}
+async function markPaid(){if(!currentRun||currentRun.status!=="FINALIZED")return;if(!confirm("Mark this payroll as paid?"))return;try{await setDoc(doc(db,"payrollRuns",currentRun.id),{status:"PAID",paidAt:serverTimestamp(),updatedAt:serverTimestamp()},{merge:true});currentRun.status="PAID";setRunStatus("PAID");message("Payroll marked as paid.","success");}catch(error){console.error(error);message("Payroll could not be marked as paid.","error");}}
 
-function taskDateOf(task) {
-  return String(task.assignedDate || "").slice(0, 10);
-}
+async function loadHistory(){ui.historyBody.innerHTML='<tr><td colspan="7" class="empty">Loading payroll history...</td></tr>';try{const snap=await getDocs(collection(db,"payrollRuns"));payrollHistory=[];snap.forEach(d=>payrollHistory.push({id:d.id,...d.data()}));payrollHistory.sort((a,b)=>String(b.periodTo).localeCompare(String(a.periodTo)));ui.historyBody.innerHTML=payrollHistory.length?payrollHistory.map(r=>`<tr><td><strong>${esc(r.periodFrom)}</strong> to <strong>${esc(r.periodTo)}</strong></td><td><span class="status-pill ${esc(r.status)}">${esc(r.status)}</span></td><td class="number">${r.totals?.employeeCount||0}</td><td class="number">${r.totals?.paidDays||0}</td><td class="number gross">${money(r.totals?.grossPay)}</td><td>${dateText(r.paidAt)}</td><td><button class="small-btn" data-view-run="${esc(r.id)}">View</button></td></tr>`).join(""):'<tr><td colspan="7" class="empty">No saved payroll periods.</td></tr>';}catch(error){console.error(error);ui.historyBody.innerHTML='<tr><td colspan="7" class="empty">Unable to load payroll history.</td></tr>';message("Unable to load payroll history.","error");}}
+function viewRun(id){const run=payrollHistory.find(r=>r.id===id);if(!run)return;ui.dateFrom.value=run.periodFrom;ui.dateTo.value=run.periodTo;payrollRows=run.rows||[];currentRun=run;renderPayroll();showView("payrollView");message(`Loaded ${run.status.toLowerCase()} payroll ${run.periodFrom} to ${run.periodTo}.`,"success");}
+function csvCell(v){return `"${String(v??"").replace(/"/g,'""')}"`;}
+function exportCsv(){const lines=[["Period From","Period To","Employee ID","Name","Position","Completed Tasks","Paid Days","Daily Rate","Gross Pay","Status"].map(csvCell).join(",")];payrollRows.forEach(r=>lines.push([ui.dateFrom.value,ui.dateTo.value,r.employeeId,r.name,r.position,r.taskCount,r.paidDays,Number(r.dailyRate).toFixed(2),Number(r.grossPay).toFixed(2),currentRun?.status||"UNSAVED"].map(csvCell).join(",")));const blob=new Blob(["\ufeff"+lines.join("\r\n")],{type:"text/csv;charset=utf-8"}),url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download=`payroll_${ui.dateFrom.value}_to_${ui.dateTo.value}.csv`;document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);}
 
-function isCompleted(task) {
-  return String(task.status || "").toUpperCase() === "COMPLETED" ||
-    String(task.workStatus || "").toUpperCase() === "COMPLETED";
-}
-
-function setMessage(text, type = "") {
-  ui.message.className = `message${type ? ` ${type}` : ""}`;
-  ui.message.textContent = text;
-}
-
-async function loadReferenceData() {
-  const [driverSnapshot, rateSnapshot] = await Promise.all([
-    getDocs(collection(db, "drivers")),
-    getDocs(collection(db, "payrollRates"))
-  ]);
-
-  const drivers = new Map();
-  driverSnapshot.forEach(item => {
-    const data = item.data() || {};
-    const id = String(data.driverCode || item.id).trim();
-    drivers.set(id.toUpperCase(), { id, name: data.name || "" });
-  });
-
-  const rates = new Map();
-  rateSnapshot.forEach(item => {
-    const data = item.data() || {};
-    rates.set(item.id.toUpperCase(), Number(data.dailyRate) || 0);
-  });
-  return { drivers, rates };
-}
-
-async function loadCompletedTasks(from, to) {
-  const taskQuery = query(
-    collection(db, "TASK"),
-    where("assignedDate", ">=", from),
-    where("assignedDate", "<=", to)
-  );
-  const snapshot = await getDocs(taskQuery);
-  const tasks = [];
-  snapshot.forEach(item => {
-    const task = { _key: item.id, ...item.data() };
-    if (task.deleted !== true && isCompleted(task)) tasks.push(task);
-  });
-  return tasks;
-}
-
-function buildPayroll(tasks, references) {
-  const grouped = new Map();
-  tasks.forEach(task => {
-    const rawId = driverIdOf(task);
-    if (!rawId) return;
-    const key = rawId.toUpperCase();
-    const driver = references.drivers.get(key) || { id: rawId, name: task.agentName || task.driverName || "" };
-    if (!grouped.has(key)) {
-      grouped.set(key, { driverId: driver.id, name: driver.name, taskCount: 0, dates: new Set() });
-    }
-    const row = grouped.get(key);
-    row.taskCount++;
-    const workDate = taskDateOf(task);
-    if (workDate) row.dates.add(workDate);
-  });
-
-  return [...grouped.entries()].map(([key, row]) => {
-    const dailyRate = references.rates.get(key) || 0;
-    const paidDays = row.dates.size;
-    return { ...row, key, paidDays, dailyRate, grossPay: paidDays * dailyRate };
-  }).sort((a, b) => a.driverId.localeCompare(b.driverId));
-}
-
-function render() {
-  const term = ui.searchBox.value.trim().toLowerCase();
-  const visible = payrollRows.filter(row =>
-    `${row.driverId} ${row.name}`.toLowerCase().includes(term)
-  );
-
-  if (!visible.length) {
-    ui.body.innerHTML = `<tr><td colspan="7" class="empty">No matching payroll records.</td></tr>`;
-  } else {
-    ui.body.innerHTML = visible.map(row => `
-      <tr>
-        <td><strong>${safeText(row.driverId)}</strong></td>
-        <td>${safeText(row.name || "—")}</td>
-        <td class="number">${row.taskCount}</td>
-        <td class="number">${row.paidDays}</td>
-        <td class="number"><input class="rate-input" type="number" min="0" step="0.01" value="${row.dailyRate || ""}" data-driver="${safeText(row.driverId)}" aria-label="Daily rate for ${safeText(row.driverId)}"></td>
-        <td class="number gross">${peso.format(row.grossPay)}</td>
-        <td class="${row.dailyRate ? "rate-saved" : "rate-missing"}">${row.dailyRate ? "Saved" : "Enter rate"}</td>
-      </tr>`).join("");
-  }
-
-  ui.employeeCount.textContent = payrollRows.length.toLocaleString();
-  ui.workdayCount.textContent = payrollRows.reduce((sum, row) => sum + row.paidDays, 0).toLocaleString();
-  ui.taskCount.textContent = payrollRows.reduce((sum, row) => sum + row.taskCount, 0).toLocaleString();
-  ui.grossTotal.textContent = peso.format(payrollRows.reduce((sum, row) => sum + row.grossPay, 0));
-  ui.exportBtn.disabled = payrollRows.length === 0;
-  ui.printBtn.disabled = payrollRows.length === 0;
-}
-
-async function saveRate(input) {
-  const driverId = input.dataset.driver;
-  const rate = Number(input.value);
-  if (!Number.isFinite(rate) || rate < 0) {
-    setMessage("Daily rate must be zero or higher.", "error");
-    return;
-  }
-  input.disabled = true;
-  try {
-    await setDoc(doc(db, "payrollRates", driverId), {
-      driverId,
-      dailyRate: rate,
-      updatedAt: serverTimestamp()
-    }, { merge: true });
-    const row = payrollRows.find(item => item.driverId === driverId);
-    if (row) {
-      row.dailyRate = rate;
-      row.grossPay = row.paidDays * rate;
-    }
-    render();
-    setMessage(`Daily rate saved for ${driverId}.`, "success");
-  } catch (error) {
-    console.error("Daily rate save failed:", error);
-    setMessage(`Could not save the daily rate for ${driverId}.`, "error");
-  } finally {
-    input.disabled = false;
-  }
-}
-
-async function generatePayroll() {
-  const from = ui.dateFrom.value;
-  const to = ui.dateTo.value;
-  if (!from || !to) return setMessage("Select both pay-period dates.", "error");
-  if (from > to) return setMessage("The starting date cannot be after the ending date.", "error");
-
-  ui.loadBtn.disabled = true;
-  ui.exportBtn.disabled = true;
-  ui.printBtn.disabled = true;
-  setMessage("Reading completed tasks from Firestore...");
-  try {
-    const [tasks, references] = await Promise.all([
-      loadCompletedTasks(from, to),
-      loadReferenceData()
-    ]);
-    payrollRows = buildPayroll(tasks, references);
-    render();
-    const missingRates = payrollRows.filter(row => !row.dailyRate).length;
-    setMessage(
-      payrollRows.length
-        ? `Payroll generated. ${missingRates ? `${missingRates} driver(s) still need a daily rate.` : "All daily rates are ready."}`
-        : "No completed tasks were found for this pay period.",
-      payrollRows.length && !missingRates ? "success" : ""
-    );
-  } catch (error) {
-    console.error("Payroll load failed:", error);
-    payrollRows = [];
-    render();
-    setMessage(`Could not generate payroll: ${error.message || error}`, "error");
-  } finally {
-    ui.loadBtn.disabled = false;
-  }
-}
-
-function csvCell(value) {
-  return `"${String(value ?? "").replace(/"/g, '""')}"`;
-}
-
-function exportCsv() {
-  const headings = ["Pay Period From", "Pay Period To", "Driver ID", "Name", "Completed Tasks", "Paid Days", "Daily Rate", "Gross Pay"];
-  const lines = [headings.map(csvCell).join(",")];
-  payrollRows.forEach(row => lines.push([
-    ui.dateFrom.value, ui.dateTo.value, row.driverId, row.name, row.taskCount,
-    row.paidDays, row.dailyRate.toFixed(2), row.grossPay.toFixed(2)
-  ].map(csvCell).join(",")));
-  const blob = new Blob(["\ufeff" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `payroll_${ui.dateFrom.value}_to_${ui.dateTo.value}.csv`;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
-}
-
-const today = todayPH();
-ui.dateFrom.value = firstDayOfMonth(today);
-ui.dateTo.value = today;
-ui.loadBtn.addEventListener("click", generatePayroll);
-ui.exportBtn.addEventListener("click", exportCsv);
-ui.printBtn.addEventListener("click", () => window.print());
-ui.searchBox.addEventListener("input", render);
-ui.body.addEventListener("change", event => {
-  if (event.target.matches(".rate-input")) saveRate(event.target);
-});
+const today=todayPH();ui.dateFrom.value=`${today.slice(0,7)}-01`;ui.dateTo.value=today;
+ui.employeeForm.addEventListener("submit",saveEmployee);ui.cancelEmployeeBtn.addEventListener("click",resetEmployeeForm);ui.employeeSearch.addEventListener("input",renderEmployees);ui.employeeBody.addEventListener("click",e=>{if(e.target.dataset.edit)editEmployee(e.target.dataset.edit);if(e.target.dataset.toggle)toggleEmployee(e.target.dataset.toggle);});ui.loadBtn.addEventListener("click",generatePayroll);ui.saveDraftBtn.addEventListener("click",saveDraft);ui.finalizeBtn.addEventListener("click",finalizeRun);ui.markPaidBtn.addEventListener("click",markPaid);ui.exportBtn.addEventListener("click",exportCsv);ui.printBtn.addEventListener("click",()=>window.print());ui.searchBox.addEventListener("input",renderPayroll);ui.refreshHistoryBtn.addEventListener("click",loadHistory);ui.historyBody.addEventListener("click",e=>{if(e.target.dataset.viewRun)viewRun(e.target.dataset.viewRun);});
+loadEmployees();
