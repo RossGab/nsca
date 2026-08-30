@@ -3555,6 +3555,28 @@ async function uploadNow(
     task
   );
 
+  // Firestore is the source of truth. Do not let a driver upload an
+  // offline completion after an administrator transferred the task.
+  const assignedDriver = String(
+    task.agentId || task.driverId || ""
+  ).trim().toUpperCase();
+  const currentDriver = String(DRIVER_ID || "").trim().toUpperCase();
+
+  if (assignedDriver && assignedDriver !== currentDriver) {
+    console.warn("Task upload blocked because ownership changed:", {
+      taskKey,
+      currentDriver,
+      assignedDriver
+    });
+    alert(
+      `⚠️ TASK TRANSFERRED\n\n` +
+      `Task: ${taskKey}\n\n` +
+      `This task is now assigned to another driver. ` +
+      `Your local completion was kept and was not uploaded.`
+    );
+    return false;
+  }
+
   // ==========================================
   // 2. PHOTO ALREADY UPLOADED?
   // ==========================================

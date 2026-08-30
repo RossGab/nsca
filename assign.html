@@ -250,6 +250,7 @@ import {
   readTaskCache,
   removeTasksFromAllCaches,
   taskCacheNeedsFullRefresh,
+  updateTasksInAllCaches,
   writeTaskCache
 } from "./task-cache.js";
 
@@ -1212,40 +1213,90 @@ async function bulkDelete(ids) {
 
 async function bulkTransfer(ids) {
 
-  const newDriver = prompt("Enter NEW DRIVER ID:");
+  const enteredDriver = prompt("Enter NEW DRIVER ID:");
 
-  if (!newDriver) return;
+  if (!enteredDriver) return;
+
+  const normalizedDriver = enteredDriver.trim().toLowerCase();
+  const destinationTask = (window.__TASKS_DATA__ || []).find(task =>
+    String(task.agentId || "").trim().toLowerCase() === normalizedDriver
+  );
+
+  if (!destinationTask) {
+    alert("Driver ID was not found in the loaded tasks. Reload a date range containing that driver and try again.");
+    return;
+  }
+
+  const newDriver = String(destinationTask.agentId).trim();
+  const newDriverName = String(destinationTask.agentName || "").trim();
+
+  if (!confirm(
+    `Transfer ${ids.length} tasks to ${newDriver}` +
+    `${newDriverName ? ` (${newDriverName})` : ""}?`
+  )) return;
 
   try {
 
-    const batch = writeBatch(db);
-
-    ids.forEach(id => {
-
-      const taskRef = doc(db, "TASK", id);
-
-      batch.update(taskRef, {
-        agentId: newDriver,
-        updatedAt: serverTimestamp()
+    // Keep below Firestore's 500-write batch limit.
+    const batchSize = 450;
+    for (let offset = 0; offset < ids.length; offset += batchSize) {
+      const batch = writeBatch(db);
+      ids.slice(offset, offset + batchSize).forEach(id => {
+        const task = TASK_MAP[id];
+        const taskRef = doc(db, "TASK", id);
+        batch.update(taskRef, {
+          agentId: newDriver,
+          driverId: newDriver,
+          agentName: newDriverName,
+          lastTransferredFromAgentId: task?.agentId || "",
+          lastTransferredFromAgentName: task?.agentName || "",
+          transferredAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        });
       });
-
-    });
-
-    await batch.commit();
+      await batch.commit();
+    }
 
     // Local update
+    const localUpdatedAt = new Date().toISOString();
+    const cacheUpdates = new Map();
     ids.forEach(id => {
 
       if (TASK_MAP[id]) {
-
+        const oldDriver = TASK_MAP[id].agentId || "";
+        const oldDriverName = TASK_MAP[id].agentName || "";
         TASK_MAP[id].agentId = newDriver;
-
-        // Keep compatibility with existing UI
+        TASK_MAP[id].agentName = newDriverName;
         TASK_MAP[id].driverId = newDriver;
+        TASK_MAP[id].lastTransferredFromAgentId = oldDriver;
+        TASK_MAP[id].lastTransferredFromAgentName = oldDriverName;
+        TASK_MAP[id].transferredAt = localUpdatedAt;
+        TASK_MAP[id].updatedAt = localUpdatedAt;
 
+        cacheUpdates.set(id, {
+          agentId: newDriver,
+          agentName: newDriverName,
+          driverId: newDriver,
+          lastTransferredFromAgentId: oldDriver,
+          lastTransferredFromAgentName: oldDriverName,
+          transferredAt: localUpdatedAt,
+          updatedAt: localUpdatedAt
+        });
       }
-
     });
+
+    await updateTasksInAllCaches(cacheUpdates);
+
+    // Rebuild indexes because transferred tasks belong under a new driver.
+    window.__TASKS_BY_DRIVER__ = {};
+    (window.__TASKS_DATA__ || []).forEach(task => {
+      if (!task.agentId) return;
+      if (!window.__TASKS_BY_DRIVER__[task.agentId]) {
+        window.__TASKS_BY_DRIVER__[task.agentId] = [];
+      }
+      window.__TASKS_BY_DRIVER__[task.agentId].push(task);
+    });
+    buildFilterLists();
 
     SELECTED_IDS.clear();
 

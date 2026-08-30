@@ -305,7 +305,8 @@ async function uploadTask(task, relatedPhotos) {
     return { skipped: true, reason: "task was deleted by an administrator" };
   }
   const expectedDriver = safeId(task.driverId || exportData.driverId).toUpperCase();
-  const actualDriver = safeId(existing.driverId || existing.agentId).toUpperCase();
+  // agentId is the canonical assignment field; driverId is legacy fallback.
+  const actualDriver = safeId(existing.agentId || existing.driverId).toUpperCase();
   if (expectedDriver && actualDriver && expectedDriver !== actualDriver) {
     throw new Error(`Driver mismatch: export=${expectedDriver}, Firestore=${actualDriver}.`);
   }

@@ -163,3 +163,39 @@ export async function removeTasksFromAllCaches(taskIds) {
     database?.close();
   }
 }
+
+export async function updateTasksInAllCaches(taskUpdates) {
+  const updates = taskUpdates instanceof Map
+    ? taskUpdates
+    : new Map(Object.entries(taskUpdates || {}));
+  if (!updates.size || typeof indexedDB === "undefined") return;
+
+  let database;
+  try {
+    database = await openCacheDatabase();
+    const transaction = database.transaction(STORE_NAME, "readonly");
+    const entries = await requestResult(transaction.objectStore(STORE_NAME).getAll());
+
+    for (const entry of entries) {
+      let changed = false;
+      entry.tasks = (entry.tasks || []).map(task => {
+        const update = updates.get(task._key);
+        if (!update) return task;
+        changed = true;
+        return { ...task, ...toStorable(update) };
+      });
+      if (!changed) continue;
+
+      entry.syncedAt = Date.now();
+      // Preserve the server-derived watermark. A local clock can be ahead of
+      // Firestore and advancing it here could cause a later incremental sync
+      // to skip server updates.
+      const updateTransaction = database.transaction(STORE_NAME, "readwrite");
+      await requestResult(updateTransaction.objectStore(STORE_NAME).put(entry));
+    }
+  } catch (error) {
+    console.warn("Task cache update unavailable:", error);
+  } finally {
+    database?.close();
+  }
+}
