@@ -1,4 +1,4 @@
-const CACHE_VERSION = "v22-module-cache-fix";
+const CACHE_VERSION = "v23-payroll-assets";
 const CACHE_NAME = `field-task-app-${CACHE_VERSION}`;
 
 const BASE_PATH = "/nsca/";
@@ -70,7 +70,9 @@ function isCacheableStaticRequest(requestUrl) {
 function shouldUseNetworkFirst(requestUrl) {
   const url = new URL(requestUrl);
   return url.origin === self.location.origin &&
-    (url.pathname.endsWith(".js") || url.pathname.endsWith(".html"));
+    (url.pathname.endsWith(".js") ||
+      url.pathname.endsWith(".html") ||
+      url.pathname.endsWith(".css"));
 }
 
 self.addEventListener("fetch", event => {
