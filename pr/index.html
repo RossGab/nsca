@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Payroll</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <div class="eyebrow">NSCA Administration</div>
+      <h1>Payroll <span>V.R.0.1.0</span></h1>
+      <p>Daily-rate payroll based on completed tasks.</p>
+    </div>
+    <a href="../admin.html" class="back-link">Back to Dashboard</a>
+  </header>
+
+  <main>
+    <section class="card controls">
+      <div class="field">
+        <label for="dateFrom">Pay period from</label>
+        <input id="dateFrom" type="date">
+      </div>
+      <div class="field">
+        <label for="dateTo">Pay period to</label>
+        <input id="dateTo" type="date">
+      </div>
+      <button id="loadBtn" class="primary">Generate Payroll</button>
+      <button id="exportBtn" disabled>Export CSV</button>
+      <button id="printBtn" disabled>Print</button>
+    </section>
+
+    <div id="message" class="message" role="status">Select a pay period, then generate payroll.</div>
+
+    <section class="summary" aria-label="Payroll summary">
+      <div class="summary-card"><strong id="employeeCount">0</strong><span>Drivers</span></div>
+      <div class="summary-card"><strong id="workdayCount">0</strong><span>Paid Days</span></div>
+      <div class="summary-card"><strong id="taskCount">0</strong><span>Completed Tasks</span></div>
+      <div class="summary-card"><strong id="grossTotal">₱0.00</strong><span>Total Payroll</span></div>
+    </section>
+
+    <section class="card table-card">
+      <div class="table-heading">
+        <div>
+          <h2>Payroll Details</h2>
+          <p>A day is counted once when a driver has at least one completed task on that assigned date.</p>
+        </div>
+        <input id="searchBox" type="search" placeholder="Search driver..." aria-label="Search driver">
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Driver ID</th>
+              <th>Name</th>
+              <th class="number">Completed Tasks</th>
+              <th class="number">Paid Days</th>
+              <th class="number">Daily Rate</th>
+              <th class="number">Gross Pay</th>
+              <th>Rate Status</th>
+            </tr>
+          </thead>
+          <tbody id="payrollBody">
+            <tr><td colspan="7" class="empty">No payroll generated.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
