@@ -2,11 +2,11 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>NSCA Payroll</title><link rel="stylesheet" href="./styles.css?v=4">
+  <title>NSCA Payroll</title><link rel="stylesheet" href="./styles.css?v=5">
 </head>
 <body>
   <header class="topbar"><div><div class="eyebrow">NSCA Payroll System</div><h1>Payroll <span>V.R.0.2.0</span></h1><p>Employee records, daily-rate payroll, and payroll history.</p></div></header>
-  <nav class="tabs" aria-label="Payroll sections"><button class="tab active" data-view="payrollView">Payroll</button><button class="tab" data-view="employeesView">Employees</button><a href="./attendance.html">Attendance &amp; Leave</a><button class="tab" data-view="historyView">History</button><a href="./settings.html">Settings</a></nav>
+  <nav class="tabs" aria-label="Payroll sections"><a href="./dashboard.html">Dashboard</a><button class="tab active" data-view="payrollView">Payroll</button><button class="tab" data-view="employeesView">Employees</button><a href="./attendance.html">Attendance &amp; Leave</a><button class="tab" data-view="historyView">History</button><a href="./payslips.html">Payslips</a><a href="./settings.html">Settings</a></nav>
   <main>
     <div id="message" class="message" role="status">Select an action to begin.</div>
     <section id="payrollView" class="view">
@@ -27,5 +27,5 @@
     </section>
     <section id="historyView" class="view hidden"><section class="card table-card"><div class="table-heading"><div><h2>Payroll History</h2><p>Saved payroll periods and their current status.</p></div><button id="refreshHistoryBtn">Refresh</button></div><div class="table-wrap"><table><thead><tr><th>Period</th><th>Status</th><th class="number">Employees</th><th class="number">Paid Days</th><th class="number">Gross Pay</th><th>Paid At</th><th>Action</th></tr></thead><tbody id="historyBody"><tr><td colspan="7" class="empty">No payroll history loaded.</td></tr></tbody></table></div></section></section>
   </main>
-  <script type="module" src="./app.js?v=4"></script>
+  <script type="module" src="./app.js?v=5"></script>
 </body></html>
