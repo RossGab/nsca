@@ -1289,6 +1289,7 @@ async function bulkTransfer(ids) {
           agentId: newDriver,
           driverId: newDriver,
           agentName: newDriverName,
+          workStatus: "fordownload",
           lastTransferredFromAgentId: task?.agentId || "",
           lastTransferredFromAgentName: task?.agentName || "",
           transferredAt: serverTimestamp(),
@@ -1309,6 +1310,7 @@ async function bulkTransfer(ids) {
         TASK_MAP[id].agentId = newDriver;
         TASK_MAP[id].agentName = newDriverName;
         TASK_MAP[id].driverId = newDriver;
+        TASK_MAP[id].workStatus = "fordownload";
         TASK_MAP[id].lastTransferredFromAgentId = oldDriver;
         TASK_MAP[id].lastTransferredFromAgentName = oldDriverName;
         TASK_MAP[id].transferredAt = localUpdatedAt;
@@ -1318,6 +1320,7 @@ async function bulkTransfer(ids) {
           agentId: newDriver,
           agentName: newDriverName,
           driverId: newDriver,
+          workStatus: "fordownload",
           lastTransferredFromAgentId: oldDriver,
           lastTransferredFromAgentName: oldDriverName,
           transferredAt: localUpdatedAt,
