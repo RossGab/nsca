@@ -2,11 +2,11 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>NSCA Payroll</title><link rel="stylesheet" href="./styles.css?v=2">
+  <title>NSCA Payroll</title><link rel="stylesheet" href="./styles.css?v=3">
 </head>
 <body>
   <header class="topbar"><div><div class="eyebrow">NSCA Payroll System</div><h1>Payroll <span>V.R.0.2.0</span></h1><p>Employee records, daily-rate payroll, and payroll history.</p></div></header>
-  <nav class="tabs" aria-label="Payroll sections"><button class="tab active" data-view="payrollView">Payroll</button><button class="tab" data-view="employeesView">Employees</button><button class="tab" data-view="historyView">History</button></nav>
+  <nav class="tabs" aria-label="Payroll sections"><button class="tab active" data-view="payrollView">Payroll</button><button class="tab" data-view="employeesView">Employees</button><a href="./attendance.html">Attendance</a><a href="./leaves.html">Leaves</a><button class="tab" data-view="historyView">History</button><a href="./settings.html">Settings</a></nav>
   <main>
     <div id="message" class="message" role="status">Select an action to begin.</div>
     <section id="payrollView" class="view">
@@ -21,11 +21,11 @@
     </section>
     <section id="employeesView" class="view hidden">
       <section class="card form-card"><div class="table-heading"><div><h2 id="employeeFormTitle">Add Employee</h2><p>Employee ID must match the Driver ID used by completed tasks.</p></div></div><form id="employeeForm" class="employee-form">
-        <div class="field"><label for="employeeId">Employee ID / Driver ID</label><input id="employeeId" required maxlength="80"></div><div class="field"><label for="employeeName">Full name</label><input id="employeeName" required maxlength="120"></div><div class="field"><label for="employeePosition">Position</label><input id="employeePosition" maxlength="100"></div><div class="field"><label for="employeeStartDate">Start date</label><input id="employeeStartDate" type="date"></div><div class="field"><label for="employeeRate">Daily rate</label><input id="employeeRate" type="number" min="0" step="0.01" required></div><label class="check-field"><input id="employeeActive" type="checkbox" checked> Active employee</label><div class="form-actions"><button class="primary" type="submit" id="saveEmployeeBtn">Save Employee</button><button type="button" id="cancelEmployeeBtn" class="hidden">Cancel Edit</button></div>
+        <div class="field"><label for="employeeId">Employee ID</label><input id="employeeId" required maxlength="80"></div><div class="field"><label for="employeeName">Full name</label><input id="employeeName" required maxlength="120"></div><div class="field"><label for="employeePosition">Position</label><input id="employeePosition" maxlength="100"></div><div class="field"><label for="employeeStartDate">Start date</label><input id="employeeStartDate" type="date"></div><div class="field"><label for="employeeRate">Daily rate</label><input id="employeeRate" type="number" min="0" step="0.01" required></div><div class="field"><label for="attendanceSource">Attendance source</label><select id="attendanceSource"><option value="TASKS">Completed tasks (drivers)</option><option value="MANUAL">Manual attendance</option></select></div><label class="check-field"><input id="employeeActive" type="checkbox" checked> Active employee</label><div class="form-actions"><button class="primary" type="submit" id="saveEmployeeBtn">Save Employee</button><button type="button" id="cancelEmployeeBtn" class="hidden">Cancel Edit</button></div>
       </form></section>
       <section class="card table-card"><div class="table-heading"><div><h2>Employees</h2><p>Inactive employees remain in payroll history.</p></div><input id="employeeSearch" type="search" placeholder="Search employee..."></div><div class="table-wrap"><table><thead><tr><th>Employee ID</th><th>Name</th><th>Position</th><th>Start Date</th><th class="number">Daily Rate</th><th>Status</th><th>Actions</th></tr></thead><tbody id="employeeBody"><tr><td colspan="7" class="empty">Loading employees...</td></tr></tbody></table></div></section>
     </section>
     <section id="historyView" class="view hidden"><section class="card table-card"><div class="table-heading"><div><h2>Payroll History</h2><p>Saved payroll periods and their current status.</p></div><button id="refreshHistoryBtn">Refresh</button></div><div class="table-wrap"><table><thead><tr><th>Period</th><th>Status</th><th class="number">Employees</th><th class="number">Paid Days</th><th class="number">Gross Pay</th><th>Paid At</th><th>Action</th></tr></thead><tbody id="historyBody"><tr><td colspan="7" class="empty">No payroll history loaded.</td></tr></tbody></table></div></section></section>
   </main>
-  <script type="module" src="./app.js?v=2"></script>
+  <script type="module" src="./app.js?v=3"></script>
 </body></html>
