@@ -1242,17 +1242,34 @@ async function bulkTransfer(ids) {
   if (!enteredDriver) return;
 
   const normalizedDriver = enteredDriver.trim().toLowerCase();
-  const destinationTask = (window.__TASKS_DATA__ || []).find(task =>
-    String(task.agentId || "").trim().toLowerCase() === normalizedDriver
-  );
+  let destinationDriver;
 
-  if (!destinationTask) {
-    alert("Driver ID was not found in the loaded tasks. Reload a date range containing that driver and try again.");
+  try {
+    const driversSnapshot = await getDocs(collection(db, "drivers"));
+    const driverDoc = driversSnapshot.docs.find(driver => {
+      const data = driver.data() || {};
+      return String(data.driverCode || driver.id).trim().toLowerCase() === normalizedDriver;
+    });
+
+    if (driverDoc) {
+      destinationDriver = {
+        ...driverDoc.data(),
+        driverCode: driverDoc.data().driverCode || driverDoc.id
+      };
+    }
+  } catch (error) {
+    console.error("Driver lookup failed:", error);
+    alert("Unable to check the driver list. Check your connection and try again.");
     return;
   }
 
-  const newDriver = String(destinationTask.agentId).trim();
-  const newDriverName = String(destinationTask.agentName || "").trim();
+  if (!destinationDriver) {
+    alert("Driver ID was not found. Add the driver in Manage Drivers first, then try again.");
+    return;
+  }
+
+  const newDriver = String(destinationDriver.driverCode).trim();
+  const newDriverName = String(destinationDriver.name || "").trim();
 
   if (!confirm(
     `Transfer ${ids.length} tasks to ${newDriver}` +
