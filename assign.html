@@ -252,7 +252,7 @@ import {
   taskCacheNeedsFullRefresh,
   updateTasksInAllCaches,
   writeTaskCache
-} from "./task-cache.js";
+} from "./task-cache.js?v=2";
 
 const firebaseConfig = {
   apiKey: "AIzaSyDFW61pnwLvh6HGKWt10zLYNr860fI8vkg",
@@ -328,6 +328,7 @@ let FIRESTORE_HAS_MORE = false;
 let FIRESTORE_CURRENT_DATE = null;
 let FIRESTORE_PAGE = 0;
 let FIRESTORE_LOADING = false;
+let TASK_LOAD_PENDING = false;
 
 let CURRENT_PAGE = 0;
 let FILTERED_TASKS = [];
@@ -335,9 +336,23 @@ let FILTERED_TASKS = [];
 const today = getTodayPH();
 filterDateFrom.value = today;
 filterDateTo.value = today;
-// Manual load only (via button)
-filterDateFrom.onchange = null;
-filterDateTo.onchange = null;
+
+filterDateFrom.onchange = () => {
+  if (!filterDateFrom.value) return;
+  if (!filterDateTo.value || filterDateFrom.value > filterDateTo.value) {
+    filterDateTo.value = filterDateFrom.value;
+  }
+  loadTasks();
+};
+
+filterDateTo.onchange = () => {
+  if (!filterDateTo.value) return;
+  if (!filterDateFrom.value || filterDateTo.value < filterDateFrom.value) {
+    filterDateFrom.value = filterDateTo.value;
+  }
+  loadTasks();
+};
+
 filterDriver.onchange =
 filterJob.onchange =
 filterBA.onchange =
@@ -514,7 +529,11 @@ async function loadLiveTasksFromFirebase(
 
 /* ===== LOAD TASKS - FIRESTORE ONLY ===== */
 async function loadTasks() {
-  if (loadBtn.disabled) return;
+  if (loadBtn.disabled) {
+    // Keep the last date selection when a previous range is still loading.
+    TASK_LOAD_PENDING = true;
+    return;
+  }
 
   loadBtn.disabled = true;
   loadBtn.innerText = "Loading...";
@@ -724,6 +743,11 @@ async function loadTasks() {
 
     loadBtn.disabled = false;
     loadBtn.innerText = "🔄 Load Tasks";
+
+    if (TASK_LOAD_PENDING) {
+      TASK_LOAD_PENDING = false;
+      loadTasks();
+    }
   }
 }
 

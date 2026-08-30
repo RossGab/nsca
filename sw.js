@@ -1,4 +1,4 @@
-const CACHE_VERSION = "v21-ongoing-search-only";
+const CACHE_VERSION = "v22-module-cache-fix";
 const CACHE_NAME = `field-task-app-${CACHE_VERSION}`;
 
 const BASE_PATH = "/nsca/";
@@ -67,6 +67,12 @@ function isCacheableStaticRequest(requestUrl) {
   return url.hostname.endsWith(".tile.openstreetmap.org");
 }
 
+function shouldUseNetworkFirst(requestUrl) {
+  const url = new URL(requestUrl);
+  return url.origin === self.location.origin &&
+    (url.pathname.endsWith(".js") || url.pathname.endsWith(".html"));
+}
+
 self.addEventListener("fetch", event => {
   const request = event.request;
   if (request.method !== "GET") return;
@@ -92,6 +98,19 @@ self.addEventListener("fetch", event => {
   if (!isCacheableStaticRequest(request.url)) return;
 
   event.respondWith((async () => {
+    if (shouldUseNetworkFirst(request.url)) {
+      try {
+        const response = await fetch(request);
+        if (response.ok) {
+          const cache = await caches.open(CACHE_NAME);
+          await cache.put(request, response.clone());
+        }
+        return response;
+      } catch {
+        return (await caches.match(request)) || Response.error();
+      }
+    }
+
     const cached = await caches.match(request);
     if (cached) return cached;
     try {
