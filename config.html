@@ -1490,14 +1490,6 @@ import {
 from
 "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 
-import {
-  getAuth,
-  onAuthStateChanged
-}
-from
-"https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
-
-
 const app =
   initializeApp({
 
@@ -1527,29 +1519,6 @@ const app =
 
 const db =
   getDatabase(app);
-
-const auth =
-  getAuth(app);
-
-const authReady =
-  new Promise((resolve, reject) => {
-
-    let unsubscribe = () => {};
-
-    unsubscribe =
-      onAuthStateChanged(
-        auth,
-        user => {
-          unsubscribe();
-          resolve(user);
-        },
-        error => {
-          unsubscribe();
-          reject(error);
-        }
-      );
-
-  });
 
 
 /* =========================================================
@@ -4923,21 +4892,16 @@ function validateRealtimeDatabaseKey(value){
   return "";
 }
 
-function getConfigSaveErrorMessage(error, user){
+function getConfigSaveErrorMessage(error){
   const code = String(error?.code || "");
   const detail = String(error?.message || error || "Unknown error");
   const normalized = `${code} ${detail}`.toLowerCase();
 
   if(normalized.includes("permission")){
-    return user
-      ? `Firebase denied this account (${user.email || user.uid}) permission to save configuration. Ask an administrator to verify its RTDB role/rules.`
-      : "You are not signed in. Sign in with an authorized administrator account, then reopen this page.";
+    return `Configuration was not saved because Firebase Realtime Database blocked the public write.\n\nCode: ${code || "permission-denied"}\nPath: config/driverUI/jobTypes\n\nConfirm that the public RTDB rules are published for the driva-pwa database.`;
   }
   if(normalized.includes("network")){
     return "The configuration could not reach Firebase. Check the connection and try again.";
-  }
-  if(normalized.includes("unauthenticated")){
-    return "You are not signed in. Sign in with an authorized administrator account, then reopen this page.";
   }
   return `Configuration save failed.\n\nCode: ${code || "unknown"}\nDetails: ${detail}`;
 }
@@ -5027,18 +4991,7 @@ window.saveConfig =
     setConfigSaving(true);
 
 
-    let currentUser = null;
-
-
     try{
-
-      currentUser =
-        await authReady;
-
-
-      if(currentUser){
-        await currentUser.getIdToken(true);
-      }
 
       await update(
 
@@ -5080,10 +5033,7 @@ window.saveConfig =
 
 
       alert(
-        getConfigSaveErrorMessage(
-          error,
-          currentUser
-        )
+        getConfigSaveErrorMessage(error)
       );
 
     }finally{
