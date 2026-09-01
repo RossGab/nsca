@@ -1,6 +1,7 @@
 const DB_NAME = "nsca-admin-task-cache";
 const DB_VERSION = 1;
 const STORE_NAME = "dateRanges";
+const CACHE_SCHEMA_VERSION = 2;
 
 export const TASK_CACHE_FULL_REFRESH_MS = 6 * 60 * 60 * 1000;
 export const TASK_CACHE_OVERLAP_MS = 5 * 60 * 1000;
@@ -91,6 +92,7 @@ export async function writeTaskCache(from, to, tasks, options = {}) {
     const transaction = database.transaction(STORE_NAME, "readwrite");
     const entry = {
       key: cacheKey(from, to),
+      schemaVersion: CACHE_SCHEMA_VERSION,
       from,
       to,
       tasks: toStorable(tasks),
@@ -129,6 +131,7 @@ export function mergeTaskUpdates(cachedTasks, updatedTasks, from, to) {
 
 export function taskCacheNeedsFullRefresh(entry) {
   return !entry ||
+    entry.schemaVersion !== CACHE_SCHEMA_VERSION ||
     !Array.isArray(entry.tasks) ||
     Date.now() - (entry.fullSyncedAt || 0) >= TASK_CACHE_FULL_REFRESH_MS;
 }
