@@ -222,6 +222,23 @@ button {
   background: #f39c12; /* orange */
 }
 
+.snapshot-btn.has-updates {
+  position: relative;
+  box-shadow: 0 0 0 3px rgba(220, 53, 69, .22);
+}
+
+.snapshot-btn.has-updates::after {
+  content: "";
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 11px;
+  height: 11px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: #dc3545;
+}
+
 .data-stale {
   background: #dc3545; /* red */
 }
@@ -299,7 +316,7 @@ button {
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.2</span></h1>
+      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.3</span></h1>
     </div>
   </div>
 
@@ -469,6 +486,7 @@ import {
   query,
   where,
   orderBy,
+  limit,
   writeBatch,
   updateDoc,
   serverTimestamp,
@@ -982,6 +1000,47 @@ function updateDataSourceStatus(detail = "Firestore", successfulSyncMillis = nul
     : "☁ Not synced yet";
   btn.title = `${detail}. Click to check for task updates.`;
 }
+
+const ADMIN_CHANGE_CHECK_MS = 10 * 60 * 1000;
+let adminChangeCheckTimer = null;
+let adminChangeCheckRunning = false;
+
+async function checkForAdminTaskChanges() {
+  if (document.hidden || adminChangeCheckRunning || !DATE_FROM || !DATE_TO) return;
+  adminChangeCheckRunning = true;
+  try {
+    const cached = await readTaskCache(DATE_FROM, DATE_TO);
+    if (!cached || taskCacheNeedsFullRefresh(cached) || !cached.watermarkMillis) return;
+
+    const snapshot = await getDocs(query(
+      collection(db, TASK_COLLECTION),
+      where("updatedAt", ">", Timestamp.fromMillis(cached.watermarkMillis)),
+      orderBy("updatedAt"),
+      limit(1)
+    ));
+
+    const button = document.getElementById("dataSourceStatusBtn");
+    if (!button) return;
+    const hasChanges = !snapshot.empty;
+    button.classList.toggle("has-updates", hasChanges);
+    if (hasChanges) {
+      button.title = "New or updated Firestore tasks are available. Click to sync them.";
+    }
+  } catch (error) {
+    console.warn("Background task update check failed:", error);
+  } finally {
+    adminChangeCheckRunning = false;
+  }
+}
+
+function startAdminTaskChangeChecks() {
+  if (adminChangeCheckTimer) clearInterval(adminChangeCheckTimer);
+  adminChangeCheckTimer = setInterval(checkForAdminTaskChanges, ADMIN_CHANGE_CHECK_MS);
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) checkForAdminTaskChanges();
+});
 
 window.onerror = (msg, src, line) => {
   alert(`JS Error:\n${msg}\nLine: ${line}`);
@@ -3320,6 +3379,7 @@ function setLoaderText(txt) {
     }
 
     updateDataSourceStatus("☁ Firestore");
+    startAdminTaskChangeChecks();
     
     hideLoader();
   }
