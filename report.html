@@ -144,6 +144,13 @@ function normalizeStatus(value){
   return v;
 }
 
+function taskStatus(raw){
+  const status=normalizeStatus(raw?.status);
+  const workStatus=normalizeStatus(raw?.workStatus);
+  if(status==="COMPLETED"||workStatus==="COMPLETED")return "COMPLETED";
+  return status||workStatus||"PENDING";
+}
+
 function normalizeTask(docSnap){
   const raw=docSnap.data()||{};
   return {
@@ -165,7 +172,7 @@ function normalizeTask(docSnap){
     LATITUDE:raw.LATITUDE??raw.latitude??null,
     LONGITUDE:raw.LONGITUDE??raw.longitude??null,
     deliveryType:raw.deliveryType??"",
-    status:normalizeStatus(raw.status??raw.workStatus)
+    status:taskStatus(raw)
   };
 }
 

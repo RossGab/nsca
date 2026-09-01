@@ -1967,11 +1967,7 @@ async function loadTasksFromFirestoreLegacy(status) {
           LATITUDE: raw.LATITUDE ?? raw.latitude ?? null,
           LONGITUDE: raw.LONGITUDE ?? raw.longitude ?? null,
           deliveryType: raw.deliveryType ?? "",
-          status: raw.status ?? (
-            String(raw.workStatus || "").toUpperCase() === "COMPLETED"
-              ? "COMPLETED"
-              : "PENDING"
-          )
+          status: getAdminEffectiveStatus(raw)
         };
 
         if (task.deleted !== true) firestoreTasks.push(task);
@@ -2014,6 +2010,20 @@ async function loadTasksFromFirestoreLegacy(status) {
   }
 }
 
+function getAdminEffectiveStatus(task) {
+  const raw = task || {};
+  const normalizedStatus =
+    String(raw.status || "").trim().toUpperCase();
+  const normalizedWorkStatus =
+    String(raw.workStatus || "").trim().toUpperCase();
+  const effectiveStatus =
+    normalizedStatus === "COMPLETED" ||
+    normalizedWorkStatus === "COMPLETED"
+      ? "COMPLETED"
+      : (normalizedStatus === "OPEN" ? "PENDING" : normalizedStatus || "PENDING");
+  return effectiveStatus;
+}
+
 function normalizeAdminCachedTask(task) {
   const raw = task || {};
   return {
@@ -2034,11 +2044,7 @@ function normalizeAdminCachedTask(task) {
     LATITUDE: raw.LATITUDE ?? raw.latitude ?? null,
     LONGITUDE: raw.LONGITUDE ?? raw.longitude ?? null,
     deliveryType: raw.deliveryType ?? "",
-    status: raw.status ?? (
-      String(raw.workStatus || "").toUpperCase() === "COMPLETED"
-        ? "COMPLETED"
-        : "PENDING"
-    )
+    status: getAdminEffectiveStatus(raw)
   };
 }
 
@@ -2081,9 +2087,11 @@ window.loadTasks = async function (status) {
       );
     } else {
       rawTasks = cached.tasks || [];
+      // Use Firestore's latest server timestamp as the cursor. Using the
+      // browser's local sync time can skip updates when device clocks differ.
       const since = Math.max(
         0,
-        (cached.syncedAt || 0) - TASK_CACHE_OVERLAP_MS
+        (cached.watermarkMillis || cached.syncedAt || 0) - TASK_CACHE_OVERLAP_MS
       );
       setLoaderText(`Checking updates for ${rawTasks.length} cached task(s)…`);
 
