@@ -316,7 +316,7 @@ button {
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.4</span></h1>
+      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.5</span></h1>
     </div>
   </div>
 
@@ -501,7 +501,7 @@ import {
   readTaskCache,
   taskCacheNeedsFullRefresh,
   writeTaskCache
-} from "./task-cache.js?v=2";
+} from "./task-cache.js?v=3";
 
 import {
   getDatabase,
@@ -1024,16 +1024,24 @@ async function checkForAdminTaskChanges() {
     const cached = await readTaskCache(DATE_FROM, DATE_TO);
     if (!cached || taskCacheNeedsFullRefresh(cached) || !cached.watermarkMillis) return;
 
-    const snapshot = await getDocs(query(
-      collection(db, TASK_COLLECTION),
-      where("updatedAt", ">", Timestamp.fromMillis(cached.watermarkMillis)),
-      orderBy("updatedAt"),
-      limit(1)
-    ));
+    const [updatedSnapshot, completedSnapshot] = await Promise.all([
+      getDocs(query(
+        collection(db, TASK_COLLECTION),
+        where("updatedAt", ">", Timestamp.fromMillis(cached.watermarkMillis)),
+        orderBy("updatedAt"),
+        limit(1)
+      )),
+      getDocs(query(
+        collection(db, TASK_COLLECTION),
+        where("completedAt", ">", Timestamp.fromMillis(cached.completionWatermarkMillis || 0)),
+        orderBy("completedAt"),
+        limit(1)
+      ))
+    ]);
 
     const button = document.getElementById("dataSourceStatusBtn");
     if (!button) return;
-    const hasChanges = !snapshot.empty;
+    const hasChanges = !updatedSnapshot.empty || !completedSnapshot.empty;
     button.classList.toggle("has-updates", hasChanges);
     if (hasChanges) {
       button.title = "New or updated Firestore tasks are available. Click to sync them.";
@@ -2167,18 +2175,38 @@ window.loadTasks = async function (status) {
       );
       setLoaderText(`Checking updates for ${rawTasks.length} cached task(s)…`);
 
-      const snapshot = await getDocs(query(
-        collection(db, TASK_COLLECTION),
-        where("updatedAt", ">", Timestamp.fromMillis(since)),
-        orderBy("updatedAt")
-      ));
-      const updates = [];
-      snapshot.forEach(docSnap => updates.push({ _key: docSnap.id, ...docSnap.data() }));
+      const completionSince = Math.max(
+        0,
+        (cached.completionWatermarkMillis || 0) - TASK_CACHE_OVERLAP_MS
+      );
+      const [updatedSnapshot, completedSnapshot] = await Promise.all([
+        getDocs(query(
+          collection(db, TASK_COLLECTION),
+          where("updatedAt", ">", Timestamp.fromMillis(since)),
+          orderBy("updatedAt")
+        )),
+        // Backward compatibility: older Option 1 driver pages wrote
+        // completedAt but did not write updatedAt.
+        getDocs(query(
+          collection(db, TASK_COLLECTION),
+          where("completedAt", ">", Timestamp.fromMillis(completionSince)),
+          orderBy("completedAt")
+        ))
+      ]);
+      const updatesById = new Map();
+      updatedSnapshot.forEach(docSnap => {
+        updatesById.set(docSnap.id, { _key: docSnap.id, ...docSnap.data() });
+      });
+      completedSnapshot.forEach(docSnap => {
+        updatesById.set(docSnap.id, { _key: docSnap.id, ...docSnap.data() });
+      });
+      const updates = [...updatesById.values()];
 
       rawTasks = mergeTaskUpdates(rawTasks, updates, DATE_FROM, DATE_TO);
       await writeTaskCache(DATE_FROM, DATE_TO, rawTasks, {
         previousFullSyncedAt: cached.fullSyncedAt,
-        previousWatermark: cached.watermarkMillis
+        previousWatermark: cached.watermarkMillis,
+        previousCompletionWatermark: cached.completionWatermarkMillis
       });
       updateDataSourceStatus(
         `Incremental sync received ${updates.length} update(s)`,

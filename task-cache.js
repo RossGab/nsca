@@ -1,7 +1,7 @@
 const DB_NAME = "nsca-admin-task-cache";
 const DB_VERSION = 1;
 const STORE_NAME = "dateRanges";
-const CACHE_SCHEMA_VERSION = 2;
+const CACHE_SCHEMA_VERSION = 3;
 
 export const TASK_CACHE_FULL_REFRESH_MS = 6 * 60 * 60 * 1000;
 export const TASK_CACHE_OVERLAP_MS = 5 * 60 * 1000;
@@ -67,6 +67,13 @@ export function taskCacheWatermark(tasks, fallback = 0) {
   );
 }
 
+export function taskCompletionWatermark(tasks, fallback = 0) {
+  return tasks.reduce(
+    (latest, task) => Math.max(latest, taskTimestampMillis(task.completedAt)),
+    fallback
+  );
+}
+
 export async function readTaskCache(from, to) {
   if (typeof indexedDB === "undefined") return null;
   let database;
@@ -100,7 +107,11 @@ export async function writeTaskCache(from, to, tasks, options = {}) {
       fullSyncedAt: options.full
         ? Date.now()
         : (options.previousFullSyncedAt || 0),
-      watermarkMillis: taskCacheWatermark(tasks, options.previousWatermark || 0)
+      watermarkMillis: taskCacheWatermark(tasks, options.previousWatermark || 0),
+      completionWatermarkMillis: taskCompletionWatermark(
+        tasks,
+        options.previousCompletionWatermark || 0
+      )
     };
     await requestResult(transaction.objectStore(STORE_NAME).put(entry));
     return entry;
