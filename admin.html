@@ -228,15 +228,22 @@ button {
 }
 
 .snapshot-btn.has-updates::after {
-  content: "";
+  content: attr(data-update-count);
   position: absolute;
-  top: 7px;
-  right: 7px;
-  width: 11px;
-  height: 11px;
+  top: -8px;
+  right: -8px;
+  min-width: 23px;
+  height: 23px;
+  padding: 0 6px;
+  display: grid;
+  place-items: center;
   border: 2px solid #fff;
-  border-radius: 50%;
+  border-radius: 999px;
   background: #dc3545;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
 }
 
 .data-stale {
@@ -316,7 +323,7 @@ button {
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.5</span></h1>
+      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.6</span></h1>
     </div>
   </div>
 
@@ -486,7 +493,6 @@ import {
   query,
   where,
   orderBy,
-  limit,
   writeBatch,
   updateDoc,
   serverTimestamp,
@@ -1028,23 +1034,38 @@ async function checkForAdminTaskChanges() {
       getDocs(query(
         collection(db, TASK_COLLECTION),
         where("updatedAt", ">", Timestamp.fromMillis(cached.watermarkMillis)),
-        orderBy("updatedAt"),
-        limit(1)
+        orderBy("updatedAt")
       )),
       getDocs(query(
         collection(db, TASK_COLLECTION),
         where("completedAt", ">", Timestamp.fromMillis(cached.completionWatermarkMillis || 0)),
-        orderBy("completedAt"),
-        limit(1)
+        orderBy("completedAt")
       ))
     ]);
 
     const button = document.getElementById("dataSourceStatusBtn");
     if (!button) return;
-    const hasChanges = !updatedSnapshot.empty || !completedSnapshot.empty;
+    const cachedIds = new Set((cached.tasks || []).map(task => task._key));
+    const changedById = new Map();
+    const collectRelevantChange = docSnap => {
+      const task = { _key: docSnap.id, ...docSnap.data() };
+      const assignedDate = String(task.assignedDate || "").slice(0, 10);
+      if (cachedIds.has(task._key) || (assignedDate >= DATE_FROM && assignedDate <= DATE_TO)) {
+        changedById.set(task._key, task);
+      }
+    };
+    updatedSnapshot.forEach(collectRelevantChange);
+    completedSnapshot.forEach(collectRelevantChange);
+
+    const changeCount = changedById.size;
+    const hasChanges = changeCount > 0;
     button.classList.toggle("has-updates", hasChanges);
+    if (hasChanges) button.dataset.updateCount = String(changeCount);
+    else delete button.dataset.updateCount;
     if (hasChanges) {
-      button.title = "New or updated Firestore tasks are available. Click to sync them.";
+      button.title = `${changeCount} changed task${changeCount === 1 ? " is" : "s are"} available. Click to sync.`;
+    } else {
+      button.title = "No new task changes. Click to check Firestore now.";
     }
   } catch (error) {
     console.warn("Background task update check failed:", error);
