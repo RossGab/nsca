@@ -629,7 +629,7 @@ import {
 import { getStorage, ref as sRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js";
 import { increment } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
   
-const VERSION = "V.R.0.0.16.1.4.2";
+const VERSION = "V.R.0.0.16.1.4.3";
 const BILLING_CACHE = {};
 window.BILLING_CACHE = BILLING_CACHE;
 const DRIVER_UI_CACHE = {};
@@ -3710,6 +3710,11 @@ async function uploadNow(
       false;
 
     updatePayload.completedAt =
+      serverTimestamp();
+
+    // Required by the admin dashboard's incremental change query.
+    // Keep it in the same write that changes the completion status.
+    updatePayload.updatedAt =
       serverTimestamp();
 
     updatePayload.completedBy =
