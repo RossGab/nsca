@@ -316,7 +316,7 @@ button {
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.3</span></h1>
+      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.4</span></h1>
     </div>
   </div>
 
@@ -937,9 +937,21 @@ searchBox.addEventListener("input", e => {
 }
   
 /* ===== SLA ===== */
+function getTaskSLAStartMillis(task) {
+  const assignedDate = String(task?.assignedDate || "").slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(assignedDate)) {
+    const millis = new Date(`${assignedDate}T00:00:00+08:00`).getTime();
+    if (Number.isFinite(millis)) return millis;
+  }
+
+  const createdMillis = new Date(task?.createdAt || "").getTime();
+  return Number.isFinite(createdMillis) ? createdMillis : 0;
+}
+
 function getSLA(task) {
-  if (!task.createdAt || task.status === "COMPLETED") return null;
-  const hrs = (Date.now() - new Date(task.createdAt)) / 36e5;
+  const slaStartMillis = getTaskSLAStartMillis(task);
+  if (!slaStartMillis || task.status === "COMPLETED") return null;
+  const hrs = (Date.now() - slaStartMillis) / 36e5;
   if (hrs < 24) return { text:"Within SLA", cls:"sla-ok" };
   if (hrs < 48) return { text:"At Risk", cls:"sla-warn" };
   return { text:"SLA Breached", cls:"sla-breach" };
@@ -1079,8 +1091,9 @@ window.refreshDashboard = function () {
     } else {
       open++;
 
-      if (!t.createdAt) return;
-      const hrs = (Date.now() - new Date(t.createdAt)) / 36e5;
+      const slaStartMillis = getTaskSLAStartMillis(t);
+      if (!slaStartMillis) return;
+      const hrs = (Date.now() - slaStartMillis) / 36e5;
       if (hrs < 24) ok++;
       else if (hrs < 48) warn++;
       else breach++;
