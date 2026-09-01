@@ -323,7 +323,7 @@ button {
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.7</span></h1>
+      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.8</span></h1>
     </div>
   </div>
 
@@ -506,6 +506,7 @@ import {
   mergeTaskUpdates,
   readTaskCache,
   taskCacheNeedsFullRefresh,
+  taskTimestampMillis,
   writeTaskCache
 } from "./task-cache.js?v=3";
 
@@ -1033,18 +1034,11 @@ async function checkForAdminTaskChanges() {
     const cached = await readTaskCache(DATE_FROM, DATE_TO);
     if (!cached || taskCacheNeedsFullRefresh(cached) || !cached.watermarkMillis) return;
 
-    const [updatedSnapshot, completedSnapshot] = await Promise.all([
-      getDocs(query(
-        collection(db, TASK_COLLECTION),
-        where("updatedAt", ">", Timestamp.fromMillis(cached.watermarkMillis)),
-        orderBy("updatedAt")
-      )),
-      getDocs(query(
-        collection(db, TASK_COLLECTION),
-        where("completedAt", ">", Timestamp.fromMillis(cached.completionWatermarkMillis || 0)),
-        orderBy("completedAt")
-      ))
-    ]);
+    const completedSnapshot = await getDocs(query(
+      collection(db, TASK_COLLECTION),
+      where("completedAt", ">", Timestamp.fromMillis(cached.completionWatermarkMillis || 0)),
+      orderBy("completedAt")
+    ));
 
     const button = document.getElementById("dataSourceStatusBtn");
     if (!button || checkGeneration !== adminChangeCheckGeneration) return;
@@ -1057,7 +1051,6 @@ async function checkForAdminTaskChanges() {
         changedById.set(task._key, task);
       }
     };
-    updatedSnapshot.forEach(collectRelevantChange);
     completedSnapshot.forEach(collectRelevantChange);
 
     const changeCount = changedById.size;
@@ -1066,9 +1059,9 @@ async function checkForAdminTaskChanges() {
     if (hasChanges) button.dataset.updateCount = String(changeCount);
     else delete button.dataset.updateCount;
     if (hasChanges) {
-      button.title = `${changeCount} changed task${changeCount === 1 ? " is" : "s are"} available. Click to sync.`;
+      button.title = `${changeCount} newly completed task${changeCount === 1 ? " is" : "s are"} available. Click to sync.`;
     } else {
-      button.title = "No new task changes. Click to check Firestore now.";
+      button.title = "No new completed tasks. Click to check Firestore now.";
     }
   } catch (error) {
     console.warn("Background task update check failed:", error);
@@ -2233,19 +2226,31 @@ window.loadTasks = async function (status) {
         ))
       ]);
       const updatesById = new Map();
+      let updateQueryWatermark = cached.watermarkMillis || 0;
+      let completionQueryWatermark = cached.completionWatermarkMillis || 0;
       updatedSnapshot.forEach(docSnap => {
-        updatesById.set(docSnap.id, { _key: docSnap.id, ...docSnap.data() });
+        const task = { _key: docSnap.id, ...docSnap.data() };
+        updatesById.set(docSnap.id, task);
+        updateQueryWatermark = Math.max(
+          updateQueryWatermark,
+          taskTimestampMillis(task.updatedAt)
+        );
       });
       completedSnapshot.forEach(docSnap => {
-        updatesById.set(docSnap.id, { _key: docSnap.id, ...docSnap.data() });
+        const task = { _key: docSnap.id, ...docSnap.data() };
+        updatesById.set(docSnap.id, task);
+        completionQueryWatermark = Math.max(
+          completionQueryWatermark,
+          taskTimestampMillis(task.completedAt)
+        );
       });
       const updates = [...updatesById.values()];
 
       rawTasks = mergeTaskUpdates(rawTasks, updates, DATE_FROM, DATE_TO);
       await writeTaskCache(DATE_FROM, DATE_TO, rawTasks, {
         previousFullSyncedAt: cached.fullSyncedAt,
-        previousWatermark: cached.watermarkMillis,
-        previousCompletionWatermark: cached.completionWatermarkMillis
+        previousWatermark: updateQueryWatermark,
+        previousCompletionWatermark: completionQueryWatermark
       });
       updateDataSourceStatus(
         `Incremental sync received ${updates.length} update(s)`,
