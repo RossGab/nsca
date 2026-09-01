@@ -323,7 +323,7 @@ button {
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.6</span></h1>
+      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.7</span></h1>
     </div>
   </div>
 
@@ -1022,9 +1022,12 @@ function updateDataSourceStatus(detail = "Firestore", successfulSyncMillis = nul
 const ADMIN_CHANGE_CHECK_MS = 10 * 60 * 1000;
 let adminChangeCheckTimer = null;
 let adminChangeCheckRunning = false;
+let adminChangeCheckGeneration = 0;
+let adminTaskSyncRunning = false;
 
 async function checkForAdminTaskChanges() {
   if (document.hidden || adminChangeCheckRunning || !DATE_FROM || !DATE_TO) return;
+  const checkGeneration = adminChangeCheckGeneration;
   adminChangeCheckRunning = true;
   try {
     const cached = await readTaskCache(DATE_FROM, DATE_TO);
@@ -1044,7 +1047,7 @@ async function checkForAdminTaskChanges() {
     ]);
 
     const button = document.getElementById("dataSourceStatusBtn");
-    if (!button) return;
+    if (!button || checkGeneration !== adminChangeCheckGeneration) return;
     const cachedIds = new Set((cached.tasks || []).map(task => task._key));
     const changedById = new Map();
     const collectRelevantChange = docSnap => {
@@ -1969,7 +1972,22 @@ window.showAllOpenTasks = function () {
 };
 
 window.syncAdminTasks = function () {
-  return loadTasks(CURRENT_STATUS || "PENDING");
+  if (adminTaskSyncRunning) return Promise.resolve();
+  adminTaskSyncRunning = true;
+  adminChangeCheckGeneration++;
+
+  const button = document.getElementById("dataSourceStatusBtn");
+  if (button) {
+    button.disabled = true;
+    button.classList.remove("has-updates");
+    delete button.dataset.updateCount;
+    button.textContent = "Syncing changes…";
+  }
+
+  return loadTasks(CURRENT_STATUS || "PENDING").finally(() => {
+    adminTaskSyncRunning = false;
+    if (button) button.disabled = false;
+  });
 };
   
 window.forceRefresh = async function () {
