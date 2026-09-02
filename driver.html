@@ -1501,6 +1501,36 @@ async function deleteTaskFromIndexedDB(taskKey) {
   tx.objectStore(TASK_STORE).delete(taskKey);
 }
 
+async function archiveTransferredLocalTask(taskKey, assignedDriverId) {
+  const tasks = await getTasksFromIndexedDB();
+  const localTask = tasks.find(t => t._key === taskKey);
+
+  if (!localTask) return false;
+
+  await saveTasksToIndexedDB([{
+    ...localTask,
+    status: "TRANSFERRED_ARCHIVED",
+    transferredArchivedAt: new Date().toISOString(),
+    transferredToDriverId: assignedDriverId || "",
+    transferArchiveReason: "Driver assignment changed in Firestore"
+  }]);
+
+  // Keep the local record and its photos for recovery, but remove it from all
+  // working and upload views immediately.
+  TASKS_CACHE = TASKS_CACHE.filter(t => t._key !== taskKey);
+
+  const updatedTasks = await getTasksFromIndexedDB();
+  UPLOAD_QUEUE_COUNT = updatedTasks.filter(t =>
+    t.status === "LOCAL_COMPLETED" &&
+    !t.exported &&
+    String(t.driverId || "").trim().toUpperCase() ===
+      String(DRIVER_ID || "").trim().toUpperCase()
+  ).length;
+  updateUploadCounter();
+
+  return true;
+}
+
 async function cleanOrphanPhotos() {
   try {
     const tasks = await getTasksFromIndexedDB();
@@ -1533,6 +1563,7 @@ let SEARCH_TERM = "";
 let searchTimer;
 let TASKS_CACHE = [];
 let UPLOAD_QUEUE_COUNT = 0;
+let LAST_UPLOAD_BLOCK_REASON = "";
 const dateFilter = document.getElementById("dateFilter");
   const appVersion = document.getElementById("appVersion");
 const taskList = document.getElementById("taskList");
@@ -1735,7 +1766,8 @@ function applyFiltersOnly() {
   if (
     taskStatus === "COMPLETED" ||
     taskStatus === "SYNC_PENDING" ||
-    taskStatus === "EXPORTED"
+    taskStatus === "EXPORTED" ||
+    taskStatus === "TRANSFERRED_ARCHIVED"
   ) return false;
 
   return true;
@@ -2057,6 +2089,7 @@ for (let taskIndex = 0; taskIndex < completed.length; taskIndex++) {
       }
 
     let allUploaded = true;
+    let transferredArchived = false;
 
     for (let i = 0; i < related.length; i++) {
 
@@ -2112,17 +2145,22 @@ for (let taskIndex = 0; taskIndex < completed.length; taskIndex++) {
 
         if (!success) {
 
-           alert(
-             "❌ PHOTO UPLOAD FAILED\n\n" +
-             "Task: " +
-             task._key +
-             "\n" +
-             "Photo: " +
-             p.photoIndex +
-             "\n\n" +
-             "uploadNow() returned FALSE.\n" +
-             "Check the sync progress/details."
-           );
+           transferredArchived =
+             LAST_UPLOAD_BLOCK_REASON === "TRANSFERRED_ARCHIVED";
+
+           if (!transferredArchived) {
+             alert(
+               "❌ PHOTO UPLOAD FAILED\n\n" +
+               "Task: " +
+               task._key +
+               "\n" +
+               "Photo: " +
+               p.photoIndex +
+               "\n\n" +
+               "uploadNow() returned FALSE.\n" +
+               "Check the sync progress/details."
+             );
+           }
          
            allUploaded = false;
            break;
@@ -2313,6 +2351,22 @@ for (let taskIndex = 0; taskIndex < completed.length; taskIndex++) {
       updateUploadCounter();
     }
     else {
+
+      if (transferredArchived) {
+        updateSyncProgress({
+          current: taskIndex + 1,
+          total: completed.length,
+          currentTask:
+            `${task._key}${task.CUSTOMERNAME ? " — " + task.CUSTOMERNAME : ""}`,
+          currentPhoto:
+            "⚠️ Transferred — archived locally",
+          successful,
+          failed,
+          message:
+            `Task ${taskIndex + 1} of ${completed.length} was not uploaded`
+        });
+        continue;
+      }
 
       failed++;
     
@@ -3465,6 +3519,9 @@ window.CURRENT_TASK = null;
 
 function resolveStatus(task) {
   if (task.status === "COMPLETED") return "COMPLETED";
+  if (task.status === "TRANSFERRED_ARCHIVED") {
+    return "TRANSFERRED_ARCHIVED";
+  }
   if (task.status === "LOCAL_COMPLETED") {
   if (task.exported) return "EXPORTED";
     return "SYNC_PENDING";
@@ -3520,6 +3577,8 @@ async function uploadNow(
   isLastPhoto
 ) {
 
+  LAST_UPLOAD_BLOCK_REASON = "";
+
   console.log("⬆️ Syncing task:", {
     taskKey,
     photoIndex,
@@ -3568,11 +3627,16 @@ async function uploadNow(
       currentDriver,
       assignedDriver
     });
+
+    await archiveTransferredLocalTask(taskKey, assignedDriver);
+    LAST_UPLOAD_BLOCK_REASON = "TRANSFERRED_ARCHIVED";
+
     alert(
       `⚠️ TASK TRANSFERRED\n\n` +
       `Task: ${taskKey}\n\n` +
       `This task is now assigned to another driver. ` +
-      `Your local completion was kept and was not uploaded.`
+      `Your local completion was archived and was not uploaded. ` +
+      `It will no longer be included in future uploads or exports.`
     );
     return false;
   }
@@ -4669,7 +4733,8 @@ async function loadTasks() {
       t.dateKey === dateKey &&
       String(t.driverId || "").trim().toUpperCase() ===
       String(DRIVER_ID).trim().toUpperCase() &&
-      resolveStatus(t) !== "COMPLETED"
+      resolveStatus(t) !== "COMPLETED" &&
+      resolveStatus(t) !== "TRANSFERRED_ARCHIVED"
     );
 
     if (!navigator.onLine) {
