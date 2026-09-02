@@ -495,6 +495,7 @@ import {
   orderBy,
   writeBatch,
   updateDoc,
+  deleteField,
   serverTimestamp,
   Timestamp
 } from
@@ -507,8 +508,9 @@ import {
   readTaskCache,
   taskCacheNeedsFullRefresh,
   taskTimestampMillis,
+  updateTasksInAllCaches,
   writeTaskCache
-} from "./task-cache.js?v=3";
+} from "./task-cache.js?v=4";
 
 import {
   getDatabase,
@@ -1823,79 +1825,72 @@ window.revertToPending = async function (taskKey) {
 
     const original = snap.data();
 
-    // 1️⃣ Fields to CLEAR (completion-only data)
+    // Clear completion-only data without touching assignment, date, customer,
+    // route, or source fields needed to download the task again.
     const RESET_FIELDS = [
       "deliveryType",
+      "deliverytype",
+      "deliverytype_2nd",
       "result",
       "remarks",
-      "finalized"
+      "completedAt",
+      "completedBy",
+      "uploadedAt",
+      "exportedAt",
+      "uploadSource"
     ];
 
-    // Also clear any dynamic form fields
+    // Remove old photo metadata so a new upload cannot be mistaken for the
+    // previous completion. The Storage files themselves are retained.
     Object.keys(original).forEach(k => {
-      if (
-        k.startsWith("photo") === false &&
-        k !== "createdAt" &&
-        k !== "driverId" &&
-        k !== "JOBTYPE" &&
-        k !== "BA" &&
-        k !== "DMZ" &&
-        k !== "MRU" &&
-        k !== "BG" &&
-        k !== "SEQUENCE" &&
-        k !== "METERNUMBER" &&
-        k !== "ACCOUNTNUMBER" &&
-        k !== "CUSTOMERNAME" &&
-        k !== "ADDRESS" &&
-        k !== "ZIPCODE" &&
-        k !== "LATITUDE" &&
-        k !== "LONGITUDE" &&
-        k !== "AGENTID" &&
-        k !== "AGENTNAME" &&
-        k !== "rowIndex" &&
-        k !== "status"
-      ) {
+      if (/^photo\d+/i.test(k)) {
         RESET_FIELDS.push(k);
       }
     });
 
     const updates = {};
 
-    RESET_FIELDS.forEach(k => {
-      updates[k] = null;
+    [...new Set(RESET_FIELDS)].forEach(k => {
+      updates[k] = deleteField();
     });
 
-    // 2️⃣ Force safe pending state
+    // Make the reset task available for the assigned driver to download again.
     Object.assign(updates, {
       status: "PENDING",
+      workStatus: "fordownload",
       finalized: false,
       forceReopen: true,
-      reopenedAt: new Date().toISOString()
+      reopenedAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
     });
 
-    // 3️⃣ Apply LIGHT update
     await updateDoc(doc(db, TASK_COLLECTION, taskKey), updates);
 
-    // 4️⃣ Update local cache
-    const cached = getCachedTasks() || [];
-    const idx = cached.findIndex(t => t._key === taskKey);
+    const resetAt = new Date().toISOString();
+    const cacheUpdate = {
+      status: "PENDING",
+      workStatus: "fordownload",
+      finalized: false,
+      forceReopen: true,
+      reopenedAt: resetAt,
+      updatedAt: resetAt
+    };
+    [...new Set(RESET_FIELDS)].forEach(k => {
+      cacheUpdate[k] = null;
+    });
+    await updateTasksInAllCaches({ [taskKey]: cacheUpdate });
 
-    if (idx !== -1) {
-      cached[idx] = {
-        ...cached[idx],
-        ...updates
-      };
-      setCachedTasks(cached);
-    }
-
-    alert("✅ Task reset to pending");
+    alert("✅ Task reset and returned to Task for Download");
 
     refreshDashboard();
     loadTasks("PENDING");
 
   } catch (err) {
-    console.error(err);
-    alert("Failed to reset task");
+    console.error("Failed to reset task:", err);
+    alert(
+      "Failed to reset task.\n\n" +
+      (err?.code || err?.message || String(err))
+    );
   } finally {
     hideLoader();
   }
