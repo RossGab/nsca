@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Driver Device Storage Check</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: Arial, sans-serif;
+      background: #eef3f8;
+      color: #172033;
+    }
+
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #eef3f8; }
+    main { width: min(1100px, 100%); margin: 0 auto; padding: 16px; }
+    header, .panel, .summary-card {
+      background: #fff;
+      border: 1px solid #d9e1eb;
+      border-radius: 14px;
+      box-shadow: 0 4px 14px rgba(23, 32, 51, 0.06);
+    }
+    header { padding: 18px; border-top: 5px solid #1769aa; }
+    h1 { margin: 0 0 6px; font-size: clamp(1.4rem, 5vw, 2rem); }
+    h2 { margin: 0 0 12px; font-size: 1.1rem; }
+    p { margin: 5px 0; }
+    .muted { color: #657086; font-size: 0.9rem; }
+    .warning {
+      margin-top: 12px;
+      padding: 10px 12px;
+      border-radius: 9px;
+      background: #fff7dd;
+      color: #705500;
+    }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0; }
+    button, a.button {
+      border: 0;
+      border-radius: 9px;
+      padding: 11px 15px;
+      background: #1769aa;
+      color: white;
+      font-size: 0.95rem;
+      font-weight: 700;
+      text-decoration: none;
+      cursor: pointer;
+    }
+    button.secondary, a.secondary { background: #566277; }
+    button:disabled { opacity: 0.55; cursor: default; }
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .summary-card { padding: 14px; }
+    .summary-card strong { display: block; font-size: 1.65rem; margin-top: 5px; }
+    .panel { padding: 14px; margin-bottom: 14px; }
+    .filters { display: grid; grid-template-columns: 1fr 180px; gap: 8px; }
+    input, select {
+      width: 100%;
+      border: 1px solid #b9c5d4;
+      border-radius: 8px;
+      padding: 11px;
+      background: white;
+      font-size: 1rem;
+    }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; min-width: 780px; }
+    th, td { padding: 10px 8px; border-bottom: 1px solid #e2e7ee; text-align: left; }
+    th { background: #f4f7fb; font-size: 0.78rem; text-transform: uppercase; color: #536078; }
+    .badge { display: inline-block; padding: 4px 8px; border-radius: 999px; font-size: 0.75rem; font-weight: 700; }
+    .pending { background: #e8f2ff; color: #15599a; }
+    .local_completed { background: #fff0c7; color: #735400; }
+    .exported { background: #e9e3ff; color: #4b3190; }
+    .transferred_archived { background: #ffe1e1; color: #982d2d; }
+    .completed { background: #ddf4e4; color: #1e6e37; }
+    .mismatch { color: #b42318; font-weight: 700; }
+    #message { min-height: 24px; margin: 10px 0; font-weight: 700; }
+    @media (max-width: 620px) {
+      main { padding: 10px; }
+      .filters { grid-template-columns: 1fr; }
+      button, a.button { flex: 1 1 auto; text-align: center; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Device Storage Check</h1>
+      <p id="driverLabel">Driver ID: checking…</p>
+      <p class="muted">This page only reads records saved in this browser. It cannot edit or delete tasks.</p>
+      <div class="warning">Open this page using the same browser and website used by the driver.</div>
+    </header>
+
+    <div class="actions">
+      <a class="button secondary" href="driver.html">Back to Driver</a>
+      <button id="refreshBtn" type="button">Refresh</button>
+      <button id="exportBtn" type="button" disabled>Export Diagnostic Report</button>
+    </div>
+
+    <div id="message" role="status"></div>
+
+    <section class="summary" aria-label="Storage summary">
+      <div class="summary-card"><span>Total tasks</span><strong id="totalTasks">0</strong></div>
+      <div class="summary-card"><span>Pending</span><strong id="pendingTasks">0</strong></div>
+      <div class="summary-card"><span>For upload</span><strong id="uploadTasks">0</strong></div>
+      <div class="summary-card"><span>Archived transfer</span><strong id="archivedTasks">0</strong></div>
+      <div class="summary-card"><span>Saved photos</span><strong id="totalPhotos">0</strong></div>
+      <div class="summary-card"><span>Storage used</span><strong id="storageUsed">--</strong></div>
+    </section>
+
+    <section class="panel">
+      <h2>Saved tasks</h2>
+      <div class="filters">
+        <input id="searchInput" type="search" placeholder="Search task, customer, date or driver">
+        <select id="statusFilter">
+          <option value="">All statuses</option>
+          <option value="PENDING">Pending</option>
+          <option value="LOCAL_COMPLETED">For upload</option>
+          <option value="EXPORTED">Exported</option>
+          <option value="TRANSFERRED_ARCHIVED">Transferred archived</option>
+          <option value="COMPLETED">Completed</option>
+        </select>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Task ID</th>
+              <th>Customer</th>
+              <th>Saved driver</th>
+              <th>Local status</th>
+              <th>Photos</th>
+            </tr>
+          </thead>
+          <tbody id="taskRows"></tbody>
+        </table>
+      </div>
+      <p id="emptyState" class="muted" hidden>No matching records found.</p>
+    </section>
+  </main>
+
+  <script>
+    "use strict";
+
+    const DB_NAME = "driver_uploads";
+    const TASK_STORE = "tasks";
+    const PHOTO_STORE = "photos";
+    let tasks = [];
+    let photos = [];
+    let storageDetails = {};
+
+    const currentDriver = String(localStorage.getItem("driverId") || "").trim();
+    document.getElementById("driverLabel").textContent =
+      `Driver ID: ${currentDriver || "Not set"}`;
+
+    function normalizeStatus(task) {
+      if (task.status === "LOCAL_COMPLETED" && task.exported) return "EXPORTED";
+      return String(task.status || task.workStatus || "PENDING").toUpperCase();
+    }
+
+    function formatBytes(bytes) {
+      if (!Number.isFinite(bytes)) return "--";
+      if (bytes < 1024) return `${bytes} B`;
+      if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+      if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+      return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
+    }
+
+    function openExistingDatabase() {
+      return new Promise((resolve, reject) => {
+        const request = indexedDB.open(DB_NAME);
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error || new Error("Unable to open device storage."));
+        request.onupgradeneeded = () => {
+          request.transaction.abort();
+          reject(new Error("No driver task storage exists in this browser."));
+        };
+      });
+    }
+
+    function readAll(db, storeName) {
+      return new Promise((resolve, reject) => {
+        if (!db.objectStoreNames.contains(storeName)) {
+          resolve([]);
+          return;
+        }
+        const tx = db.transaction(storeName, "readonly");
+        const request = tx.objectStore(storeName).getAll();
+        request.onsuccess = () => resolve(request.result || []);
+        request.onerror = () => reject(request.error || new Error(`Unable to read ${storeName}.`));
+      });
+    }
+
+    async function databaseExists() {
+      if (!indexedDB.databases) return true;
+      const databases = await indexedDB.databases();
+      return databases.some(db => db.name === DB_NAME);
+    }
+
+    async function loadStorage() {
+      const message = document.getElementById("message");
+      const refreshBtn = document.getElementById("refreshBtn");
+      refreshBtn.disabled = true;
+      message.textContent = "Checking device storage…";
+
+      try {
+        if (!(await databaseExists())) {
+          throw new Error("No driver task storage was found in this browser.");
+        }
+
+        const db = await openExistingDatabase();
+        [tasks, photos] = await Promise.all([
+          readAll(db, TASK_STORE),
+          readAll(db, PHOTO_STORE)
+        ]);
+        db.close();
+
+        storageDetails = {};
+        if (navigator.storage && navigator.storage.estimate) {
+          storageDetails = await navigator.storage.estimate();
+        }
+        if (navigator.storage && navigator.storage.persisted) {
+          storageDetails.persisted = await navigator.storage.persisted();
+        }
+
+        renderSummary();
+        renderRows();
+        document.getElementById("exportBtn").disabled = false;
+        message.textContent = tasks.length
+          ? `Found ${tasks.length} task record(s) in this device.`
+          : "Device storage exists, but it contains no task records.";
+      } catch (error) {
+        tasks = [];
+        photos = [];
+        renderSummary();
+        renderRows();
+        document.getElementById("exportBtn").disabled = true;
+        message.textContent = error.message || "Unable to read device storage.";
+      } finally {
+        refreshBtn.disabled = false;
+      }
+    }
+
+    function renderSummary() {
+      const count = status => tasks.filter(task => normalizeStatus(task) === status).length;
+      document.getElementById("totalTasks").textContent = tasks.length;
+      document.getElementById("pendingTasks").textContent = count("PENDING");
+      document.getElementById("uploadTasks").textContent = count("LOCAL_COMPLETED");
+      document.getElementById("archivedTasks").textContent = count("TRANSFERRED_ARCHIVED");
+      document.getElementById("totalPhotos").textContent = photos.length;
+      document.getElementById("storageUsed").textContent = formatBytes(storageDetails.usage);
+    }
+
+    function renderRows() {
+      const search = document.getElementById("searchInput").value.trim().toLowerCase();
+      const requiredStatus = document.getElementById("statusFilter").value;
+      const photoCounts = new Map();
+      photos.forEach(photo => {
+        const key = String(photo.taskKey || "");
+        photoCounts.set(key, (photoCounts.get(key) || 0) + 1);
+      });
+
+      const filtered = tasks.filter(task => {
+        const status = normalizeStatus(task);
+        if (requiredStatus && status !== requiredStatus) return false;
+        const text = [
+          task._key,
+          task.CUSTOMERNAME,
+          task.customerName,
+          task.driverId,
+          task.agentId,
+          task.assignedDate,
+          task.dateKey,
+          status
+        ].join(" ").toLowerCase();
+        return !search || text.includes(search);
+      }).sort((a, b) =>
+        String(b.dateKey || b.assignedDate || "").localeCompare(
+          String(a.dateKey || a.assignedDate || "")
+        )
+      );
+
+      const tbody = document.getElementById("taskRows");
+      tbody.replaceChildren();
+
+      filtered.forEach(task => {
+        const row = document.createElement("tr");
+        const status = normalizeStatus(task);
+        const savedDriver = String(task.driverId || task.agentId || "");
+        const values = [
+          task.assignedDate || task.dateKey || "--",
+          task._key || "--",
+          task.CUSTOMERNAME || task.customerName || "--",
+          savedDriver || "--"
+        ];
+
+        values.forEach((value, index) => {
+          const cell = document.createElement("td");
+          cell.textContent = value;
+          if (
+            index === 3 && currentDriver && savedDriver &&
+            savedDriver.toUpperCase() !== currentDriver.toUpperCase()
+          ) {
+            cell.className = "mismatch";
+            cell.title = "Saved under a different Driver ID";
+          }
+          row.appendChild(cell);
+        });
+
+        const statusCell = document.createElement("td");
+        const badge = document.createElement("span");
+        badge.className = `badge ${status.toLowerCase()}`;
+        badge.textContent = status.replaceAll("_", " ");
+        statusCell.appendChild(badge);
+        row.appendChild(statusCell);
+
+        const photoCell = document.createElement("td");
+        photoCell.textContent = photoCounts.get(String(task._key || "")) || 0;
+        row.appendChild(photoCell);
+        tbody.appendChild(row);
+      });
+
+      document.getElementById("emptyState").hidden = filtered.length !== 0;
+    }
+
+    function exportDiagnosticReport() {
+      const photoCounts = new Map();
+      photos.forEach(photo => {
+        const key = String(photo.taskKey || "");
+        photoCounts.set(key, (photoCounts.get(key) || 0) + 1);
+      });
+
+      const report = {
+        reportType: "DRIVER_DEVICE_STORAGE_DIAGNOSTIC",
+        exportedAt: new Date().toISOString(),
+        pageOrigin: location.origin,
+        currentDriverId: currentDriver,
+        databaseName: DB_NAME,
+        storage: {
+          usageBytes: storageDetails.usage ?? null,
+          quotaBytes: storageDetails.quota ?? null,
+          persistent: storageDetails.persisted ?? null
+        },
+        totals: {
+          tasks: tasks.length,
+          photos: photos.length
+        },
+        tasks: tasks.map(task => ({
+          taskId: task._key || "",
+          assignedDate: task.assignedDate || "",
+          dateKey: task.dateKey || "",
+          customerName: task.CUSTOMERNAME || task.customerName || "",
+          savedDriverId: task.driverId || task.agentId || "",
+          localStatus: normalizeStatus(task),
+          workStatus: task.workStatus || "",
+          exported: task.exported === true,
+          transferredToDriverId: task.transferredToDriverId || "",
+          transferredArchivedAt: task.transferredArchivedAt || "",
+          savedPhotoCount: photoCounts.get(String(task._key || "")) || 0
+        }))
+      };
+
+      const blob = new Blob([JSON.stringify(report, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const safeDriver = (currentDriver || "UNKNOWN").replace(/[^a-z0-9_-]+/gi, "_");
+      link.href = url;
+      link.download = `DEVICE_STORAGE_${safeDriver}_${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    document.getElementById("refreshBtn").addEventListener("click", loadStorage);
+    document.getElementById("exportBtn").addEventListener("click", exportDiagnosticReport);
+    document.getElementById("searchInput").addEventListener("input", renderRows);
+    document.getElementById("statusFilter").addEventListener("change", renderRows);
+    loadStorage();
+  </script>
+</body>
+</html>

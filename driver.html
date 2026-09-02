@@ -629,7 +629,7 @@ import {
 import { getStorage, ref as sRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js";
 import { increment } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
   
-const VERSION = "V.R.0.0.16.1.4.4";
+const VERSION = "V.R.0.0.16.1.4.5";
 const BILLING_CACHE = {};
 window.BILLING_CACHE = BILLING_CACHE;
 const DRIVER_UI_CACHE = {};
@@ -1815,8 +1815,9 @@ document.getElementById("settingsBtn").onclick = async () => {
 
 1 - Change Driver ID
 2 - Recover Tasks
+3 - Check Device Storage
 
-Enter 1 or 2`
+Enter 1, 2 or 3`
   );
 
   if (!choice) {
@@ -1875,6 +1876,15 @@ Enter 1 or 2`
 
     await recoverTasksFromFiles();
 
+    return;
+  }
+
+  // ==========================================
+  // 3 — READ-ONLY DEVICE STORAGE VIEWER
+  // ==========================================
+
+  if (choice === "3") {
+    window.location.href = "driver-storage-viewer.html";
     return;
   }
 
