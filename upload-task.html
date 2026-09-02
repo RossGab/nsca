@@ -27,6 +27,12 @@
 .message-list li{padding:10px 12px;border-left:4px solid #0b5cab;border-radius:6px;background:#f8fafc;line-height:1.45}
 .message-list strong{color:#0f172a}
 .message-reminder{margin:12px 0 0;padding:10px 12px;border-radius:7px;background:#fff7d6;color:#6b5200;font-weight:600}
+.deleted-review{grid-column:1/-1;display:none}.deleted-review.visible{display:block}
+.deleted-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+.deleted-list{max-height:310px;overflow:auto;border:1px solid #e3c7c7;border-radius:8px;background:#fffafa}
+.deleted-row{display:flex;gap:10px;align-items:flex-start;padding:9px 11px;border-bottom:1px solid #f0dddd}
+.deleted-row:last-child{border-bottom:0}.deleted-row input{margin-top:3px}.deleted-task-id{font-weight:700;word-break:break-all}
+.restore{background:#b45309;color:#fff}.deleted-note{color:#7c2d12;font-size:12px;line-height:1.45}
 .error-text{color:#ff9f9f}.warn-text{color:#ffe28a}.success-text{color:#99f6c6}
 #uploadOverlay{position:fixed;inset:0;z-index:100000;display:none;align-items:center;justify-content:center;padding:20px;background:rgba(15,23,42,.58)}
 #uploadOverlay.visible{display:flex}.loader{width:min(340px,100%);padding:24px;border-radius:14px;background:#fff;text-align:center;box-shadow:0 18px 45px rgba(0,0,0,.25)}
@@ -51,7 +57,7 @@
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Upload Driver Task Export <span class="app-version">V.R.1.1.1</span></h1>
+      <h1 class="app-title">Upload Driver Task Export <span class="app-version">V.R.1.2.0</span></h1>
       <p class="app-subtitle">Imports files produced by Driver Sync Option 2.</p>
     </div>
   </div>
@@ -85,6 +91,17 @@
     <p class="hint">Only existing documents in <b>drver-task / TASK</b> are updated. The importer does not create unknown tasks or overwrite original assignment details.</p>
   </section>
 
+  <section id="deletedReview" class="card deleted-review" aria-labelledby="deletedReviewTitle">
+    <div class="section-title" id="deletedReviewTitle">Review Deleted Tasks</div>
+    <p class="deleted-note">These tasks were deleted by an administrator and were not uploaded. Restore only tasks whose deletion was confirmed as accidental.</p>
+    <div class="deleted-toolbar">
+      <label><input id="selectAllDeleted" type="checkbox"> Select all deleted tasks</label>
+      <button id="restoreDeletedBtn" class="restore" type="button" disabled>Restore and Upload Selected</button>
+      <span id="deletedSelectionCount" class="hint">0 selected</span>
+    </div>
+    <div id="deletedTaskList" class="deleted-list"></div>
+  </section>
+
   <section class="card">
     <div class="section-title">Validation and upload log</div>
     <div id="status" role="log" aria-live="polite">Ready. Select a Driver Sync Option 2 JSON export.</div>
@@ -96,7 +113,7 @@
       <li><strong>Completed</strong> — The task was accepted and saved.</li>
       <li><strong>Already completed</strong> — The task was previously completed. No changes were made.</li>
       <li><strong>Driver mismatch</strong> — The task now belongs to another driver. No changes were made.</li>
-      <li><strong>Task deleted</strong> — The administrator previously removed the task. No changes were made.</li>
+      <li><strong>Task deleted</strong> — The administrator previously removed the task. It is listed for review and is not restored automatically.</li>
       <li><strong>Failed</strong> — Keep the JSON file and check the upload log before trying again.</li>
     </ul>
     <p class="message-reminder">Do not delete the driver's JSON file until all valid tasks are confirmed as uploaded.</p>
@@ -159,11 +176,17 @@ const elements = {
   progressText: document.getElementById("progressText"),
   status: document.getElementById("status"),
   overlay: document.getElementById("uploadOverlay"),
-  overlayMessage: document.getElementById("overlayMessage")
+  overlayMessage: document.getElementById("overlayMessage"),
+  deletedReview: document.getElementById("deletedReview"),
+  deletedTaskList: document.getElementById("deletedTaskList"),
+  selectAllDeleted: document.getElementById("selectAllDeleted"),
+  restoreDeletedBtn: document.getElementById("restoreDeletedBtn"),
+  deletedSelectionCount: document.getElementById("deletedSelectionCount")
 };
 
 let exportData = null;
 let isUploading = false;
+let deletedTasksForReview = new Map();
 
 function appendLog(message, type = "") {
   const line = document.createElement("div");
@@ -194,6 +217,50 @@ function setUploading(active) {
   elements.loadBtn.disabled = active;
   elements.previewBtn.disabled = active || !exportData;
   elements.uploadBtn.disabled = active || !exportData;
+  elements.restoreDeletedBtn.disabled = active || getSelectedDeletedTaskIds().length === 0;
+}
+
+function getSelectedDeletedTaskIds() {
+  return [...elements.deletedTaskList.querySelectorAll("input[data-task-id]:checked")]
+    .map(input => input.dataset.taskId);
+}
+
+function updateDeletedSelection() {
+  const checkboxes = [...elements.deletedTaskList.querySelectorAll("input[data-task-id]")];
+  const selected = checkboxes.filter(input => input.checked);
+  elements.deletedSelectionCount.textContent = `${selected.length} selected`;
+  elements.restoreDeletedBtn.disabled = isUploading || selected.length === 0;
+  elements.selectAllDeleted.checked = checkboxes.length > 0 && selected.length === checkboxes.length;
+  elements.selectAllDeleted.indeterminate = selected.length > 0 && selected.length < checkboxes.length;
+}
+
+function renderDeletedTaskReview() {
+  elements.deletedTaskList.replaceChildren();
+  const entries = [...deletedTasksForReview.values()];
+  elements.deletedReview.classList.toggle("visible", entries.length > 0);
+
+  entries.forEach(task => {
+    const row = document.createElement("label");
+    row.className = "deleted-row";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.dataset.taskId = task._key;
+    checkbox.addEventListener("change", updateDeletedSelection);
+
+    const details = document.createElement("span");
+    const id = document.createElement("span");
+    id.className = "deleted-task-id";
+    id.textContent = task._key;
+    const description = document.createElement("span");
+    description.className = "hint";
+    description.textContent = ` | ${task.CUSTOMERNAME || task.customerName || "Customer unavailable"}`;
+    details.append(id, description);
+    row.append(checkbox, details);
+    elements.deletedTaskList.appendChild(row);
+  });
+
+  if (!entries.length) elements.selectAllDeleted.checked = false;
+  updateDeletedSelection();
 }
 
 function safeId(value) {
@@ -312,23 +379,31 @@ function previewData() {
   );
 }
 
-async function uploadTask(task, relatedPhotos) {
+async function uploadTask(task, relatedPhotos, options = {}) {
   const taskRef = doc(firestore, "TASK", task._key);
   const snapshot = await getDoc(taskRef);
   if (!snapshot.exists()) throw new Error("Task does not exist in Firestore.");
 
   const existing = snapshot.data() || {};
-  if (existing.deleted === true) {
-    return { skipped: true, reason: "task was deleted by an administrator" };
-  }
   const expectedDriver = safeId(task.driverId || exportData.driverId).toUpperCase();
   // agentId is the canonical assignment field; driverId is legacy fallback.
   const actualDriver = safeId(existing.agentId || existing.driverId).toUpperCase();
   if (expectedDriver && actualDriver && expectedDriver !== actualDriver) {
-    throw new Error(`Driver mismatch: export=${expectedDriver}, Firestore=${actualDriver}.`);
+    return {
+      skipped: true,
+      category: "driverMismatch",
+      reason: `driver mismatch: export=${expectedDriver}, Firestore=${actualDriver}`
+    };
   }
-  if (String(existing.status || "").toUpperCase() === "COMPLETED") {
-    return { skipped: true, reason: "already completed" };
+  if (existing.deleted === true && !options.restoreDeleted) {
+    return {
+      skipped: true,
+      category: "deleted",
+      reason: "task was deleted by an administrator"
+    };
+  }
+  if (existing.deleted !== true && String(existing.status || "").toUpperCase() === "COMPLETED") {
+    return { skipped: true, category: "alreadyCompleted", reason: "already completed" };
   }
 
   const updatePayload = { ...(task.deliveryData || {}) };
@@ -336,7 +411,9 @@ async function uploadTask(task, relatedPhotos) {
 
   for (const photo of orderedPhotos) {
     const urlField = `photo${photo.photoIndex}Url`;
-    let url = existing[urlField] || "";
+    // A restored completion must use the evidence from this export, not a URL
+    // left behind by an older completion of the deleted task.
+    let url = options.restoreDeleted ? "" : (existing[urlField] || "");
     const filename = `${task._key}_photo_${photo.photoIndex}.jpg`;
 
     if (!url) {
@@ -362,8 +439,17 @@ async function uploadTask(task, relatedPhotos) {
     updatedAt: serverTimestamp()
   });
 
+  if (options.restoreDeleted) {
+    Object.assign(updatePayload, {
+      deleted: false,
+      deletedAt: null,
+      restoredAt: serverTimestamp(),
+      restoredBy: options.restoredBy || "administrator upload"
+    });
+  }
+
   await updateDoc(taskRef, updatePayload);
-  return { skipped: false };
+  return { skipped: false, restored: options.restoreDeleted === true };
 }
 
 async function uploadData() {
@@ -375,9 +461,15 @@ async function uploadData() {
   setProgress(0, exportData.tasks.length, "Preparing upload...");
   setUploading(true);
 
-  let completed = 0;
-  let skipped = 0;
-  let failed = 0;
+  const counts = {
+    completed: 0,
+    alreadyCompleted: 0,
+    driverMismatch: 0,
+    deleted: 0,
+    failed: 0
+  };
+  deletedTasksForReview = new Map();
+  renderDeletedTaskReview();
 
   try {
     const user = await authReady;
@@ -397,14 +489,17 @@ async function uploadData() {
       try {
         const result = await uploadTask(task, related);
         if (result.skipped) {
-          skipped++;
+          counts[result.category] = (counts[result.category] || 0) + 1;
+          if (result.category === "deleted") {
+            deletedTasksForReview.set(task._key, task);
+          }
           appendLog(`${task._key}: skipped (${result.reason}).`, "warn");
         } else {
-          completed++;
+          counts.completed++;
           appendLog(`${task._key}: completed in Firestore.`, "success");
         }
       } catch (error) {
-        failed++;
+        counts.failed++;
         console.error("Task import failed", task._key, error);
         appendLog(`${task._key}: ${error.code || error.message || error}`, "error");
       }
@@ -413,10 +508,21 @@ async function uploadData() {
       await new Promise(resolve => setTimeout(resolve, 0));
     }
 
-    appendLog(`Finished: ${completed} completed, ${skipped} skipped, ${failed} failed.`, failed ? "warn" : "success");
+    renderDeletedTaskReview();
+    appendLog(
+      `Finished: ${counts.completed} completed, ${counts.alreadyCompleted} already completed, ` +
+      `${counts.driverMismatch} driver mismatch, ${counts.deleted} deleted, ${counts.failed} failed.`,
+      counts.failed || counts.deleted || counts.driverMismatch ? "warn" : "success"
+    );
     alert(
-      `Upload finished.\n\nCompleted: ${completed}\nSkipped: ${skipped}\nFailed: ${failed}` +
-      (failed ? "\n\nReview the upload log for failed task IDs." : "")
+      `Upload finished.\n\n` +
+      `Completed: ${counts.completed}\n` +
+      `Already completed: ${counts.alreadyCompleted}\n` +
+      `Driver mismatch: ${counts.driverMismatch}\n` +
+      `Deleted tasks: ${counts.deleted}\n` +
+      `Failed: ${counts.failed}` +
+      (counts.deleted ? "\n\nReview deleted tasks below. Restore only accidental deletions." : "") +
+      (counts.failed ? "\n\nKeep the JSON file and review the upload log." : "")
     );
   } catch (error) {
     console.error(error);
@@ -427,8 +533,76 @@ async function uploadData() {
   }
 }
 
+async function restoreSelectedDeletedTasks() {
+  if (!exportData || isUploading) return;
+  const selectedIds = getSelectedDeletedTaskIds();
+  if (!selectedIds.length) return;
+
+  if (!confirm(
+    `Restore and upload ${selectedIds.length} deleted task(s)?\n\n` +
+    "Continue only if an administrator confirmed that the deletion was accidental."
+  )) return;
+
+  setUploading(true);
+  setProgress(0, selectedIds.length, "Preparing deleted-task restoration...");
+  let restored = 0;
+  let mismatch = 0;
+  let failed = 0;
+
+  try {
+    const user = await authReady;
+    if (user) await user.getIdToken(true);
+    const restoredBy = user?.email || user?.uid || "administrator upload";
+
+    for (let index = 0; index < selectedIds.length; index++) {
+      const taskId = selectedIds[index];
+      const task = deletedTasksForReview.get(taskId);
+      const related = exportData.photos.filter(photo => photo.taskKey === taskId);
+      setProgress(index, selectedIds.length, `Restoring ${index + 1} of ${selectedIds.length}: ${taskId}`);
+      appendLog(`Review restore: processing ${taskId}...`, "warn");
+
+      try {
+        const result = await uploadTask(task, related, { restoreDeleted: true, restoredBy });
+        if (result.skipped) {
+          if (result.category === "driverMismatch") mismatch++;
+          else failed++;
+          appendLog(`${taskId}: not restored (${result.reason}).`, "warn");
+        } else {
+          restored++;
+          deletedTasksForReview.delete(taskId);
+          appendLog(`${taskId}: restored and completed in Firestore.`, "success");
+        }
+      } catch (error) {
+        failed++;
+        console.error("Deleted task restore failed", taskId, error);
+        appendLog(`${taskId}: restore failed (${error.code || error.message || error}).`, "error");
+      }
+
+      setProgress(index + 1, selectedIds.length);
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
+
+    renderDeletedTaskReview();
+    appendLog(`Restore finished: ${restored} restored, ${mismatch} driver mismatch, ${failed} failed.`, failed || mismatch ? "warn" : "success");
+    alert(
+      `Deleted-task review finished.\n\n` +
+      `Restored and completed: ${restored}\n` +
+      `Driver mismatch: ${mismatch}\n` +
+      `Failed: ${failed}`
+    );
+  } catch (error) {
+    console.error("Deleted-task review could not start", error);
+    appendLog(`Restore process stopped: ${error.code || error.message || error}`, "error");
+    alert(`Restore process stopped.\n\n${error.code || error.message || error}`);
+  } finally {
+    setUploading(false);
+  }
+}
+
 elements.fileInput.addEventListener("change", () => {
   exportData = null;
+  deletedTasksForReview = new Map();
+  renderDeletedTaskReview();
   elements.fileName.textContent = elements.fileInput.files[0]?.name || "No file selected";
   elements.previewBtn.disabled = true;
   elements.uploadBtn.disabled = true;
@@ -436,6 +610,13 @@ elements.fileInput.addEventListener("change", () => {
 elements.loadBtn.addEventListener("click", loadFile);
 elements.previewBtn.addEventListener("click", previewData);
 elements.uploadBtn.addEventListener("click", uploadData);
+elements.selectAllDeleted.addEventListener("change", () => {
+  elements.deletedTaskList.querySelectorAll("input[data-task-id]").forEach(input => {
+    input.checked = elements.selectAllDeleted.checked;
+  });
+  updateDeletedSelection();
+});
+elements.restoreDeletedBtn.addEventListener("click", restoreSelectedDeletedTasks);
 </script>
 </body>
 </html>
