@@ -218,7 +218,16 @@ let FILTERED_TASK_IDS = [];
 function formatDateTime(ts){
   if(!ts) return "";
 
-  const d = new Date(ts);
+  let d;
+  if(typeof ts?.toDate === "function") {
+    d = ts.toDate();
+  } else if(Number.isFinite(ts?.seconds ?? ts?._seconds)) {
+    d = new Date((ts.seconds ?? ts._seconds) * 1000);
+  } else {
+    d = new Date(ts);
+  }
+
+  if(Number.isNaN(d.getTime())) return "";
 
   return d.toLocaleString("en-PH", {
     timeZone: "Asia/Manila",
@@ -586,6 +595,7 @@ function normalizeViewerTask(task){
   const raw = task || {};
   return {
     ...raw,
+    _key: raw.taskId ?? raw._key ?? raw.id ?? "",
     driverId: raw.driverId ?? raw.agentId ?? "",
     JOBTYPE: raw.JOBTYPE ?? raw.jobType ?? "",
     BA: raw.BA ?? raw.ba ?? "",
@@ -607,7 +617,10 @@ function normalizeViewerTask(task){
 function mergeTasks(data, target){
   const incoming = Array.isArray(data)
     ? data
-    : Object.entries(data || {}).map(([id, task]) => ({ _key: id, ...task }));
+    : Object.entries(data || {}).map(([id, task]) => ({
+        ...task,
+        _key: task?.taskId ?? task?._key ?? task?.id ?? id
+      }));
   const byId = new Map(target.map(task => [task._key, task]));
 
   incoming.map(normalizeViewerTask).forEach(task => {
