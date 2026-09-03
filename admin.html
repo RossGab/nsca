@@ -314,7 +314,7 @@ button {
 }
 </style>
 <link rel="stylesheet" href="./admin-theme.css">
-<script src="./admin-dialog.js?v=2"></script>
+<script src="./admin-dialog.js?v=4"></script>
 </head>
 
 <body>
@@ -1813,7 +1813,7 @@ function initLazyPhotos() {
 }
 
 window.revertToPending = async function (taskKey) {
-  if (!confirm("Reset task and send back to pending?")) return;
+  if (!(await nscaConfirm("Reset task and send back to pending?"))) return;
 
   showLoader("Resetting task…");
 
@@ -1898,7 +1898,7 @@ window.revertToPending = async function (taskKey) {
 };
 
 window.markAsCompleted = async function (taskId) {
-  if (!confirm("Mark this task as completed?")) return;
+  if (!(await nscaConfirm("Mark this task as completed?"))) return;
 
   showLoader("Completing task…");
 

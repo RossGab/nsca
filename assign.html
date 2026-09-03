@@ -119,7 +119,7 @@ select, input[type="date"] {
 }
 </style>
 <link rel="stylesheet" href="./admin-theme.css">
-<script src="./admin-dialog.js?v=2"></script>
+<script src="./admin-dialog.js?v=4"></script>
 </head>
 
 <body>
@@ -1245,7 +1245,7 @@ window.checkSelection = function () {
 };
 
 /* ===== BULK ACTION ===== */
-window.openBulkActions = function () {
+window.openBulkActions = async function () {
   
   const ids = [...SELECTED_IDS];
 
@@ -1253,7 +1253,7 @@ window.openBulkActions = function () {
   
   if (!ids.length) return;
 
-  const action = prompt("Type: TRANSFER or DELETE");
+  const action = await nscaPrompt("Type: TRANSFER or DELETE");
 
   if (!action) return;
 
@@ -1266,7 +1266,7 @@ window.openBulkActions = function () {
 
 async function bulkDelete(ids) {
 
-  if (!confirm(`Delete ${ids.length} tasks?`)) return;
+  if (!(await nscaConfirm(`Delete ${ids.length} tasks?`))) return;
 
   try {
 
@@ -1313,7 +1313,7 @@ async function bulkDelete(ids) {
 
 async function bulkTransfer(ids) {
 
-  const enteredDriver = prompt("Enter NEW DRIVER ID:");
+  const enteredDriver = await nscaPrompt("Enter NEW DRIVER ID:");
 
   if (!enteredDriver) return;
 
@@ -1347,10 +1347,10 @@ async function bulkTransfer(ids) {
   const newDriver = String(destinationDriver.driverCode).trim();
   const newDriverName = String(destinationDriver.name || "").trim();
 
-  if (!confirm(
+  if (!(await nscaConfirm(
     `Transfer ${ids.length} tasks to ${newDriver}` +
     `${newDriverName ? ` (${newDriverName})` : ""}?`
-  )) return;
+  ))) return;
 
   try {
 

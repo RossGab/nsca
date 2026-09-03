@@ -9,7 +9,7 @@
 
 <link rel="manifest" href="./manifest.json">
 <meta name="theme-color" content="#222222">
-<script src="./admin-dialog.js?v=3" data-dialog-title="NSCA Driver Tasks"></script>
+<script src="./admin-dialog.js?v=4" data-dialog-title="NSCA Driver Tasks"></script>
 
 <style>
 body { font-family: Arial, sans-serif; background:#f4f4f4; padding:10px; }
@@ -1806,12 +1806,12 @@ searchBox.addEventListener("input", e => {
 });
 
 let DRIVER_ID = localStorage.getItem("driverId");
-while (!DRIVER_ID) DRIVER_ID = prompt("Enter Driver ID");
+while (!DRIVER_ID) DRIVER_ID = await nscaPrompt("Enter Driver ID");
 localStorage.setItem("driverId", DRIVER_ID);
 
 document.getElementById("settingsBtn").onclick = async () => {
 
-  const choice = prompt(
+  const choice = await nscaPrompt(
 `Settings
 
 1 - Change Driver ID
@@ -1835,7 +1835,7 @@ Enter 1, 2 or 3`
       localStorage.getItem("driverId") || "";
 
     const next =
-      prompt(
+      await nscaPrompt(
         "Enter new Driver ID",
         current
       );
@@ -1865,12 +1865,12 @@ Enter 1, 2 or 3`
   if (choice === "2") {
 
     if (
-      !confirm(
+      !(await nscaConfirm(
         "♻️ Recover completed tasks?\n\n" +
         "Select the LOCAL_COMPLETED JSON files " +
         "from your Downloads folder.\n\n" +
         "The files will NOT be deleted."
-      )
+      ))
     ) {
       return;
     }
@@ -2030,7 +2030,7 @@ document.getElementById("syncBtn").onclick = async () => {
     return;
   }
 
-  if (!confirm(`Upload ${completed.length} completed tasks?`)) {
+  if (!(await nscaConfirm(`Upload ${completed.length} completed tasks?`))) {
     hideSyncProgress();
     SYNC_RUNNING = false;
     return;
@@ -2449,7 +2449,7 @@ const originalSyncHandler =
 syncButton.onclick =
   async function (event) {
 
-    const choice = prompt(
+    const choice = await nscaPrompt(
 `Choose action:
 
 1 - Upload now
@@ -4875,7 +4875,7 @@ document.getElementById("refreshTasksBtn").onclick =
     }
 
     const ok =
-      confirm(
+      await nscaConfirm(
         `Download ${count} task(s) for this date?\n\n` +
         "The tasks will be saved locally and marked as pending."
       );

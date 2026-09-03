@@ -80,7 +80,7 @@ th, td {
 }
 </style>
 <link rel="stylesheet" href="./admin-theme.css">
-<script src="./admin-dialog.js?v=2"></script>
+<script src="./admin-dialog.js?v=4"></script>
 </head>
 
 <body>
@@ -310,7 +310,7 @@ window.deleteDriver = async function () {
   const code = codeEl.value.trim();
   if (!code) return;
 
-  if (!confirm(`Delete driver "${code}"?\nThis cannot be undone.`)) return;
+  if (!(await nscaConfirm(`Delete driver "${code}"?\nThis cannot be undone.`))) return;
 
   try {
     await deleteDoc(doc(db, DRIVERS_COLLECTION, code));

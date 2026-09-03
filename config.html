@@ -1026,7 +1026,7 @@ textarea{
 
 </style>
 <link rel="stylesheet" href="./admin-theme.css">
-<script src="./admin-dialog.js?v=2"></script>
+<script src="./admin-dialog.js?v=4"></script>
 
 </head>
 
@@ -2611,12 +2611,12 @@ function renderFields(){
       card.querySelector(
         "[data-remove]"
       ).onclick =
-        () => {
+        async () => {
 
           if(
-            !confirm(
+            !(await nscaConfirm(
               `Remove "${f.label}"?`
-            )
+            ))
           ){
 
             return;
@@ -3138,7 +3138,7 @@ function wireConditionalEditor(
   if(addButton){
 
     addButton.onclick =
-      () => {
+      async () => {
     
         /*
          * Ask for the actual field label first.
@@ -3148,7 +3148,7 @@ function wireConditionalEditor(
          */
     
         const label =
-          prompt(
+          await nscaPrompt(
             "Enter the conditional field label:"
           );
     
@@ -3519,12 +3519,12 @@ window.addDeliveryMethod =
    ========================================================= */
 
 window.removeMethod =
-  name => {
+  async name => {
 
     if(
-      !confirm(
+      !(await nscaConfirm(
         `Delete "${name}"?`
-      )
+      ))
     ){
 
       return;
@@ -4834,12 +4834,12 @@ window.loadConfigForEdit =
    ========================================================= */
 
 window.resetBuilder =
-  () => {
+  async () => {
 
     if(
-      !confirm(
+      !(await nscaConfirm(
         "Clear current template?"
-      )
+      ))
     ){
 
       return;

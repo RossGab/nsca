@@ -41,7 +41,7 @@
 @media(max-width:430px){.summary{grid-template-columns:1fr}.button-row button{width:100%}}
 </style>
 <link rel="stylesheet" href="./admin-theme.css">
-<script src="./admin-dialog.js?v=2"></script>
+<script src="./admin-dialog.js?v=4"></script>
 </head>
 
 <body>
@@ -456,7 +456,7 @@ async function uploadTask(task, relatedPhotos, options = {}) {
 async function uploadData() {
   if (!exportData || isUploading) return;
   if (!navigator.onLine) return alert("Connect this device to the internet before uploading.");
-  if (!confirm(`Upload ${exportData.tasks.length} completed task(s) to Firestore?`)) return;
+  if (!(await nscaConfirm(`Upload ${exportData.tasks.length} completed task(s) to Firestore?`))) return;
 
   resetLog("Starting Firestore import...");
   setProgress(0, exportData.tasks.length, "Preparing upload...");
@@ -539,10 +539,10 @@ async function restoreSelectedDeletedTasks() {
   const selectedIds = getSelectedDeletedTaskIds();
   if (!selectedIds.length) return;
 
-  if (!confirm(
+  if (!(await nscaConfirm(
     `Restore and upload ${selectedIds.length} deleted task(s)?\n\n` +
     "Continue only if an administrator confirmed that the deletion was accidental."
-  )) return;
+  ))) return;
 
   setUploading(true);
   setProgress(0, selectedIds.length, "Preparing deleted-task restoration...");
