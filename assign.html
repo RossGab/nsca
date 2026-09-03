@@ -76,8 +76,50 @@ select, input[type="date"] {
   border:1px solid #ccc;
   font-size:13px;
 }
+
+.nsca-message-overlay {
+  position:fixed;
+  inset:0;
+  z-index:100000;
+  display:none;
+  align-items:center;
+  justify-content:center;
+  padding:18px;
+  background:rgba(15,23,42,.58);
+}
+.nsca-message-overlay.visible { display:flex; }
+.nsca-message-box {
+  width:min(390px,100%);
+  overflow:hidden;
+  border-radius:14px;
+  background:#fff;
+  box-shadow:0 22px 55px rgba(0,0,0,.3);
+}
+.nsca-message-header {
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:14px 16px;
+  background:#123d67;
+  color:#fff;
+  font-weight:700;
+}
+.nsca-message-header img { width:34px;height:34px;border-radius:50%;object-fit:cover;background:#fff; }
+.nsca-message-body { padding:20px 18px;white-space:pre-line;line-height:1.5;color:#172033; }
+.nsca-message-actions { display:flex;justify-content:flex-end;padding:0 18px 18px; }
+.nsca-message-actions button {
+  min-width:90px;
+  padding:10px 18px;
+  border:0;
+  border-radius:8px;
+  background:#2e7d32;
+  color:#fff;
+  font-weight:700;
+  cursor:pointer;
+}
 </style>
 <link rel="stylesheet" href="./admin-theme.css">
+<script src="./admin-dialog.js"></script>
 </head>
 
 <body>
@@ -216,10 +258,44 @@ select, input[type="date"] {
   
 <div id="taskList" style="margin-top:6px;"></div>
 
+<div id="nscaMessage" class="nsca-message-overlay" role="dialog" aria-modal="true" aria-labelledby="nscaMessageTitle" aria-hidden="true">
+  <div class="nsca-message-box">
+    <div class="nsca-message-header">
+      <img src="./logo.jpg" alt="">
+      <span id="nscaMessageTitle">NSCA Task Administration</span>
+    </div>
+    <div id="nscaMessageBody" class="nsca-message-body"></div>
+    <div class="nsca-message-actions">
+      <button id="nscaMessageOk" type="button">OK</button>
+    </div>
+  </div>
+</div>
+
 
 <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 
 <script type="module">
+function showNscaMessage(message) {
+  const overlay = document.getElementById("nscaMessage");
+  const body = document.getElementById("nscaMessageBody");
+  const okButton = document.getElementById("nscaMessageOk");
+  body.textContent = message;
+  overlay.classList.add("visible");
+  overlay.setAttribute("aria-hidden", "false");
+  okButton.focus();
+}
+
+function closeNscaMessage() {
+  const overlay = document.getElementById("nscaMessage");
+  overlay.classList.remove("visible");
+  overlay.setAttribute("aria-hidden", "true");
+}
+
+document.getElementById("nscaMessageOk").addEventListener("click", closeNscaMessage);
+document.addEventListener("keydown", event => {
+  if (event.key === "Escape") closeNscaMessage();
+});
+
 import { initializeApp } from
   "https://www.gstatic.com/firebasejs/12.9.0/firebase-app.js";
 
@@ -1648,7 +1724,7 @@ window.uploadCSV = async function(btn){
         updateUploadProgress(100, `Upload complete: ${rows.length} tasks added.`, "#28a745");
         csvFileInput.value = "";
         finishUploadAttempt(btn);
-        alert(`✅ Upload successful!\n\n${rows.length} tasks added.`);
+        showNscaMessage(`✅ Upload successful!\n\n${rows.length} tasks added.`);
 
         } catch (err) {
           console.error(err);
