@@ -1,6 +1,8 @@
 (function () {
   "use strict";
 
+  const dialogTitle = document.currentScript?.dataset.dialogTitle ||
+    "NSCA Task Administration";
   const pendingMessages = [];
   let dialogVisible = false;
   let elements = null;
@@ -41,7 +43,7 @@
     logo.alt = "";
     const title = document.createElement("span");
     title.id = "adminAlertTitle";
-    title.textContent = "NSCA Task Administration";
+    title.textContent = dialogTitle;
     header.append(logo, title);
 
     const body = document.createElement("div");
