@@ -129,7 +129,7 @@ select, input[type="date"] {
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Manage Tasks <span class="app-version">V.R.0.1.0</span></h1>
+      <h1 class="app-title">Manage Tasks <span class="app-version">V.R.0.1.1</span></h1>
     </div>
   </div>
   <div class="app-header-actions">
@@ -1253,16 +1253,125 @@ window.openBulkActions = async function () {
   
   if (!ids.length) return;
 
-  const action = await nscaPrompt("Type: TRANSFER or DELETE");
+  const action = await nscaPrompt(
+    "Type an action:\n\n" +
+    "TRANSFER - assign to another driver\n" +
+    "DELETE - remove selected tasks\n" +
+    "REDOWNLOAD - return pending tasks to Task for Download"
+  );
 
   if (!action) return;
 
   const cmd = action.toUpperCase().trim();
 
-  if (cmd === "DELETE") bulkDelete(ids);
-  else if (cmd === "TRANSFER") bulkTransfer(ids);
-  else alert("Invalid action. Use TRANSFER or DELETE.");
+  if (cmd === "DELETE") await bulkDelete(ids);
+  else if (cmd === "TRANSFER") await bulkTransfer(ids);
+  else if (cmd === "REDOWNLOAD") await bulkRedownload(ids);
+  else alert("Invalid action. Use TRANSFER, DELETE or REDOWNLOAD.");
 };
+
+async function bulkRedownload(ids) {
+  const eligible = [];
+  const skipped = [];
+
+  try {
+    // Recheck Firestore instead of trusting the locally cached status. This
+    // prevents a recently completed or deleted task from being reopened.
+    for (let offset = 0; offset < ids.length; offset += 50) {
+      const chunk = ids.slice(offset, offset + 50);
+      const snapshots = await Promise.all(
+        chunk.map(id => getDoc(doc(db, "TASK", id)))
+      );
+
+      snapshots.forEach((snapshot, index) => {
+        const id = chunk[index];
+        if (!snapshot.exists()) {
+          skipped.push({ id, reason: "not found" });
+          return;
+        }
+
+        const task = snapshot.data() || {};
+        const status = String(task.status || "").trim().toUpperCase();
+        const workStatus = String(task.workStatus || "").trim().toLowerCase();
+
+        if (task.deleted === true) {
+          skipped.push({ id, reason: "deleted" });
+        } else if (status === "COMPLETED" || workStatus === "completed") {
+          skipped.push({ id, reason: "completed" });
+        } else if (workStatus !== "pending") {
+          skipped.push({ id, reason: `currently ${workStatus || "unknown"}` });
+        } else if (!String(task.agentId || task.driverId || "").trim()) {
+          skipped.push({ id, reason: "no assigned driver" });
+        } else {
+          eligible.push(id);
+        }
+      });
+    }
+  } catch (error) {
+    console.error("Failed to validate tasks for redownload:", error);
+    alert("Could not verify the selected tasks. Check the connection and try again.");
+    return;
+  }
+
+  if (!eligible.length) {
+    alert(
+      `No selected tasks can be returned for download.\n\n` +
+      `${skipped.length} skipped because they are completed, deleted, already for download, missing, or not assigned.`
+    );
+    return;
+  }
+
+  const confirmed = await nscaConfirm(
+    `Return ${eligible.length} pending task(s) to Task for Download?\n\n` +
+    `${skipped.length} ineligible task(s) will be skipped.\n\n` +
+    `Use this only after confirming the driver's local tasks are missing. ` +
+    `If the original device still has the tasks, downloading again may duplicate fieldwork.`
+  );
+  if (!confirmed) return;
+
+  try {
+    for (let offset = 0; offset < eligible.length; offset += 450) {
+      const batch = writeBatch(db);
+      eligible.slice(offset, offset + 450).forEach(id => {
+        batch.update(doc(db, "TASK", id), {
+          status: "PENDING",
+          workStatus: "fordownload",
+          redownloadRequestedAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        });
+      });
+      await batch.commit();
+    }
+
+    const localUpdatedAt = new Date().toISOString();
+    const cacheUpdates = new Map();
+    eligible.forEach(id => {
+      if (TASK_MAP[id]) {
+        TASK_MAP[id].status = "PENDING";
+        TASK_MAP[id].workStatus = "fordownload";
+        TASK_MAP[id].redownloadRequestedAt = localUpdatedAt;
+        TASK_MAP[id].updatedAt = localUpdatedAt;
+      }
+      cacheUpdates.set(id, {
+        status: "PENDING",
+        workStatus: "fordownload",
+        redownloadRequestedAt: localUpdatedAt,
+        updatedAt: localUpdatedAt
+      });
+    });
+    await updateTasksInAllCaches(cacheUpdates);
+
+    SELECTED_IDS.clear();
+    applyFilters();
+    alert(
+      `✅ ${eligible.length} task(s) returned to Task for Download.` +
+      (skipped.length ? `\n\n${skipped.length} ineligible task(s) were skipped.` : "")
+    );
+  } catch (error) {
+    console.error("Firestore redownload reset failed:", error);
+    alert(`Failed to return tasks for download.\n\n${error?.code || error?.message || error}`);
+  }
+}
 
 async function bulkDelete(ids) {
 
