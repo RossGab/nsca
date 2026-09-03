@@ -406,7 +406,7 @@ async function loadFirestoreTasks(keys, generation){
       ));
 
       snapshot.forEach(docSnap => {
-        const task = { _key: docSnap.id, ...docSnap.data() };
+        const task = normalizeViewerTask({ _key: docSnap.id, ...docSnap.data() });
         if (isVisibleCompletedTask(task)) liveTasks.push(task);
       });
     }
@@ -582,13 +582,35 @@ function isVisibleCompletedTask(task){
     task.BA !== "Test";
 }
 
+function normalizeViewerTask(task){
+  const raw = task || {};
+  return {
+    ...raw,
+    driverId: raw.driverId ?? raw.agentId ?? "",
+    JOBTYPE: raw.JOBTYPE ?? raw.jobType ?? "",
+    BA: raw.BA ?? raw.ba ?? "",
+    DMZ: raw.DMZ ?? raw.dmz ?? "",
+    MRU: raw.MRU ?? raw.mru ?? "",
+    BG: raw.BG ?? raw.bg ?? "",
+    SEQUENCE: raw.SEQUENCE ?? raw.sequence ?? "",
+    METERNUMBER: raw.METERNUMBER ?? raw.meterNumber ?? "",
+    ACCOUNTNUMBER: raw.ACCOUNTNUMBER ?? raw.accountNumber ?? "",
+    CUSTOMERNAME: raw.CUSTOMERNAME ?? raw.customerName ?? "",
+    ADDRESS: raw.ADDRESS ?? raw.address ?? "",
+    ZIPCODE: raw.ZIPCODE ?? raw.zipCode ?? "",
+    LATITUDE: raw.LATITUDE ?? raw.latitude ?? "",
+    LONGITUDE: raw.LONGITUDE ?? raw.longitude ?? "",
+    deliveryType: raw.deliveryType ?? raw.DELIVERYTYPE ?? ""
+  };
+}
+
 function mergeTasks(data, target){
   const incoming = Array.isArray(data)
     ? data
     : Object.entries(data || {}).map(([id, task]) => ({ _key: id, ...task }));
   const byId = new Map(target.map(task => [task._key, task]));
 
-  incoming.forEach(task => {
+  incoming.map(normalizeViewerTask).forEach(task => {
     if (isVisibleCompletedTask(task) && task._key) {
       byId.set(task._key, task);
     }
