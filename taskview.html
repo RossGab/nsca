@@ -208,6 +208,7 @@ let SNAPSHOT_TASKS = [];
 let FIRESTORE_TASKS = [];
 let LOAD_GENERATION = 0;
 let DRIVER_UI_CONFIG = {};
+let CONFIGURED_BAS = new Set();
 let FILTER_BA = new Set();
 let SEARCH_TERM = "";
 
@@ -268,8 +269,24 @@ function getKeys(from,to){
 
 /* LOAD CONFIG */
 async function loadConfig(){
-  const snap = await get(ref(db,"config/driverUI/jobTypes"));
-  DRIVER_UI_CONFIG = snap.val() || {};
+  const [jobTypesSnap, baListSnap] = await Promise.all([
+    get(ref(db,"config/driverUI/jobTypes")),
+    get(ref(db,"config/baList"))
+  ]);
+
+  DRIVER_UI_CONFIG = jobTypesSnap.val() || {};
+  CONFIGURED_BAS = new Set(
+    Object.keys(baListSnap.val() || {}).map(normalizeBAName)
+  );
+}
+
+function normalizeBAName(value){
+  return String(value || "").trim().toUpperCase();
+}
+
+function isBAInDisplayConfig(ba){
+  // Preserve the previous behavior if no BA display list has been configured.
+  return !CONFIGURED_BAS.size || CONFIGURED_BAS.has(normalizeBAName(ba));
 }
 
 // =====================
@@ -444,7 +461,7 @@ function buildBAFilters(){
   let bas = new Set(
     TASKS
       .map(t => t.BA)
-      .filter(ba => ba && ba !== "Test") // 🔥 REMOVE TEST BA
+      .filter(ba => ba && ba !== "Test" && isBAInDisplayConfig(ba)) // 🔥 REMOVE TEST BA
   );
 
   // 🔥 restrict BA filters for viewer
@@ -479,7 +496,7 @@ function render(){
   let tasks = TASKS;
 
   // 🔥 REMOVE TEST BA FROM DATA
-  tasks = tasks.filter(t => t.BA !== "Test");
+  tasks = tasks.filter(t => t.BA !== "Test" && isBAInDisplayConfig(t.BA));
 
   // 🔥 APPLY USER BA FILTER
   if (window.USER_ROLE !== "admin" && window.USER_BA?.length) {
