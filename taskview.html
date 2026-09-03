@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTFp-8">
+<meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <title>Task Viewer 1.0</title>
@@ -101,6 +101,10 @@ body {
 <script type="module">import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
 
 import {
+  initializeFirestore, collection, getDocs, query, where
+} from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+import {
   getDatabase, ref, get
 } from
 "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
@@ -109,12 +113,18 @@ import {
 const firebaseConfig = {
   apiKey: "AIzaSyDFW61pnwLvh6HGKWt10zLYNr860fI8vkg",
   authDomain: "driva-pwa.firebaseapp.com",
-  databaseURL: "https://driva-pwa-default-rtdb.firebaseio.com"
+  databaseURL: "https://driva-pwa-default-rtdb.firebaseio.com",
+  projectId: "driva-pwa",
+  storageBucket: "driva-pwa.firebasestorage.app",
+  messagingSenderId: "299138219722",
+  appId: "1:299138219722:web:623ff6b0a067ea822dfe33"
 };
 
 
 const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
 const db = getDatabase(app);
+const firestore = initializeFirestore(app, {}, "drver-task");
+const TASK_COLLECTION = "TASK";
 
 import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 
@@ -194,6 +204,9 @@ const BASE =
 
 /* GLOBAL */
 let TASKS = [];
+let SNAPSHOT_TASKS = [];
+let FIRESTORE_TASKS = [];
+let LOAD_GENERATION = 0;
 let DRIVER_UI_CONFIG = {};
 let FILTER_BA = new Set();
 let SEARCH_TERM = "";
@@ -291,10 +304,12 @@ async function idbSet(key, val) {
 
 /* LOAD TASKS */
 async function loadTasks(){
+  const generation = ++LOAD_GENERATION;
   showLoader();
 
   const keys = getKeys(from.value,to.value);
-  let all = [];
+  SNAPSHOT_TASKS = [];
+  FIRESTORE_TASKS = [];
 
   // =========================
   // STEP 1: LOAD FROM CACHE FIRST
@@ -305,27 +320,28 @@ async function loadTasks(){
 
     if (cached?.data) {
       console.log(`⚡ ${k} from cache`);
-      mergeTasks(cached.data, all);
+      mergeTasks(cached.data, SNAPSHOT_TASKS);
     }
   }
 
   // ✅ render immediately
-  TASKS = all;
-  buildBAFilters();
-  ADMIN_CURRENT_PAGE = 0;
-  render();
+  rebuildCombinedTasks();
   hideLoader();
 
   // =========================
   // STEP 2: BACKGROUND VALIDATION
   // =========================
-  backgroundValidate(keys);
+  await Promise.allSettled([
+    backgroundValidate(keys, generation),
+    loadFirestoreTasks(keys, generation)
+  ]);
 }
 
-async function backgroundValidate(keys){
+async function backgroundValidate(keys, generation){
   console.log("🔄 Background validation started");
 
   for (const k of keys) {
+    if (generation !== LOAD_GENERATION) return;
     const cacheKey = `snapshot_${k}`;
 
     try {
@@ -362,8 +378,9 @@ async function backgroundValidate(keys){
       });
 
       // 🔥 update UI live
-      mergeTasks(data, TASKS);
-      render();
+      if (generation !== LOAD_GENERATION) return;
+      mergeTasks(data, SNAPSHOT_TASKS);
+      rebuildCombinedTasks();
 
     } catch (err) {
       console.warn(`⚠️ background fail ${k}`, err);
@@ -371,6 +388,36 @@ async function backgroundValidate(keys){
   }
 
   console.log("✅ Background validation done");
+}
+
+async function loadFirestoreTasks(keys, generation){
+  const liveTasks = [];
+
+  try {
+    for (const key of keys) {
+      if (generation !== LOAD_GENERATION) return;
+
+      const assignedDate =
+        `${key.slice(0,4)}-${key.slice(4,6)}-${key.slice(6,8)}`;
+      const snapshot = await getDocs(query(
+        collection(firestore, TASK_COLLECTION),
+        where("assignedDate", "==", assignedDate),
+        where("status", "==", "COMPLETED")
+      ));
+
+      snapshot.forEach(docSnap => {
+        const task = { _key: docSnap.id, ...docSnap.data() };
+        if (isVisibleCompletedTask(task)) liveTasks.push(task);
+      });
+    }
+
+    if (generation !== LOAD_GENERATION) return;
+    FIRESTORE_TASKS = liveTasks;
+    rebuildCombinedTasks();
+    console.log(`Firestore added ${liveTasks.length} completed task(s)`);
+  } catch (error) {
+    console.warn("Firestore task load failed; snapshot tasks remain available.", error);
+  }
 }
 
 /* SEARCH */
@@ -471,7 +518,7 @@ function renderPage(tasks){
         <div class="small">${t.ADDRESS||""}</div>
         <div class="small">Driver: ${t.driverId||"—"}</div>
         <div class="small" style="color:#16a34a;">
-          Completed: ${formatDateTime(t.uploadedAt)}
+          Completed: ${formatDateTime(t.uploadedAt || t.completedAt || t.updatedAt)}
         </div>
       </div>
 
@@ -528,12 +575,38 @@ window.nextPage = function(){
   }
 };
 
-function mergeTasks(data, all){
-  Object.entries(data).forEach(([id,t])=>{
-    if(t.status==="COMPLETED" && t.BA !== "Test"){
-      all.push({_key:id,...t});
+function isVisibleCompletedTask(task){
+  return task &&
+    task.deleted !== true &&
+    String(task.status || "").toUpperCase() === "COMPLETED" &&
+    task.BA !== "Test";
+}
+
+function mergeTasks(data, target){
+  const incoming = Array.isArray(data)
+    ? data
+    : Object.entries(data || {}).map(([id, task]) => ({ _key: id, ...task }));
+  const byId = new Map(target.map(task => [task._key, task]));
+
+  incoming.forEach(task => {
+    if (isVisibleCompletedTask(task) && task._key) {
+      byId.set(task._key, task);
     }
   });
+
+  target.splice(0, target.length, ...byId.values());
+}
+
+function rebuildCombinedTasks(){
+  const combined = new Map();
+
+  SNAPSHOT_TASKS.forEach(task => combined.set(task._key, task));
+  FIRESTORE_TASKS.forEach(task => combined.set(task._key, task));
+
+  TASKS = [...combined.values()];
+  buildBAFilters();
+  ADMIN_CURRENT_PAGE = 0;
+  render();
 }
 
 /* DETAILS */
@@ -589,14 +662,15 @@ window.loadPhotos = async function(id,btn){
   btn.dataset.loaded=1;
   btn.innerText="Loading photos...";
 
-  const snap = await get(ref(db,`tasks/${id}`));
+  let t = TASKS.find(task => task._key === id) || {};
+  const hasTaskPhoto = [1,2,3].some(i => t[`photo${i}Url`]);
 
-  if(!snap.exists()){
-    btn.innerText="No photos";
-    return;
+  // Older snapshots may not contain their photo URLs, so keep the old RTDB
+  // lookup as a fallback.
+  if(!hasTaskPhoto){
+    const snap = await get(ref(db,`tasks/${id}`));
+    if(snap.exists()) t = { ...t, ...snap.val() };
   }
-
-  const t=snap.val();
 
   const box=document.createElement("div");
   box.style.display="grid";
@@ -617,6 +691,11 @@ window.loadPhotos = async function(id,btn){
 
     box.appendChild(img);
   });
+
+  if(!box.children.length){
+    btn.innerText="No photos";
+    return;
+  }
 
   btn.after(box);
   btn.innerText="Photos Loaded";
