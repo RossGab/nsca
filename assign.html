@@ -119,7 +119,7 @@ select, input[type="date"] {
 }
 </style>
 <link rel="stylesheet" href="./admin-theme.css">
-<script src="./admin-dialog.js"></script>
+<script src="./admin-dialog.js?v=2"></script>
 </head>
 
 <body>
@@ -1509,7 +1509,7 @@ window.uploadCSV = async function(btn){
   const file = csvFileInput.files[0];
 
   if (!file) {
-    alert("❌ Please select a CSV file");
+    showNscaMessage("❌ Please select a CSV file");
     return;
   }
 
