@@ -440,7 +440,7 @@ function buildBAFilters(){
 
   // 🔥 restrict BA filters for viewer
   if (window.USER_ROLE !== "admin" && window.USER_BA?.length) {
-    bas = new Set([...bas].filter(ba => window.USER_BA.includes(ba)));
+    bas = new Set([...bas].filter(ba => isConfiguredBAVisible(ba)));
   }
 
   [...bas].sort().forEach(ba => {
@@ -474,7 +474,7 @@ function render(){
 
   // 🔥 APPLY USER BA FILTER
   if (window.USER_ROLE !== "admin" && window.USER_BA?.length) {
-    tasks = tasks.filter(t => window.USER_BA.includes(t.BA));
+    tasks = tasks.filter(t => isConfiguredBAVisible(t.BA));
   }
 
   if(SEARCH_TERM){
@@ -575,11 +575,26 @@ window.nextPage = function(){
   }
 };
 
+function normalizeBA(value){
+  return String(value || "").trim().toUpperCase();
+}
+
+function isConfiguredBAVisible(ba){
+  if (window.USER_ROLE === "admin") return true;
+
+  const assignedBAs = Array.isArray(window.USER_BA) ? window.USER_BA : [];
+  if (!assignedBAs.length) return true; // Existing configuration uses empty as ALL.
+
+  const normalizedBA = normalizeBA(ba);
+  return assignedBAs.some(allowedBA => normalizeBA(allowedBA) === normalizedBA);
+}
+
 function isVisibleCompletedTask(task){
   return task &&
     task.deleted !== true &&
     String(task.status || "").toUpperCase() === "COMPLETED" &&
-    task.BA !== "Test";
+    normalizeBA(task.BA) !== "TEST" &&
+    isConfiguredBAVisible(task.BA);
 }
 
 function normalizeViewerTask(task){
