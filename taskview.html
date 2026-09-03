@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTFp-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>Task Viewer 1.0</title>
+
+<style>
+body {
+  display:none; /* 🔥 add this */
+  font-family: Arial;
+  background:#f3f3f3;
+  padding:10px;
+}
+
+.admin-header {
+  display:flex; justify-content:space-between; align-items:center;
+  margin-bottom:12px;
+}
+
+.admin-logo { height:72px; }
+
+#loadingScreen {
+  position:fixed; inset:0;
+  background:rgba(255,255,255,0.95);
+  display:flex; align-items:center; justify-content:center;
+  z-index:9999;
+}
+
+.spinner {
+  width:42px; height:42px;
+  border:4px solid #ddd;
+  border-top:4px solid #007bff;
+  border-radius:50%;
+  animation:spin 1s linear infinite;
+}
+
+@keyframes spin { to { transform:rotate(360deg);} }
+
+.task {
+  background:#fff;
+  padding:12px;
+  margin-bottom:10px;
+  border-radius:8px;
+  border-left:5px solid green;
+}
+
+.task-header { cursor:pointer; }
+
+.small { font-size:13px; color:#555; }
+
+.task-form {
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:10px;
+  margin-top:10px;
+}
+
+.task-form .full { grid-column:span 2; }
+
+.task-form input,
+.task-form textarea {
+  width:100%;
+  padding:6px;
+  border:1px solid #ccc;
+  border-radius:4px;
+}
+</style>
+</head>
+
+<body>
+
+  <div class="admin-header">
+  <img src="./logo.jpg" class="admin-logo">
+  <h2>Tasks Viewer v1.1.0.1.2</h2>
+
+  <div>
+    <input type="date" id="from">
+    to
+    <input type="date" id="to">
+    <button onclick="logout()">Logout</button>
+  
+    <button id="configBtn" onclick="goConfig()" style="display:none;">
+      ⚙️ Config
+    </button>
+    </div>
+  </div>
+
+<input id="searchBox" placeholder="Search..." style="width:100%;padding:10px;margin-bottom:10px">
+
+<div id="baFilters" style="margin-bottom:10px;"></div>
+
+<div id="loadingScreen">
+  <div class="spinner"></div>
+</div>
+
+<div id="taskList"></div>
+<div id="pagination" style="text-align:center;margin:12px 0;"></div>
+
+<script type="module">import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+
+import {
+  getDatabase, ref, get
+} from
+"https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+
+/* FIREBASE */
+const firebaseConfig = {
+  apiKey: "AIzaSyDFW61pnwLvh6HGKWt10zLYNr860fI8vkg",
+  authDomain: "driva-pwa.firebaseapp.com",
+  databaseURL: "https://driva-pwa-default-rtdb.firebaseio.com"
+};
+
+
+const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
+const db = getDatabase(app);
+
+import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+
+const auth = getAuth(app);
+
+onAuthStateChanged(auth, async (user) => {
+  if (!user) {
+    window.location.href = "login-taskview.html";
+    return;
+  }
+
+  const email = (user.email || "").toLowerCase();
+
+  const snap = await get(ref(db, "config/taskviewUsers"));
+  const data = snap.val() || {};
+
+  let role = null;
+  let userBA = null;
+  
+  // 🔍 CHECK ADMIN
+  Object.values(data.admin || {}).forEach(u => {
+    if (u.email === email && u.active) {
+      role = "admin";
+      userBA = null; // admin sees all
+    }
+  });
+  
+  // 🔍 CHECK VIEWER
+  Object.values(data.viewer || {}).forEach(u => {
+    if (u.email === email && u.active) {
+      role = "viewer";
+      userBA = u.ba || []; // 👈 IMPORTANT
+    }
+  });
+
+  // 🔍 CHECK ADMIN
+  Object.values(data.admin || {}).forEach(u => {
+    if (u.email === email && u.active) {
+      role = "admin";
+    }
+  });
+
+  // 🔍 CHECK VIEWER
+  Object.values(data.viewer || {}).forEach(u => {
+    if (u.email === email && u.active) {
+      role = "viewer";
+    }
+  });
+
+  // ❌ NOT AUTHORIZED
+  if (!role) {
+    alert("Access denied");
+    window.location.href = "login-taskview.html";
+    return;
+  }
+
+  // ✅ SAVE ROLE (optional for later UI control)
+  window.USER_ROLE = role;
+  window.USER_BA = userBA;
+
+  // 👀 SHOW PAGE
+  document.body.style.display = "block";
+
+  // ✅ SHOW CONFIG BUTTON IF ADMIN
+  if (role === "admin") {
+    document.getElementById("configBtn").style.display = "inline-block";
+  }
+  
+  // 🚀 LOAD DATA
+  await loadConfig();
+  await loadTasks();
+});
+
+/* SNAPSHOT */
+const BASE =
+"https://raw.githubusercontent.com/RossGab/driva-task-snapshots/main/snapshots";
+
+/* GLOBAL */
+let TASKS = [];
+let DRIVER_UI_CONFIG = {};
+let FILTER_BA = new Set();
+let SEARCH_TERM = "";
+
+const ADMIN_PAGE_SIZE = 200;
+let ADMIN_CURRENT_PAGE = 0;
+let FILTERED_TASK_IDS = [];
+
+function formatDateTime(ts){
+  if(!ts) return "";
+
+  const d = new Date(ts);
+
+  return d.toLocaleString("en-PH", {
+    timeZone: "Asia/Manila",
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
+/* DATE */
+function getTodayPH(){
+  return new Date().toLocaleDateString("en-CA",{timeZone:"Asia/Manila"});
+}
+
+const from = document.getElementById("from");
+const to = document.getElementById("to");
+
+from.value = getTodayPH();
+to.value = getTodayPH();
+
+/* DATE KEYS */
+function getKeys(from,to){
+  const keys=[];
+  let d=new Date(from);
+  const end=new Date(to);
+
+  while(d<=end){
+    keys.push(
+      d.toLocaleDateString("en-CA",{timeZone:"Asia/Manila"})
+       .replace(/-/g,"")
+    );
+    d.setDate(d.getDate()+1);
+  }
+  return keys;
+}
+
+/* LOAD CONFIG */
+async function loadConfig(){
+  const snap = await get(ref(db,"config/driverUI/jobTypes"));
+  DRIVER_UI_CONFIG = snap.val() || {};
+}
+
+// =====================
+// IndexedDB
+// =====================
+const DB_NAME = "taskViewerDB";
+const STORE = "snapshots";
+
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, 1);
+
+    req.onupgradeneeded = e => {
+      e.target.result.createObjectStore(STORE);
+    };
+
+    req.onsuccess = e => resolve(e.target.result);
+    req.onerror = reject;
+  });
+}
+
+async function idbGet(key) {
+  const db = await openDB();
+  return new Promise(res => {
+    const tx = db.transaction(STORE, "readonly");
+    const store = tx.objectStore(STORE);
+    const req = store.get(key);
+    req.onsuccess = () => res(req.result);
+  });
+}
+
+async function idbSet(key, val) {
+  const db = await openDB();
+  return new Promise(res => {
+    const tx = db.transaction(STORE, "readwrite");
+    const store = tx.objectStore(STORE);
+    store.put(val, key);
+    tx.oncomplete = res;
+  });
+}
+
+/* LOAD TASKS */
+async function loadTasks(){
+  showLoader();
+
+  const keys = getKeys(from.value,to.value);
+  let all = [];
+
+  // =========================
+  // STEP 1: LOAD FROM CACHE FIRST
+  // =========================
+  for (const k of keys) {
+    const cacheKey = `snapshot_${k}`;
+    const cached = await idbGet(cacheKey);
+
+    if (cached?.data) {
+      console.log(`⚡ ${k} from cache`);
+      mergeTasks(cached.data, all);
+    }
+  }
+
+  // ✅ render immediately
+  TASKS = all;
+  buildBAFilters();
+  ADMIN_CURRENT_PAGE = 0;
+  render();
+  hideLoader();
+
+  // =========================
+  // STEP 2: BACKGROUND VALIDATION
+  // =========================
+  backgroundValidate(keys);
+}
+
+async function backgroundValidate(keys){
+  console.log("🔄 Background validation started");
+
+  for (const k of keys) {
+    const cacheKey = `snapshot_${k}`;
+
+    try {
+      const cached = await idbGet(cacheKey);
+
+      // 🔍 HEAD request (still used, but now NON-BLOCKING)
+      const head = await fetch(`${BASE}/${k}.json`, {
+        method: "HEAD"
+      });
+
+      if (!head.ok) continue;
+
+      const remoteETag = head.headers.get("etag");
+
+      // ✅ if same → skip
+      if (cached && cached.etag === remoteETag) {
+        continue;
+      }
+
+      // ⬇️ changed → fetch full
+      console.log(`⬇️ ${k} updated`);
+
+      const res = await fetch(`${BASE}/${k}.json`, {
+        cache: "no-store"
+      });
+
+      if (!res.ok) continue;
+
+      const data = await res.json();
+
+      await idbSet(cacheKey, {
+        etag: remoteETag,
+        data: data
+      });
+
+      // 🔥 update UI live
+      mergeTasks(data, TASKS);
+      render();
+
+    } catch (err) {
+      console.warn(`⚠️ background fail ${k}`, err);
+    }
+  }
+
+  console.log("✅ Background validation done");
+}
+
+/* SEARCH */
+searchBox.oninput = e=>{
+  SEARCH_TERM = e.target.value.toLowerCase();
+  ADMIN_CURRENT_PAGE = 0;
+  render();
+};
+
+/* BA FILTER */
+function buildBAFilters(){
+  const container = document.getElementById("baFilters");
+  container.innerHTML = "";
+
+  let bas = new Set(
+    TASKS
+      .map(t => t.BA)
+      .filter(ba => ba && ba !== "Test") // 🔥 REMOVE TEST BA
+  );
+
+  // 🔥 restrict BA filters for viewer
+  if (window.USER_ROLE !== "admin" && window.USER_BA?.length) {
+    bas = new Set([...bas].filter(ba => window.USER_BA.includes(ba)));
+  }
+
+  [...bas].sort().forEach(ba => {
+    const label = document.createElement("label");
+    label.style.marginRight = "10px";
+
+    label.innerHTML = `
+      <input type="checkbox" value="${ba}">
+      ${ba}
+    `;
+
+    label.querySelector("input").onchange = e => {
+      if (e.target.checked) FILTER_BA.add(ba);
+      else FILTER_BA.delete(ba);
+
+      ADMIN_CURRENT_PAGE = 0;
+      render();
+    };
+
+    container.appendChild(label);
+  });
+}
+
+/* MAIN RENDER */
+function render(){
+
+  let tasks = TASKS;
+
+  // 🔥 REMOVE TEST BA FROM DATA
+  tasks = tasks.filter(t => t.BA !== "Test");
+
+  // 🔥 APPLY USER BA FILTER
+  if (window.USER_ROLE !== "admin" && window.USER_BA?.length) {
+    tasks = tasks.filter(t => window.USER_BA.includes(t.BA));
+  }
+
+  if(SEARCH_TERM){
+    tasks = tasks.filter(t =>
+      Object.values(t).some(v =>
+        String(v||"").toLowerCase().includes(SEARCH_TERM)
+      )
+    );
+  }
+
+  if(FILTER_BA.size){
+    tasks = tasks.filter(t => FILTER_BA.has(t.BA));
+  }
+
+  FILTERED_TASK_IDS = tasks.map(t => t._key);
+
+  const start = ADMIN_CURRENT_PAGE * ADMIN_PAGE_SIZE;
+  const pageTasks = tasks.slice(start, start + ADMIN_PAGE_SIZE);
+
+  renderPage(pageTasks);
+  renderPagination();
+}
+
+/* PAGE RENDER */
+function renderPage(tasks){
+  const list = document.getElementById("taskList");
+  list.innerHTML="";
+
+  if(!tasks.length){
+    list.innerHTML = `<div style="padding:12px;background:#fff;border-radius:8px;text-align:center;">No tasks found</div>`;
+    return;
+  }
+
+  tasks.forEach(t=>{
+    const div=document.createElement("div");
+    div.className="task";
+
+    div.innerHTML=`
+      <div class="task-header">
+        <b>${t.CUSTOMERNAME||""}</b>
+        <div class="small">${t.ADDRESS||""}</div>
+        <div class="small">Driver: ${t.driverId||"—"}</div>
+        <div class="small" style="color:#16a34a;">
+          Completed: ${formatDateTime(t.uploadedAt)}
+        </div>
+      </div>
+
+      <div class="details" style="display:none">
+        ${renderDetails(t)}
+        ${renderDynamic(t)}
+        <button onclick="loadPhotos('${t._key}',this)">📸 Load Photos</button>
+      </div>
+    `;
+
+    div.querySelector(".task-header").onclick=()=>{
+      const d = div.querySelector(".details");
+      d.style.display = d.style.display==="none"?"block":"none";
+    };
+
+    list.appendChild(div);
+  });
+}
+
+/* PAGINATION */
+function renderPagination(){
+  const el = document.getElementById("pagination");
+
+  const totalPages = Math.max(1,
+    Math.ceil(FILTERED_TASK_IDS.length / ADMIN_PAGE_SIZE)
+  );
+
+  el.innerHTML = `
+    <button ${ADMIN_CURRENT_PAGE === 0 ? "disabled" : ""}
+      onclick="prevPage()">⬅ Prev</button>
+
+    <span style="margin:0 10px;">
+      Page ${ADMIN_CURRENT_PAGE + 1} of ${totalPages}
+      (${FILTERED_TASK_IDS.length} tasks)
+    </span>
+
+    <button ${ADMIN_CURRENT_PAGE >= totalPages - 1 ? "disabled" : ""}
+      onclick="nextPage()">Next ➡</button>
+  `;
+}
+
+window.prevPage = function(){
+  if(ADMIN_CURRENT_PAGE > 0){
+    ADMIN_CURRENT_PAGE--;
+    render();
+  }
+};
+
+window.nextPage = function(){
+  const totalPages = Math.ceil(FILTERED_TASK_IDS.length / ADMIN_PAGE_SIZE);
+  if(ADMIN_CURRENT_PAGE < totalPages - 1){
+    ADMIN_CURRENT_PAGE++;
+    render();
+  }
+};
+
+function mergeTasks(data, all){
+  Object.entries(data).forEach(([id,t])=>{
+    if(t.status==="COMPLETED" && t.BA !== "Test"){
+      all.push({_key:id,...t});
+    }
+  });
+}
+
+/* DETAILS */
+function renderDetails(t){
+return `
+<div class="task-form">
+<label>ASSIGNED DRIVER</label><input value="${t.driverId||""}" disabled>
+<label>JOB TYPE</label><input value="${t.JOBTYPE||""}" disabled>
+<label>BA</label><input value="${t.BA||""}" disabled>
+<label>DMZ</label><input value="${t.DMZ||""}" disabled>
+<label>MRU</label><input value="${t.MRU||""}" disabled>
+<label>SEQUENCE</label><input value="${t.SEQUENCE||""}" disabled>
+<label>METER NUMBER</label><input value="${t.METERNUMBER||""}" disabled>
+<label>ACCOUNT NUMBER</label><input value="${t.ACCOUNTNUMBER||""}" disabled>
+<label>CUSTOMER NAME</label><input value="${t.CUSTOMERNAME||""}" disabled>
+<label class="full">ADDRESS</label>
+<textarea class="full" disabled>${t.ADDRESS||""}</textarea>
+<label>ZIP CODE</label><input value="${t.ZIPCODE||""}" disabled>
+<label>DELIVERY TYPE</label><input value="${t.deliveryType||""}" disabled>
+<label>LATITUDE</label><input value="${t.LATITUDE||""}" disabled>
+<label>LONGITUDE</label><input value="${t.LONGITUDE||""}" disabled>
+</div>`;
+}
+
+/* DYNAMIC */
+function renderDynamic(t){
+  const cfg =
+    DRIVER_UI_CONFIG?.[t.JOBTYPE]
+    ?.deliveryMethods?.[t.deliveryType];
+
+  if(!cfg) return "";
+
+  let html=`<div class="task-form full"><b>DELIVERY DETAILS</b>`;
+
+  cfg._order.forEach(k=>{
+    const f=cfg.fields[k];
+    if(!f) return;
+
+    html+=`
+      <label class="full">${f.label}</label>
+      <input class="full" value="${t[k]||""}" disabled>
+    `;
+  });
+
+  html+=`</div>`;
+  return html;
+}
+
+/* PHOTOS */
+window.loadPhotos = async function(id,btn){
+  if(btn.dataset.loaded) return;
+
+  btn.dataset.loaded=1;
+  btn.innerText="Loading photos...";
+
+  const snap = await get(ref(db,`tasks/${id}`));
+
+  if(!snap.exists()){
+    btn.innerText="No photos";
+    return;
+  }
+
+  const t=snap.val();
+
+  const box=document.createElement("div");
+  box.style.display="grid";
+  box.style.gridTemplateColumns="repeat(3,1fr)";
+  box.style.gap="6px";
+  box.style.marginTop="10px";
+
+  [1,2,3].forEach(i=>{
+    const url=t[`photo${i}Url`];
+    if(!url) return;
+
+    const img=document.createElement("img");
+    img.src=url;
+    img.style.width="100%";
+    img.style.height="90px";
+    img.style.objectFit="cover";
+    img.onclick=()=>window.open(url);
+
+    box.appendChild(img);
+  });
+
+  btn.after(box);
+  btn.innerText="Photos Loaded";
+};
+
+/* LOADER */
+function showLoader(){
+  loadingScreen.style.display="flex";
+}
+function hideLoader(){
+  loadingScreen.style.display="none";
+}
+
+
+from.onchange = async () => {
+  await loadConfig();
+  await loadTasks();
+};
+
+to.onchange = async () => {
+  await loadConfig();
+  await loadTasks();
+};
+
+window.goConfig = function(){
+  window.location.href = "taskviewerConfig.html";
+};
+
+</script>
+
+<script type="module">
+import { getAuth, signOut } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+
+window.logout = async function(){
+  const auth = getAuth();
+  await signOut(auth);
+  window.location.href = "login-taskview.html";
+};
+</script>
+  
+</body>
+</html>

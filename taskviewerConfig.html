@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>Task Viewer Config</title>
+
+<style>
+
+/* ===== GLOBAL ===== */
+body {
+  display:none;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto;
+  background:#f5f7fb;
+  padding:12px;
+  color:#333;
+}
+
+h2 {
+  margin-bottom:12px;
+}
+
+/* ===== CARD ===== */
+.box {
+  background:#fff;
+  padding:16px;
+  border-radius:12px;
+  margin-bottom:14px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+}
+
+/* ===== INPUT GROUP ===== */
+.row {
+  display:flex;
+  gap:8px;
+  margin-bottom:10px;
+}
+
+input, select {
+  padding:10px;
+  border-radius:8px;
+  border:1px solid #ddd;
+  font-size:14px;
+  flex:1;
+}
+
+/* ===== BUTTONS ===== */
+button {
+  padding:10px 14px;
+  border-radius:8px;
+  border:none;
+  font-size:14px;
+  cursor:pointer;
+}
+
+.btn-primary {
+  background:#2563eb;
+  color:#fff;
+}
+
+.btn-primary:hover {
+  background:#1d4ed8;
+}
+
+.btn-danger {
+  background:#ef4444;
+  color:#fff;
+}
+
+.btn-danger:hover {
+  background:#dc2626;
+}
+
+.btn-small {
+  padding:6px 10px;
+  font-size:12px;
+}
+
+/* ===== BA LIST (MANAGE) ===== */
+.ba-item {
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  padding:10px;
+  border-bottom:1px solid #eee;
+}
+
+/* ===== BA CHIP STYLE ===== */
+#baList {
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  margin-top:10px;
+}
+
+.top-bar {
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  margin-bottom:12px;
+}
+
+.top-actions {
+  display:flex;
+  gap:8px;
+}
+
+.btn-secondary {
+  background:#e5e7eb;
+  color:#111;
+}
+
+.btn-secondary:hover {
+  background:#d1d5db;
+}
+
+.ba-chip {
+  padding:8px 14px;
+  border-radius:20px;
+  border:1px solid #ddd;
+  background:#f8fafc;
+  cursor:pointer;
+  font-size:13px;
+  transition:0.2s;
+}
+
+/* hover */
+.ba-chip:hover {
+  background:#e2e8f0;
+}
+
+/* selected */
+.ba-chip.active {
+  background:#2563eb;
+  color:#fff;
+  border-color:#2563eb;
+}
+  
+</style>
+</head>
+
+<body>
+
+<div class="top-bar">
+  <h2>Task Viewer Config v1.3.21</h2>
+
+  <div class="top-actions">
+    <button class="btn-secondary" onclick="goDashboard()">⬅ Back</button>
+    <button class="btn-danger" onclick="logout()">Logout</button>
+  </div>
+</div>
+
+<!-- ===== BA MANAGEMENT ===== -->
+<div class="box">
+  <h3>Manage BA</h3>
+
+  <div class="row">
+    <input id="newBA" placeholder="Enter BA name">
+    <button class="btn-primary" onclick="addBA()">+ Add</button>
+  </div>
+
+  <div id="baManageList"></div>
+</div>
+
+<!-- ===== ADD USER ===== -->
+<div class="box">
+  <h3>Add User</h3>
+
+  <div class="row">
+    <input id="email" placeholder="Email">
+    <input id="password" type="password" placeholder="Password">
+  </div>
+
+  <div class="row">
+    <select id="role">
+      <option value="admin">Admin</option>
+      <option value="viewer">Viewer</option>
+    </select>
+  </div>
+
+  <div style="margin-top:12px;">
+    <b>Select BA</b>
+
+    <!-- SELECT ALL -->
+    <div id="selectAllBA" class="ba-chip" style="margin-top:8px;">
+      Select All
+    </div>
+
+    <div id="baList"></div>
+  </div>
+
+  <button class="btn-primary" onclick="addUser(event)" style="margin-top:10px;width:100%;">
+    Create User
+  </button>
+</div>
+
+<!-- ===== USERS ===== -->
+<div class="box">
+  <h3>Users</h3>
+  <div id="userList"></div>
+</div>
+
+<script type="module">
+import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+import { getDatabase, ref, get, update, remove, set } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-functions.js";
+
+/* FIREBASE */
+const firebaseConfig = {
+  apiKey: "AIzaSyDFW61pnwLvh6HGKWt10zLYNr860fI8vkg",
+  authDomain: "driva-pwa.firebaseapp.com",
+  databaseURL: "https://driva-pwa-default-rtdb.firebaseio.com",
+  projectId: "driva-pwa"
+};
+
+const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
+const db = getDatabase(app);
+const auth = getAuth(app);
+
+const functions = getFunctions(app, "us-central1");
+const createUserFn = httpsCallable(functions, "createTaskViewerUser");
+const deleteUserFn = httpsCallable(functions, "deleteTaskViewerUser");
+const updateUserBAFn = httpsCallable(functions, "updateTaskViewerUserBA");
+
+/* AUTH */
+onAuthStateChanged(auth, async (user) => {
+  if (!user) {
+    window.location.href = "login-taskview.html";
+    return;
+  }
+
+  const email = (user.email || "").toLowerCase();
+  const snap = await get(ref(db, "config/taskviewUsers/admin"));
+  const admins = snap.val() || {};
+
+  const isAdmin = Object.values(admins)
+    .some(u => u.email === email && u.active);
+
+  if (!isAdmin) {
+    alert("Admins only");
+    window.location.href = "taskview.html";
+    return;
+  }
+
+  document.body.style.display = "block";
+
+  loadUsers();
+  loadBAOptions();
+  loadBAManageList();
+});
+
+/* ===== BA ===== */
+window.addBA = async function () {
+  const input = document.getElementById("newBA");
+  const ba = input.value.trim().toUpperCase();
+
+  if (!ba) return alert("Enter BA");
+
+  await set(ref(db, `config/baList/${ba}`), true);
+  input.value = "";
+
+  loadBAOptions();
+  loadBAManageList();
+};
+
+import { signOut } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+
+window.goDashboard = function(){
+  window.location.href = "taskview.html";
+};
+
+window.logout = async function(){
+  await signOut(auth);
+  window.location.href = "login-taskview.html";
+};
+
+window.deleteBA = async function (ba) {
+  if (!confirm(`Delete ${ba}?`)) return;
+
+  await remove(ref(db, `config/baList/${ba}`));
+
+  loadBAOptions();
+  loadBAManageList();
+};
+
+window.deleteUser = async function(role, key, email) {
+  if (!confirm(`Delete ${email}?`)) return;
+
+  try {
+    // delete auth
+    await deleteUserFn({ email });
+
+    // delete from DB
+    await remove(ref(db, `config/taskviewUsers/${role}/${key}`));
+
+    alert("✅ User deleted");
+    loadUsers();
+
+  } catch (e) {
+    console.error(e);
+    alert("❌ Failed to delete user");
+  }
+};
+
+window.editBA = async function(role, key, currentBA) {
+
+  const selected = currentBA ? currentBA.split("|") : [];
+
+  const snap = await get(ref(db, "config/baList"));
+  const baList = Object.keys(snap.val() || {});
+
+  let html = `<div style="display:flex;flex-wrap:wrap;gap:8px;">`;
+
+  baList.forEach(ba => {
+    const active = selected.includes(ba) ? "active" : "";
+    html += `<div class="ba-chip ${active}" onclick="this.classList.toggle('active')">${ba}</div>`;
+  });
+
+  html += `</div><br><button onclick="saveBA('${role}','${key}')">Save</button>`;
+
+  const modal = document.createElement("div");
+  modal.innerHTML = `
+    <div style="
+      position:fixed;
+      top:0;left:0;width:100%;height:100%;
+      background:rgba(0,0,0,0.4);
+      display:flex;align-items:center;justify-content:center;
+      z-index:999;
+    ">
+      <div style="background:#fff;padding:20px;border-radius:10px;">
+        <h3>Edit BA</h3>
+        ${html}
+      </div>
+    </div>
+  `;
+
+  modal.id = "editModal";
+  document.body.appendChild(modal);
+};
+
+window.saveBA = async function(role, key) {
+
+  const selected = Array.from(
+    document.querySelectorAll("#editModal .ba-chip.active")
+  ).map(el => el.innerText);
+
+  try {
+    await update(ref(db, `config/taskviewUsers/${role}/${key}`), {
+      ba: selected
+    });
+
+    alert("✅ BA updated");
+
+    document.getElementById("editModal").remove();
+    loadUsers();
+
+  } catch (e) {
+    console.error(e);
+    alert("❌ Failed to update BA");
+  }
+};
+
+async function loadBAManageList() {
+  const snap = await get(ref(db, "config/baList"));
+  const data = snap.val() || {};
+
+  const container = document.getElementById("baManageList");
+  container.innerHTML = "";
+
+  Object.keys(data).sort().forEach(ba => {
+    const div = document.createElement("div");
+    div.className = "ba-item";
+
+    div.innerHTML = `
+      <span>${ba}</span>
+      <button class="btn-danger btn-small" onclick="deleteBA('${ba}')">Delete</button>
+    `;
+
+    container.appendChild(div);
+  });
+}
+
+async function loadBAOptions() {
+  const snap = await get(ref(db, "config/baList"));
+  const data = snap.val() || {};
+
+  const container = document.getElementById("baList");
+  container.innerHTML = "";
+
+  Object.keys(data).sort().forEach(ba => {
+
+    const chip = document.createElement("div");
+    chip.className = "ba-chip";
+    chip.innerText = ba;
+
+    chip.onclick = () => {
+  chip.classList.toggle("active");
+
+  const chips = document.querySelectorAll(".ba-chip:not(#selectAllBA)");
+  const allSelected = Array.from(chips).every(c => c.classList.contains("active"));
+
+  document.getElementById("selectAllBA").classList.toggle("active", allSelected);
+};
+
+    container.appendChild(chip);
+  });
+
+  // SELECT ALL
+  const selectAllBtn = document.getElementById("selectAllBA");
+
+selectAllBtn.onclick = () => {
+  const chips = document.querySelectorAll(".ba-chip:not(#selectAllBA)");
+
+  const allSelected = Array.from(chips).every(c => c.classList.contains("active"));
+
+  chips.forEach(chip => {
+    chip.classList.toggle("active", !allSelected);
+  });
+
+  selectAllBtn.classList.toggle("active", !allSelected);
+};
+}
+
+/* ===== ADD USER ===== */
+window.addUser = async function (event) {
+  const btn = event.target;
+  btn.disabled = true;
+  btn.innerText = "Creating...";
+
+  const user = auth.currentUser;
+  if (!user) {
+    alert("Not logged in");
+    return;
+  }
+
+  await user.getIdToken(); // ✅ FIXED
+
+  const email = document.getElementById("email").value.trim().toLowerCase();
+  const password = document.getElementById("password").value.trim();
+  const role = document.getElementById("role").value;
+
+  const ba = Array.from(
+  document.querySelectorAll(".ba-chip.active")
+).map(el => el.innerText);
+
+  if (!email || !password) {
+    alert("Missing fields");
+    return;
+  }
+
+  try {
+    await createUserFn({ email, password, role, ba });
+
+    alert("✅ User created");
+    
+    // ✅ RESET FORM
+    document.getElementById("email").value = "";
+    document.getElementById("password").value = "";
+    document.getElementById("role").value = "admin";
+    
+    // clear BA chips
+    document.querySelectorAll(".ba-chip").forEach(chip => {
+      chip.classList.remove("active");
+    });
+    
+    // also reset Select All
+    document.getElementById("selectAllBA").classList.remove("active");
+    
+    loadUsers();
+
+  } catch (e) {
+    console.error(e);
+    alert("❌ Failed to create user");
+  }
+
+  btn.disabled = false;
+  btn.innerText = "Create User";
+};
+
+/* ===== USERS ===== */
+async function loadUsers() {
+  const snap = await get(ref(db, "config/taskviewUsers"));
+  const data = snap.val() || {};
+
+  const container = document.getElementById("userList");
+  container.innerHTML = "";
+
+  ["admin","viewer"].forEach(role => {
+    const users = data[role] || {};
+
+    Object.entries(users).forEach(([key, u]) => {
+
+      const div = document.createElement("div");
+      div.className = "user-item";
+
+      div.innerHTML = `
+        <b>${u.email}</b> (${role})<br>
+        <small>BA: ${(u.ba || []).join(", ") || "ALL"}</small>
+        <br><br>
+
+        <button class="btn-small btn-primary"
+          onclick="editBA('${role}','${key}','${(u.ba || []).join("|")}')">
+          Edit BA
+        </button>
+
+        <button class="btn-small btn-danger"
+          onclick="deleteUser('${role}','${key}','${u.email}')">
+          Delete
+        </button>
+      `;
+
+      container.appendChild(div);
+    });
+  });
+}
+
+</script>
+
+</body>
+</html>
