@@ -129,7 +129,7 @@ select, input[type="date"] {
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Manage Tasks <span class="app-version">V.R.0.1.1</span></h1>
+      <h1 class="app-title">Manage Tasks <span class="app-version">V.R.0.1.2</span></h1>
     </div>
   </div>
   <div class="app-header-actions">
@@ -308,6 +308,7 @@ import {
   query,
   where,
   orderBy,
+  documentId,
   limit,
   startAfter,
   writeBatch,
@@ -404,7 +405,6 @@ let FIRESTORE_HAS_MORE = false;
 let FIRESTORE_CURRENT_DATE = null;
 let FIRESTORE_PAGE = 0;
 let FIRESTORE_LOADING = false;
-let TASK_LOAD_PENDING = false;
 
 let CURRENT_PAGE = 0;
 let FILTERED_TASKS = [];
@@ -413,12 +413,35 @@ const today = getTodayPH();
 filterDateFrom.value = today;
 filterDateTo.value = today;
 
+function markDateRangeReadyToLoad() {
+  TASKS = [];
+  FILTERED_TASKS = [];
+  TASK_MAP = {};
+  window.__TASKS_DATA__ = [];
+  window.__TASKS_BY_DATE__ = {};
+  window.__TASKS_BY_DRIVER__ = {};
+  window.__TASKS_BY_JOB__ = {};
+  CURRENT_PAGE = 0;
+  SELECTED_IDS.clear();
+  checkAll.checked = false;
+  checkAll.disabled = true;
+  bulkBtn.disabled = true;
+  document.getElementById("selectedCount").innerText = "";
+  document.getElementById("paginationControls").innerHTML = "";
+  document.getElementById("taskList").innerHTML = `
+    <div style="padding:18px;text-align:center;color:#64748b;">
+      Date range changed. Click <b>Load Tasks</b> to retrieve tasks.
+    </div>
+  `;
+  buildFilterLists();
+}
+
 filterDateFrom.onchange = () => {
   if (!filterDateFrom.value) return;
   if (!filterDateTo.value || filterDateFrom.value > filterDateTo.value) {
     filterDateTo.value = filterDateFrom.value;
   }
-  loadTasks();
+  markDateRangeReadyToLoad();
 };
 
 filterDateTo.onchange = () => {
@@ -426,7 +449,7 @@ filterDateTo.onchange = () => {
   if (!filterDateFrom.value || filterDateTo.value < filterDateFrom.value) {
     filterDateFrom.value = filterDateTo.value;
   }
-  loadTasks();
+  markDateRangeReadyToLoad();
 };
 
 filterDriver.onchange =
@@ -531,6 +554,7 @@ async function loadLiveTasksFromFirebase(
         tasksRef,
         where("assignedDate", "==", firestoreDate),
         orderBy("createdAt"),
+        orderBy(documentId()),
         limit(FIRESTORE_PAGE_SIZE)
       );
 
@@ -540,6 +564,7 @@ async function loadLiveTasksFromFirebase(
         tasksRef,
         where("assignedDate", "==", firestoreDate),
         orderBy("createdAt"),
+        orderBy(documentId()),
         startAfter(FIRESTORE_LAST_DOC),
         limit(FIRESTORE_PAGE_SIZE)
       );
@@ -559,13 +584,32 @@ async function loadLiveTasksFromFirebase(
 
     });
 
-    if (snapshot.docs.length > 0) {
+    const previousCursorId = FIRESTORE_LAST_DOC?.id || "";
+    const nextCursor = snapshot.docs.length > 0
+      ? snapshot.docs[snapshot.docs.length - 1]
+      : null;
+
+    if (nextCursor) {
       FIRESTORE_LAST_DOC =
-        snapshot.docs[snapshot.docs.length - 1];
+        nextCursor;
     }
 
     FIRESTORE_HAS_MORE =
       snapshot.docs.length === FIRESTORE_PAGE_SIZE;
+
+    // Never allow a repeated Firestore page to create an infinite loop and
+    // repeated reads. A valid next page must advance to a different last doc.
+    if (
+      direction === "next" &&
+      nextCursor &&
+      nextCursor.id === previousCursorId
+    ) {
+      console.error(
+        "Firestore pagination stopped because the cursor did not advance:",
+        nextCursor.id
+      );
+      FIRESTORE_HAS_MORE = false;
+    }
 
     FIRESTORE_CURRENT_DATE = dateKey;
 
@@ -606,13 +650,13 @@ async function loadLiveTasksFromFirebase(
 /* ===== LOAD TASKS - FIRESTORE ONLY ===== */
 async function loadTasks() {
   if (loadBtn.disabled) {
-    // Keep the last date selection when a previous range is still loading.
-    TASK_LOAD_PENDING = true;
     return;
   }
 
   loadBtn.disabled = true;
   loadBtn.innerText = "Loading...";
+  filterDateFrom.disabled = true;
+  filterDateTo.disabled = true;
 
   try {
     const from = filterDateFrom.value;
@@ -716,9 +760,31 @@ async function loadTasks() {
         }
       });
 
+      const loadedIdsForDate = new Set(result.map(task => task._key));
+      let pageSafetyCount = 0;
+
       while (FIRESTORE_HAS_MORE) {
+        pageSafetyCount++;
+        if (pageSafetyCount > 1000) {
+          console.error("Firestore pagination stopped at the safety limit.");
+          FIRESTORE_HAS_MORE = false;
+          break;
+        }
+
         const nextPage = await loadLiveTasksFromFirebase(key, null, "next");
-        rangeTasks.push(...excludeDeletedTasks(nextPage));
+        const uniqueNextPage = nextPage.filter(task => {
+          if (loadedIdsForDate.has(task._key)) return false;
+          loadedIdsForDate.add(task._key);
+          return true;
+        });
+
+        if (nextPage.length && uniqueNextPage.length === 0) {
+          console.error("Firestore pagination returned a duplicate page; loading stopped.");
+          FIRESTORE_HAS_MORE = false;
+          break;
+        }
+
+        rangeTasks.push(...excludeDeletedTasks(uniqueNextPage));
       }
     }
 
@@ -792,6 +858,7 @@ async function loadTasks() {
     // 🔥 RESET SELECTION STATE
     SELECTED_IDS.clear();
     checkAll.checked = false;
+    checkAll.disabled = false;
 
     LAST_FILTER_HASH = "";
 
@@ -818,12 +885,9 @@ async function loadTasks() {
   } finally {
 
     loadBtn.disabled = false;
+    filterDateFrom.disabled = false;
+    filterDateTo.disabled = false;
     loadBtn.innerText = "🔄 Load Tasks";
-
-    if (TASK_LOAD_PENDING) {
-      TASK_LOAD_PENDING = false;
-      loadTasks();
-    }
   }
 }
 
