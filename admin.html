@@ -324,7 +324,7 @@ button {
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.8</span></h1>
+      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.9</span></h1>
     </div>
   </div>
 
@@ -579,6 +579,7 @@ async function onDateRangeChange() {
   // ✅ ONLY NOW update state
   DATE_FROM = newFrom;
   DATE_TO = newTo;
+  adminChangeCheckGeneration++;
 
   window.__FIRESTORE_TASKS__ = null;
 
@@ -589,6 +590,7 @@ async function onDateRangeChange() {
   await loadTasks(
     CURRENT_STATUS || "PENDING"
   );
+  renderAdminNotificationState();
 
   // ==========================================
   // 🗺 LIVE MAP DATE CHANGE
@@ -1024,48 +1026,122 @@ function updateDataSourceStatus(detail = "Firestore", successfulSyncMillis = nul
 }
 
 const ADMIN_CHANGE_CHECK_MS = 10 * 60 * 1000;
+const ADMIN_NOTIFICATION_STATE_PREFIX = "nscaAdminNotificationState:";
 let adminChangeCheckTimer = null;
 let adminChangeCheckRunning = false;
 let adminChangeCheckGeneration = 0;
 let adminTaskSyncRunning = false;
 
+function adminNotificationStateKey(from = DATE_FROM, to = DATE_TO) {
+  return `${ADMIN_NOTIFICATION_STATE_PREFIX}${from}::${to}`;
+}
+
+function readAdminNotificationState(from = DATE_FROM, to = DATE_TO) {
+  try {
+    const parsed = JSON.parse(
+      localStorage.getItem(adminNotificationStateKey(from, to)) || "null"
+    );
+    return {
+      watermarkMillis: Number(parsed?.watermarkMillis || 0),
+      changedIds: Array.isArray(parsed?.changedIds) ? parsed.changedIds : []
+    };
+  } catch {
+    return { watermarkMillis: 0, changedIds: [] };
+  }
+}
+
+function writeAdminNotificationState(state, from = DATE_FROM, to = DATE_TO) {
+  localStorage.setItem(adminNotificationStateKey(from, to), JSON.stringify({
+    watermarkMillis: Number(state?.watermarkMillis || 0),
+    changedIds: [...new Set(state?.changedIds || [])]
+  }));
+}
+
+function clearAdminNotificationState(from = DATE_FROM, to = DATE_TO) {
+  localStorage.removeItem(adminNotificationStateKey(from, to));
+}
+
+function renderAdminNotificationState(state = readAdminNotificationState()) {
+  const button = document.getElementById("dataSourceStatusBtn");
+  if (!button) return;
+  const changeCount = new Set(state.changedIds || []).size;
+  button.classList.toggle("has-updates", changeCount > 0);
+  if (changeCount > 0) {
+    button.dataset.updateCount = String(changeCount);
+    button.title = `${changeCount} newly completed task${changeCount === 1 ? " is" : "s are"} available. Click to sync.`;
+  } else {
+    delete button.dataset.updateCount;
+    button.title = "No new completed tasks. Click to check Firestore now.";
+  }
+}
+
+async function fetchDateRestrictedChanges(dateKeys, field, sinceMillis, untilMillis = null) {
+  const documents = new Map();
+
+  for (const dateKey of dateKeys) {
+    const assignedDate =
+      `${dateKey.slice(0, 4)}-${dateKey.slice(4, 6)}-${dateKey.slice(6, 8)}`;
+    const constraints = [
+      where("assignedDate", "==", assignedDate),
+      where(field, ">", Timestamp.fromMillis(Math.max(0, sinceMillis))),
+      orderBy(field)
+    ];
+    if (untilMillis !== null) {
+      constraints.splice(2, 0, where(field, "<=", Timestamp.fromMillis(untilMillis)));
+    }
+
+    const snapshot = await getDocs(query(
+      collection(db, TASK_COLLECTION),
+      ...constraints
+    ));
+    snapshot.forEach(docSnap => documents.set(docSnap.id, docSnap));
+  }
+
+  return [...documents.values()];
+}
+
 async function checkForAdminTaskChanges() {
   if (document.hidden || adminChangeCheckRunning || !DATE_FROM || !DATE_TO) return;
   const checkGeneration = adminChangeCheckGeneration;
+  const checkFrom = DATE_FROM;
+  const checkTo = DATE_TO;
   adminChangeCheckRunning = true;
   try {
-    const cached = await readTaskCache(DATE_FROM, DATE_TO);
+    const cached = await readTaskCache(checkFrom, checkTo);
     if (!cached || taskCacheNeedsFullRefresh(cached) || !cached.watermarkMillis) return;
 
-    const completedSnapshot = await getDocs(query(
-      collection(db, TASK_COLLECTION),
-      where("completedAt", ">", Timestamp.fromMillis(cached.completionWatermarkMillis || 0)),
-      orderBy("completedAt")
-    ));
+    const dateKeys = getDateRangeKeys(checkFrom, checkTo);
+    const notificationState = readAdminNotificationState(checkFrom, checkTo);
+    const notificationWatermark = Math.max(
+      notificationState.watermarkMillis || 0,
+      cached.completionWatermarkMillis || 0
+    );
+    const completedDocuments = await fetchDateRestrictedChanges(
+      dateKeys,
+      "completedAt",
+      notificationWatermark
+    );
 
     const button = document.getElementById("dataSourceStatusBtn");
-    if (!button || checkGeneration !== adminChangeCheckGeneration) return;
-    const cachedIds = new Set((cached.tasks || []).map(task => task._key));
-    const changedById = new Map();
-    const collectRelevantChange = docSnap => {
-      const task = { _key: docSnap.id, ...docSnap.data() };
-      const assignedDate = String(task.assignedDate || "").slice(0, 10);
-      if (cachedIds.has(task._key) || (assignedDate >= DATE_FROM && assignedDate <= DATE_TO)) {
-        changedById.set(task._key, task);
-      }
+    if (!button ||
+        checkGeneration !== adminChangeCheckGeneration ||
+        checkFrom !== DATE_FROM ||
+        checkTo !== DATE_TO) return;
+    const changedIds = new Set(notificationState.changedIds || []);
+    let nextNotificationWatermark = notificationWatermark;
+    completedDocuments.forEach(docSnap => {
+      changedIds.add(docSnap.id);
+      nextNotificationWatermark = Math.max(
+        nextNotificationWatermark,
+        taskTimestampMillis(docSnap.data()?.completedAt)
+      );
+    });
+    const nextState = {
+      watermarkMillis: nextNotificationWatermark,
+      changedIds: [...changedIds]
     };
-    completedSnapshot.forEach(collectRelevantChange);
-
-    const changeCount = changedById.size;
-    const hasChanges = changeCount > 0;
-    button.classList.toggle("has-updates", hasChanges);
-    if (hasChanges) button.dataset.updateCount = String(changeCount);
-    else delete button.dataset.updateCount;
-    if (hasChanges) {
-      button.title = `${changeCount} newly completed task${changeCount === 1 ? " is" : "s are"} available. Click to sync.`;
-    } else {
-      button.title = "No new completed tasks. Click to check Firestore now.";
-    }
+    writeAdminNotificationState(nextState, checkFrom, checkTo);
+    renderAdminNotificationState(nextState);
   } catch (error) {
     console.warn("Background task update check failed:", error);
   } finally {
@@ -1964,6 +2040,8 @@ window.syncAdminTasks = function () {
   if (adminTaskSyncRunning) return Promise.resolve();
   adminTaskSyncRunning = true;
   adminChangeCheckGeneration++;
+  const syncFrom = DATE_FROM;
+  const syncTo = DATE_TO;
 
   const button = document.getElementById("dataSourceStatusBtn");
   if (button) {
@@ -1973,10 +2051,17 @@ window.syncAdminTasks = function () {
     button.textContent = "Syncing changes…";
   }
 
-  return loadTasks(CURRENT_STATUS || "PENDING").finally(() => {
-    adminTaskSyncRunning = false;
-    if (button) button.disabled = false;
-  });
+  return loadTasks(CURRENT_STATUS || "PENDING")
+    .then(() => {
+      clearAdminNotificationState(syncFrom, syncTo);
+      if (syncFrom === DATE_FROM && syncTo === DATE_TO) {
+        renderAdminNotificationState({ watermarkMillis: 0, changedIds: [] });
+      }
+    })
+    .finally(() => {
+      adminTaskSyncRunning = false;
+      if (button) button.disabled = false;
+    });
 };
   
 window.forceRefresh = async function () {
@@ -2208,18 +2293,10 @@ window.loadTasks = async function (status) {
         (cached.completionWatermarkMillis || 0) - TASK_CACHE_OVERLAP_MS
       );
       const [updatedSnapshot, completedSnapshot] = await Promise.all([
-        getDocs(query(
-          collection(db, TASK_COLLECTION),
-          where("updatedAt", ">", Timestamp.fromMillis(since)),
-          orderBy("updatedAt")
-        )),
+        fetchDateRestrictedChanges(dateKeys, "updatedAt", since),
         // Backward compatibility: older Option 1 driver pages wrote
         // completedAt but did not write updatedAt.
-        getDocs(query(
-          collection(db, TASK_COLLECTION),
-          where("completedAt", ">", Timestamp.fromMillis(completionSince)),
-          orderBy("completedAt")
-        ))
+        fetchDateRestrictedChanges(dateKeys, "completedAt", completionSince)
       ]);
       const updatesById = new Map();
       let updateQueryWatermark = cached.watermarkMillis || 0;
@@ -3461,6 +3538,7 @@ function setLoaderText(txt) {
 
     updateDataSourceStatus("☁ Firestore");
     startAdminTaskChangeChecks();
+    renderAdminNotificationState();
     
     hideLoader();
   }
