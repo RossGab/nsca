@@ -324,7 +324,7 @@ button {
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.9</span></h1>
+      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.11</span></h1>
     </div>
   </div>
 
@@ -1025,7 +1025,7 @@ function updateDataSourceStatus(detail = "Firestore", successfulSyncMillis = nul
   btn.title = `${detail}. Click to check for task updates.`;
 }
 
-const ADMIN_CHANGE_CHECK_MS = 10 * 60 * 1000;
+const ADMIN_CHANGE_CHECK_MS = 15 * 60 * 1000;
 const ADMIN_NOTIFICATION_STATE_PREFIX = "nscaAdminNotificationState:";
 let adminChangeCheckTimer = null;
 let adminChangeCheckRunning = false;
@@ -1042,17 +1042,25 @@ function readAdminNotificationState(from = DATE_FROM, to = DATE_TO) {
       localStorage.getItem(adminNotificationStateKey(from, to)) || "null"
     );
     return {
-      watermarkMillis: Number(parsed?.watermarkMillis || 0),
+      updatedWatermarkMillis: Number(parsed?.updatedWatermarkMillis || 0),
+      completionWatermarkMillis: Number(
+        parsed?.completionWatermarkMillis || parsed?.watermarkMillis || 0
+      ),
       changedIds: Array.isArray(parsed?.changedIds) ? parsed.changedIds : []
     };
   } catch {
-    return { watermarkMillis: 0, changedIds: [] };
+    return {
+      updatedWatermarkMillis: 0,
+      completionWatermarkMillis: 0,
+      changedIds: []
+    };
   }
 }
 
 function writeAdminNotificationState(state, from = DATE_FROM, to = DATE_TO) {
   localStorage.setItem(adminNotificationStateKey(from, to), JSON.stringify({
-    watermarkMillis: Number(state?.watermarkMillis || 0),
+    updatedWatermarkMillis: Number(state?.updatedWatermarkMillis || 0),
+    completionWatermarkMillis: Number(state?.completionWatermarkMillis || 0),
     changedIds: [...new Set(state?.changedIds || [])]
   }));
 }
@@ -1068,10 +1076,10 @@ function renderAdminNotificationState(state = readAdminNotificationState()) {
   button.classList.toggle("has-updates", changeCount > 0);
   if (changeCount > 0) {
     button.dataset.updateCount = String(changeCount);
-    button.title = `${changeCount} newly completed task${changeCount === 1 ? " is" : "s are"} available. Click to sync.`;
+    button.title = `${changeCount} task change${changeCount === 1 ? "" : "s"} detected. This may include completions, transfers, resets, deletions, assignment/status changes, edits, or new tasks. Click to sync.`;
   } else {
     delete button.dataset.updateCount;
-    button.title = "No new completed tasks. Click to check Firestore now.";
+    button.title = "No new task changes. Click to check Firestore now.";
   }
 }
 
@@ -1112,15 +1120,19 @@ async function checkForAdminTaskChanges() {
 
     const dateKeys = getDateRangeKeys(checkFrom, checkTo);
     const notificationState = readAdminNotificationState(checkFrom, checkTo);
-    const notificationWatermark = Math.max(
-      notificationState.watermarkMillis || 0,
+    const updatedWatermark = Math.max(
+      notificationState.updatedWatermarkMillis || 0,
+      cached.watermarkMillis || 0
+    );
+    const completionWatermark = Math.max(
+      notificationState.completionWatermarkMillis || 0,
       cached.completionWatermarkMillis || 0
     );
-    const completedDocuments = await fetchDateRestrictedChanges(
-      dateKeys,
-      "completedAt",
-      notificationWatermark
-    );
+    const [updatedDocuments, completedDocuments] = await Promise.all([
+      fetchDateRestrictedChanges(dateKeys, "updatedAt", updatedWatermark),
+      // Older driver versions sometimes wrote completedAt without updatedAt.
+      fetchDateRestrictedChanges(dateKeys, "completedAt", completionWatermark)
+    ]);
 
     const button = document.getElementById("dataSourceStatusBtn");
     if (!button ||
@@ -1128,16 +1140,25 @@ async function checkForAdminTaskChanges() {
         checkFrom !== DATE_FROM ||
         checkTo !== DATE_TO) return;
     const changedIds = new Set(notificationState.changedIds || []);
-    let nextNotificationWatermark = notificationWatermark;
+    let nextUpdatedWatermark = updatedWatermark;
+    let nextCompletionWatermark = completionWatermark;
+    updatedDocuments.forEach(docSnap => {
+      changedIds.add(docSnap.id);
+      nextUpdatedWatermark = Math.max(
+        nextUpdatedWatermark,
+        taskTimestampMillis(docSnap.data()?.updatedAt)
+      );
+    });
     completedDocuments.forEach(docSnap => {
       changedIds.add(docSnap.id);
-      nextNotificationWatermark = Math.max(
-        nextNotificationWatermark,
+      nextCompletionWatermark = Math.max(
+        nextCompletionWatermark,
         taskTimestampMillis(docSnap.data()?.completedAt)
       );
     });
     const nextState = {
-      watermarkMillis: nextNotificationWatermark,
+      updatedWatermarkMillis: nextUpdatedWatermark,
+      completionWatermarkMillis: nextCompletionWatermark,
       changedIds: [...changedIds]
     };
     writeAdminNotificationState(nextState, checkFrom, checkTo);
@@ -2055,7 +2076,11 @@ window.syncAdminTasks = function () {
     .then(() => {
       clearAdminNotificationState(syncFrom, syncTo);
       if (syncFrom === DATE_FROM && syncTo === DATE_TO) {
-        renderAdminNotificationState({ watermarkMillis: 0, changedIds: [] });
+        renderAdminNotificationState({
+          updatedWatermarkMillis: 0,
+          completionWatermarkMillis: 0,
+          changedIds: []
+        });
       }
     })
     .finally(() => {
