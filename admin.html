@@ -255,29 +255,20 @@ button {
 
 .notification-timer {
   --timer-angle: 360deg;
-  width: 34px;
-  height: 34px;
-  margin-left: 7px;
-  display: inline-grid;
-  place-items: center;
+  width: 16px;
+  height: 16px;
+  margin-left: 6px;
+  display: inline-block;
   flex: 0 0 auto;
   border-radius: 50%;
-  background: conic-gradient(#fff var(--timer-angle), rgba(255,255,255,.28) 0);
-  color: #1f6f2d;
-  font-size: 9px;
-  font-weight: 800;
+  vertical-align: middle;
+  background: conic-gradient(
+    #fff 0deg var(--timer-angle),
+    rgba(255,255,255,.12) var(--timer-angle) 360deg
+  );
 }
 
-.notification-timer::before {
-  content: "";
-  grid-area: 1 / 1;
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  background: #fff;
-}
-
-.notification-timer-text { position: relative; z-index: 1; }
+.notification-timer-text { display: none; }
 .firestore-button-label { display: inline-block; vertical-align: middle; }
 
 .data-stale {
@@ -358,7 +349,7 @@ button {
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.14</span></h1>
+      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.15</span></h1>
     </div>
   </div>
 
