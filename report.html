@@ -385,20 +385,26 @@ window.generateReport=async function(){
   await new Promise(r=>setTimeout(r,0));
 
   const wb=XLSX.utils.book_new();
-  const ws=XLSX.utils.aoa_to_sheet([headers]);
 
-  for(let i=0;i<rows.length;i++){
-    XLSX.utils.sheet_add_aoa(
-      ws,
-      [headers.map(h=>rows[i][h]??"")],
-      {origin:-1}
-    );
+  // Dense worksheets store cells in arrays instead of creating millions of
+  // properties on one object. This prevents "Too many properties to enumerate"
+  // on large reports.
+  const ws=XLSX.utils.aoa_to_sheet([headers],{dense:true});
+  const EXCEL_BATCH_SIZE=500;
 
-    if(i%500===0){
-      progressBox.textContent=
-        `📊 Writing Excel... ${i.toLocaleString()} / ${rows.length.toLocaleString()}`;
-      await new Promise(r=>setTimeout(r,0));
+  for(let start=0;start<rows.length;start+=EXCEL_BATCH_SIZE){
+    const end=Math.min(start+EXCEL_BATCH_SIZE,rows.length);
+    const batch=[];
+
+    for(let i=start;i<end;i++){
+      batch.push(headers.map(h=>rows[i][h]??""));
     }
+
+    XLSX.utils.sheet_add_aoa(ws,batch,{origin:-1,dense:true});
+
+    progressBox.textContent=
+      `📊 Writing Excel... ${end.toLocaleString()} / ${rows.length.toLocaleString()}`;
+    await new Promise(r=>setTimeout(r,0));
   }
 
   XLSX.utils.book_append_sheet(wb,ws,"Tasks");
