@@ -203,6 +203,7 @@ button {
   font-size:13px;
 }
 .snapshot-btn {
+  position: relative;
   flex: 1;
   padding: 12px;
   font-size: 13px;
@@ -223,7 +224,6 @@ button {
 }
 
 .snapshot-btn.has-updates {
-  position: relative;
   box-shadow: 0 0 0 3px rgba(220, 53, 69, .22);
 }
 
@@ -255,13 +255,13 @@ button {
 
 .notification-timer {
   --timer-angle: 360deg;
-  width: 16px;
-  height: 16px;
-  margin-left: 6px;
-  display: inline-block;
-  flex: 0 0 auto;
+  position: absolute;
+  left: 7px;
+  bottom: 7px;
+  width: 13px;
+  height: 13px;
+  display: block;
   border-radius: 50%;
-  vertical-align: middle;
   background: conic-gradient(
     #fff 0deg var(--timer-angle),
     rgba(255,255,255,.12) var(--timer-angle) 360deg
