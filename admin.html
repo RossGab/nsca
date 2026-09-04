@@ -349,7 +349,7 @@ button {
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.15</span></h1>
+      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.16</span></h1>
     </div>
   </div>
 
@@ -1053,6 +1053,7 @@ function updateDataSourceStatus(detail = "Firestore", successfulSyncMillis = nul
 
 const ADMIN_CHANGE_CHECK_MS = 15 * 60 * 1000;
 const ADMIN_NOTIFICATION_STATE_PREFIX = "nscaAdminNotificationState:";
+const ADMIN_NEXT_CHANGE_CHECK_KEY = "nscaAdminNextChangeCheckAt";
 let adminChangeCheckTimer = null;
 let adminCountdownTimer = null;
 let adminNextChangeCheckAt = 0;
@@ -1164,9 +1165,15 @@ function updateAdminCheckTimerDisplay() {
   );
 }
 
-function resetAdminCheckCountdown() {
-  adminNextChangeCheckAt = Date.now() + ADMIN_CHANGE_CHECK_MS;
+function saveAdminNextChangeCheckAt(value) {
+  adminNextChangeCheckAt = Number(value) || 0;
+  localStorage.setItem(ADMIN_NEXT_CHANGE_CHECK_KEY, String(adminNextChangeCheckAt));
   updateAdminCheckTimerDisplay();
+}
+
+function readAdminNextChangeCheckAt() {
+  const saved = Number(localStorage.getItem(ADMIN_NEXT_CHANGE_CHECK_KEY));
+  return Number.isFinite(saved) && saved > 0 ? saved : 0;
 }
 
 async function fetchDateRestrictedChanges(dateKeys, field, sinceMillis, untilMillis = null) {
@@ -1266,21 +1273,55 @@ async function checkForAdminTaskChanges() {
   }
 }
 
-function startAdminTaskChangeChecks() {
-  if (adminChangeCheckTimer) clearInterval(adminChangeCheckTimer);
+async function runScheduledAdminChangeCheck() {
+  adminChangeCheckTimer = null;
+
+  // Keep an overdue check overdue while the page is hidden. It will run as
+  // soon as the administrator returns to the dashboard.
+  if (document.hidden) {
+    updateAdminCheckTimerDisplay();
+    return;
+  }
+
+  await checkForAdminTaskChanges();
+  saveAdminNextChangeCheckAt(Date.now() + ADMIN_CHANGE_CHECK_MS);
+  scheduleAdminChangeCheck();
+}
+
+function scheduleAdminChangeCheck(resetSchedule = false) {
+  if (adminChangeCheckTimer) clearTimeout(adminChangeCheckTimer);
+  adminChangeCheckTimer = null;
+
+  if (resetSchedule) {
+    saveAdminNextChangeCheckAt(Date.now() + ADMIN_CHANGE_CHECK_MS);
+  } else {
+    const savedDueTime = readAdminNextChangeCheckAt();
+    if (savedDueTime) {
+      adminNextChangeCheckAt = savedDueTime;
+    } else {
+      saveAdminNextChangeCheckAt(Date.now() + ADMIN_CHANGE_CHECK_MS);
+    }
+  }
+
+  updateAdminCheckTimerDisplay();
+  if (document.hidden) return;
+
+  adminChangeCheckTimer = setTimeout(
+    runScheduledAdminChangeCheck,
+    Math.max(0, adminNextChangeCheckAt - Date.now())
+  );
+}
+
+function startAdminTaskChangeChecks(resetSchedule = false) {
   if (adminCountdownTimer) clearInterval(adminCountdownTimer);
-  resetAdminCheckCountdown();
-  adminChangeCheckTimer = setInterval(() => {
-    resetAdminCheckCountdown();
-    checkForAdminTaskChanges();
-  }, ADMIN_CHANGE_CHECK_MS);
+  scheduleAdminChangeCheck(resetSchedule);
   adminCountdownTimer = setInterval(updateAdminCheckTimerDisplay, 1000);
 }
 
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) {
     renderAdminNotificationState();
-    updateAdminCheckTimerDisplay();
+    scheduleAdminChangeCheck();
   }
 });
 
@@ -2166,7 +2207,7 @@ window.syncAdminTasks = function () {
   if (adminTaskSyncRunning) return Promise.resolve();
   adminTaskSyncRunning = true;
   adminChangeCheckGeneration++;
-  startAdminTaskChangeChecks();
+  startAdminTaskChangeChecks(true);
   const syncFrom = DATE_FROM;
   const syncTo = DATE_TO;
 
