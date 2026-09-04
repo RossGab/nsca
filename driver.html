@@ -630,7 +630,7 @@ import {
 import { getStorage, ref as sRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js";
 import { increment } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
   
-const VERSION = "V.R.0.0.16.1.4.5";
+const VERSION = "V.R.0.0.16.1.4.7";
 const BILLING_CACHE = {};
 window.BILLING_CACHE = BILLING_CACHE;
 const DRIVER_UI_CACHE = {};
@@ -1805,8 +1805,98 @@ searchBox.addEventListener("input", e => {
   }, 120);
 });
 
-let DRIVER_ID = localStorage.getItem("driverId");
-while (!DRIVER_ID) DRIVER_ID = await nscaPrompt("Enter Driver ID");
+function cleanDriverId(value) {
+  return String(value || "").trim();
+}
+
+function isValidDriverId(value) {
+  const id = cleanDriverId(value);
+  return id.length >= 2 &&
+    id.length <= 64 &&
+    !/^https?:\/\//i.test(id) &&
+    !/[?&=#\/\\]/.test(id) &&
+    /^[A-Za-z0-9][A-Za-z0-9 _.-]*$/.test(id);
+}
+
+async function findDriverIdInFirestore(value) {
+  const enteredId = cleanDriverId(value);
+
+  try {
+    const exactSnapshot = await getDoc(
+      fsDoc(firestore, "drivers", enteredId)
+    );
+
+    if (exactSnapshot.exists()) {
+      const data = exactSnapshot.data() || {};
+      return {
+        found: true,
+        driverId: cleanDriverId(data.driverCode || exactSnapshot.id)
+      };
+    }
+
+    // Driver document IDs are case-sensitive. Search once for the canonical
+    // spelling so a lower-case entry can still resolve to the saved driver ID.
+    const driversSnapshot = await getDocs(collection(firestore, "drivers"));
+    const normalizedEnteredId = enteredId.toUpperCase();
+    const match = driversSnapshot.docs.find(driverDoc => {
+      const data = driverDoc.data() || {};
+      const savedId = cleanDriverId(data.driverCode || driverDoc.id);
+      return savedId.toUpperCase() === normalizedEnteredId;
+    });
+
+    if (!match) return { found: false };
+
+    const matchData = match.data() || {};
+    return {
+      found: true,
+      driverId: cleanDriverId(matchData.driverCode || match.id)
+    };
+  } catch (error) {
+    console.error("Driver ID validation failed:", error);
+    return { found: false, unavailable: true };
+  }
+}
+
+let DRIVER_ID = cleanDriverId(localStorage.getItem("driverId"));
+
+if (DRIVER_ID && !isValidDriverId(DRIVER_ID)) {
+  localStorage.removeItem("driverId");
+  DRIVER_ID = "";
+  await nscaAlert(
+    "The saved Driver ID is invalid. Please enter the Driver ID provided by the administrator."
+  );
+}
+
+while (!isValidDriverId(DRIVER_ID)) {
+  const enteredId = await nscaPrompt("Enter Driver ID");
+  DRIVER_ID = cleanDriverId(enteredId);
+
+  if (DRIVER_ID && !isValidDriverId(DRIVER_ID)) {
+    await nscaAlert(
+      "Invalid Driver ID. Enter only the assigned Driver ID, not a website link."
+    );
+    DRIVER_ID = "";
+    continue;
+  }
+
+  if (DRIVER_ID) {
+    const validation = await findDriverIdInFirestore(DRIVER_ID);
+
+    if (validation.unavailable) {
+      await nscaAlert(
+        "Driver ID could not be checked. Connect to the internet and try again."
+      );
+      DRIVER_ID = "";
+    } else if (!validation.found) {
+      await nscaAlert(
+        "Driver ID was not found. Check the ID with the administrator and try again."
+      );
+      DRIVER_ID = "";
+    } else {
+      DRIVER_ID = validation.driverId;
+    }
+  }
+}
 localStorage.setItem("driverId", DRIVER_ID);
 
 document.getElementById("settingsBtn").onclick = async () => {
@@ -1842,11 +1932,36 @@ Enter 1, 2 or 3`
 
     if (!next) return;
 
-    if (next === current) return;
+    const cleanedNext = cleanDriverId(next);
+    if (!isValidDriverId(cleanedNext)) {
+      await nscaAlert(
+        "Invalid Driver ID. Enter only the assigned Driver ID, not a website link."
+      );
+      return;
+    }
+
+    const validation = await findDriverIdInFirestore(cleanedNext);
+    if (validation.unavailable) {
+      await nscaAlert(
+        "Driver ID could not be checked. Connect to the internet and try again."
+      );
+      return;
+    }
+
+    if (!validation.found) {
+      await nscaAlert(
+        "Driver ID was not found. Check the ID with the administrator and try again."
+      );
+      return;
+    }
+
+    const verifiedNext = validation.driverId;
+
+    if (verifiedNext === current) return;
 
     localStorage.setItem(
       "driverId",
-      next
+      verifiedNext
     );
 
     alert(

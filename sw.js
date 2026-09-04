@@ -1,4 +1,4 @@
-const CACHE_VERSION = "v23-payroll-assets";
+const CACHE_VERSION = "v25-driver-list-validation";
 const CACHE_NAME = `field-task-app-${CACHE_VERSION}`;
 
 const BASE_PATH = "/nsca/";
