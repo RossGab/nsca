@@ -324,7 +324,7 @@ button {
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.11</span></h1>
+      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.12</span></h1>
     </div>
   </div>
 
@@ -587,7 +587,7 @@ async function onDateRangeChange() {
 
   try {
 
-  await loadTasks(
+  await loadCachedTasks(
     CURRENT_STATUS || "PENDING"
   );
   renderAdminNotificationState();
@@ -685,7 +685,7 @@ function reloadAllAdminViews() {
 
   } else if (CURRENT_STATUS) {
 
-    loadTasks(CURRENT_STATUS);
+    showCachedTaskStatus(CURRENT_STATUS);
   }
 }
 
@@ -1176,7 +1176,7 @@ function startAdminTaskChangeChecks() {
 }
 
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) checkForAdminTaskChanges();
+  if (!document.hidden) renderAdminNotificationState();
 });
 
 window.onerror = (msg, src, line) => {
@@ -1981,7 +1981,7 @@ window.revertToPending = async function (taskKey) {
     alert("✅ Task reset and returned to Task for Download");
 
     refreshDashboard();
-    loadTasks("PENDING");
+    loadCachedTasks("PENDING");
 
   } catch (err) {
     console.error("Failed to reset task:", err);
@@ -2019,7 +2019,7 @@ window.markAsCompleted = async function (taskId) {
     alert("✅ Task marked as completed");
 
     refreshDashboard();
-    loadTasks(CURRENT_STATUS);
+    showCachedTaskStatus(CURRENT_STATUS);
 
   } catch (err) {
     console.error(err);
@@ -2040,7 +2040,7 @@ window.showCompletedTasks = function () {
   mapContainer.style.display = "none";
   taskList.style.display = "block";
 
-  loadTasks("COMPLETED");
+  showCachedTaskStatus("COMPLETED");
 };
 
 window.showAllOpenTasks = function () {
@@ -2054,7 +2054,7 @@ window.showAllOpenTasks = function () {
   mapContainer.style.display = "none";
   taskList.style.display = "block";
 
-  loadTasks("PENDING");
+  showCachedTaskStatus("PENDING");
 };
 
 window.syncAdminTasks = function () {
@@ -2286,6 +2286,58 @@ async function fetchFullTaskRange(dateKeys) {
   return tasks;
 }
 
+async function applyAdminTaskData(rawTasks, status) {
+  CURRENT_STATUS = status;
+  const tasks = (rawTasks || []).map(normalizeAdminCachedTask);
+  window.__FIRESTORE_TASKS__ = tasks;
+  ADMIN_TASK_IDS = tasks.map(task => task._key);
+  FILTERED_TASK_IDS = [...ADMIN_TASK_IDS];
+  ADMIN_CURRENT_PAGE = 0;
+
+  ALL_BA_FOR_DATE.clear();
+  tasks.forEach(task => {
+    if (task.BA) ALL_BA_FOR_DATE.add(task.BA);
+  });
+  renderGlobalBAFilters();
+  refreshDashboard();
+  await loadAdminPageFromFirestore(status);
+}
+
+window.loadCachedTasks = async function (status) {
+  CURRENT_STATUS = status;
+  taskList.innerHTML = "Loading cache...";
+  showLoader("Loading cached tasks…");
+
+  try {
+    const cached = await readTaskCache(DATE_FROM, DATE_TO);
+    if (cached && Array.isArray(cached.tasks)) {
+      await applyAdminTaskData(excludeDeletedTasks(cached.tasks), status);
+      updateDataSourceStatus(
+        `Showing ${cached.tasks.length} cached task(s); click to sync changes`
+      );
+      renderAdminNotificationState();
+      return;
+    }
+
+    // The first visit to an uncached date range must retrieve its initial data.
+    await loadTasks(status);
+  } finally {
+    hideLoader();
+  }
+};
+
+window.showCachedTaskStatus = async function (status) {
+  CURRENT_STATUS = status;
+  ADMIN_CURRENT_PAGE = 0;
+
+  if (window.__FIRESTORE_TASKS__) {
+    await loadAdminPageFromFirestore(status);
+    return;
+  }
+
+  await loadCachedTasks(status);
+};
+
 window.loadTasks = async function (status) {
   CURRENT_STATUS = status;
   taskList.innerHTML = "Loading...";
@@ -2356,19 +2408,7 @@ window.loadTasks = async function (status) {
       );
     }
 
-    const tasks = rawTasks.map(normalizeAdminCachedTask);
-    window.__FIRESTORE_TASKS__ = tasks;
-    ADMIN_TASK_IDS = tasks.map(task => task._key);
-    FILTERED_TASK_IDS = [...ADMIN_TASK_IDS];
-    ADMIN_CURRENT_PAGE = 0;
-
-    ALL_BA_FOR_DATE.clear();
-    tasks.forEach(task => {
-      if (task.BA) ALL_BA_FOR_DATE.add(task.BA);
-    });
-    renderGlobalBAFilters();
-    refreshDashboard();
-    await loadAdminPageFromFirestore(status);
+    await applyAdminTaskData(rawTasks, status);
   } catch (error) {
     console.error("Task cache sync failed:", error);
     updateDataSourceStatus("Cache unavailable; using Firestore fallback");
@@ -2986,7 +3026,7 @@ window.showDriverOpenTasks = function (driverId) {
   taskList.style.display = "block";
 
   // Load open tasks for this driver
-  loadTasks("PENDING");
+  showCachedTaskStatus("PENDING");
 };
   
 function initMap() {
@@ -3544,7 +3584,7 @@ function setLoaderText(txt) {
     // await refreshDashboard();
 
     showLoader("Loading tasks…");
-    await loadTasks("PENDING");
+    await loadCachedTasks("PENDING");
   } catch (e) {
     alert("Dashboard failed to load. Please refresh.");
   } finally {
