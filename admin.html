@@ -227,24 +227,31 @@ button {
   box-shadow: 0 0 0 3px rgba(220, 53, 69, .22);
 }
 
-.snapshot-btn.has-updates::after {
-  content: attr(data-update-count);
+.notification-badges {
   position: absolute;
   top: -8px;
   right: -8px;
-  min-width: 23px;
-  height: 23px;
-  padding: 0 6px;
-  display: grid;
+  display: flex;
+  gap: 4px;
+}
+
+.notification-badge {
+  min-width: 25px;
+  height: 25px;
+  padding: 0 7px;
+  display: inline-grid;
   place-items: center;
   border: 2px solid #fff;
   border-radius: 999px;
-  background: #dc3545;
   color: #fff;
   font-size: 11px;
   font-weight: 800;
   line-height: 1;
 }
+
+.notification-badge.changes { background: #f39c12; }
+.notification-badge.completed { background: #dc3545; }
+.notification-badge[hidden] { display: none; }
 
 .data-stale {
   background: #dc3545; /* red */
@@ -324,7 +331,7 @@ button {
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.12</span></h1>
+      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.13</span></h1>
     </div>
   </div>
 
@@ -1019,10 +1026,11 @@ function updateDataSourceStatus(detail = "Firestore", successfulSyncMillis = nul
   );
 
   btn.className = "snapshot-btn data-fresh";
-  btn.textContent = lastSync
+  btn.dataset.baseLabel = lastSync
     ? `☁ Last sync: ${formatLastAdminSync(lastSync)}`
     : "☁ Not synced yet";
-  btn.title = `${detail}. Click to check for task updates.`;
+  btn.dataset.syncDetail = detail;
+  renderAdminNotificationState();
 }
 
 const ADMIN_CHANGE_CHECK_MS = 15 * 60 * 1000;
@@ -1046,13 +1054,17 @@ function readAdminNotificationState(from = DATE_FROM, to = DATE_TO) {
       completionWatermarkMillis: Number(
         parsed?.completionWatermarkMillis || parsed?.watermarkMillis || 0
       ),
-      changedIds: Array.isArray(parsed?.changedIds) ? parsed.changedIds : []
+      changeIds: Array.isArray(parsed?.changeIds)
+        ? parsed.changeIds
+        : (Array.isArray(parsed?.changedIds) ? parsed.changedIds : []),
+      completionIds: Array.isArray(parsed?.completionIds) ? parsed.completionIds : []
     };
   } catch {
     return {
       updatedWatermarkMillis: 0,
       completionWatermarkMillis: 0,
-      changedIds: []
+      changeIds: [],
+      completionIds: []
     };
   }
 }
@@ -1061,7 +1073,8 @@ function writeAdminNotificationState(state, from = DATE_FROM, to = DATE_TO) {
   localStorage.setItem(adminNotificationStateKey(from, to), JSON.stringify({
     updatedWatermarkMillis: Number(state?.updatedWatermarkMillis || 0),
     completionWatermarkMillis: Number(state?.completionWatermarkMillis || 0),
-    changedIds: [...new Set(state?.changedIds || [])]
+    changeIds: [...new Set(state?.changeIds || [])],
+    completionIds: [...new Set(state?.completionIds || [])]
   }));
 }
 
@@ -1072,14 +1085,34 @@ function clearAdminNotificationState(from = DATE_FROM, to = DATE_TO) {
 function renderAdminNotificationState(state = readAdminNotificationState()) {
   const button = document.getElementById("dataSourceStatusBtn");
   if (!button) return;
-  const changeCount = new Set(state.changedIds || []).size;
-  button.classList.toggle("has-updates", changeCount > 0);
-  if (changeCount > 0) {
-    button.dataset.updateCount = String(changeCount);
-    button.title = `${changeCount} task change${changeCount === 1 ? "" : "s"} detected. This may include completions, transfers, resets, deletions, assignment/status changes, edits, or new tasks. Click to sync.`;
+  const changeCount = new Set(state.changeIds || []).size;
+  const completionCount = new Set(state.completionIds || []).size;
+  const hasUpdates = changeCount + completionCount > 0;
+  const baseLabel = button.dataset.baseLabel || button.textContent.trim() || "☁ Firestore";
+
+  button.replaceChildren();
+  const label = document.createElement("span");
+  label.className = "firestore-button-label";
+  label.textContent = baseLabel;
+
+  const badges = document.createElement("span");
+  badges.className = "notification-badges";
+  const changesBadge = document.createElement("span");
+  changesBadge.className = "notification-badge changes";
+  changesBadge.hidden = changeCount === 0;
+  changesBadge.textContent = `Changes ${changeCount}`;
+  const completedBadge = document.createElement("span");
+  completedBadge.className = "notification-badge completed";
+  completedBadge.hidden = completionCount === 0;
+  completedBadge.textContent = `Completed ${completionCount}`;
+  badges.append(changesBadge, completedBadge);
+  button.append(label, badges);
+
+  button.classList.toggle("has-updates", hasUpdates);
+  if (hasUpdates) {
+    button.title = `${changeCount} other task change${changeCount === 1 ? "" : "s"}; ${completionCount} new completion${completionCount === 1 ? "" : "s"}. Click to sync.`;
   } else {
-    delete button.dataset.updateCount;
-    button.title = "No new task changes. Click to check Firestore now.";
+    button.title = `${button.dataset.syncDetail || "No new task changes"}. Click to check Firestore now.`;
   }
 }
 
@@ -1139,18 +1172,27 @@ async function checkForAdminTaskChanges() {
         checkGeneration !== adminChangeCheckGeneration ||
         checkFrom !== DATE_FROM ||
         checkTo !== DATE_TO) return;
-    const changedIds = new Set(notificationState.changedIds || []);
+    const changeIds = new Set(notificationState.changeIds || []);
+    const completionIds = new Set(notificationState.completionIds || []);
     let nextUpdatedWatermark = updatedWatermark;
     let nextCompletionWatermark = completionWatermark;
     updatedDocuments.forEach(docSnap => {
-      changedIds.add(docSnap.id);
+      const task = docSnap.data() || {};
+      if (getAdminEffectiveStatus(task) === "COMPLETED") {
+        completionIds.add(docSnap.id);
+        changeIds.delete(docSnap.id);
+      } else {
+        changeIds.add(docSnap.id);
+        completionIds.delete(docSnap.id);
+      }
       nextUpdatedWatermark = Math.max(
         nextUpdatedWatermark,
-        taskTimestampMillis(docSnap.data()?.updatedAt)
+        taskTimestampMillis(task.updatedAt)
       );
     });
     completedDocuments.forEach(docSnap => {
-      changedIds.add(docSnap.id);
+      completionIds.add(docSnap.id);
+      changeIds.delete(docSnap.id);
       nextCompletionWatermark = Math.max(
         nextCompletionWatermark,
         taskTimestampMillis(docSnap.data()?.completedAt)
@@ -1159,7 +1201,8 @@ async function checkForAdminTaskChanges() {
     const nextState = {
       updatedWatermarkMillis: nextUpdatedWatermark,
       completionWatermarkMillis: nextCompletionWatermark,
-      changedIds: [...changedIds]
+      changeIds: [...changeIds],
+      completionIds: [...completionIds]
     };
     writeAdminNotificationState(nextState, checkFrom, checkTo);
     renderAdminNotificationState(nextState);
@@ -2079,7 +2122,8 @@ window.syncAdminTasks = function () {
         renderAdminNotificationState({
           updatedWatermarkMillis: 0,
           completionWatermarkMillis: 0,
-          changedIds: []
+          changeIds: [],
+          completionIds: []
         });
       }
     })
