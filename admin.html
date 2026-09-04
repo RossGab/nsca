@@ -253,6 +253,33 @@ button {
 .notification-badge.completed { background: #dc3545; }
 .notification-badge[hidden] { display: none; }
 
+.notification-timer {
+  --timer-angle: 360deg;
+  width: 34px;
+  height: 34px;
+  margin-left: 7px;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: conic-gradient(#fff var(--timer-angle), rgba(255,255,255,.28) 0);
+  color: #1f6f2d;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.notification-timer::before {
+  content: "";
+  grid-area: 1 / 1;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #fff;
+}
+
+.notification-timer-text { position: relative; z-index: 1; }
+.firestore-button-label { display: inline-block; vertical-align: middle; }
+
 .data-stale {
   background: #dc3545; /* red */
 }
@@ -331,7 +358,7 @@ button {
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.13</span></h1>
+      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.14</span></h1>
     </div>
   </div>
 
@@ -1036,6 +1063,8 @@ function updateDataSourceStatus(detail = "Firestore", successfulSyncMillis = nul
 const ADMIN_CHANGE_CHECK_MS = 15 * 60 * 1000;
 const ADMIN_NOTIFICATION_STATE_PREFIX = "nscaAdminNotificationState:";
 let adminChangeCheckTimer = null;
+let adminCountdownTimer = null;
+let adminNextChangeCheckAt = 0;
 let adminChangeCheckRunning = false;
 let adminChangeCheckGeneration = 0;
 let adminTaskSyncRunning = false;
@@ -1106,7 +1135,14 @@ function renderAdminNotificationState(state = readAdminNotificationState()) {
   completedBadge.hidden = completionCount === 0;
   completedBadge.textContent = `Completed ${completionCount}`;
   badges.append(changesBadge, completedBadge);
-  button.append(label, badges);
+  const timer = document.createElement("span");
+  timer.className = "notification-timer";
+  timer.title = "Time until the next automatic Firestore check";
+  const timerText = document.createElement("span");
+  timerText.className = "notification-timer-text";
+  timer.appendChild(timerText);
+  button.append(label, timer, badges);
+  updateAdminCheckTimerDisplay();
 
   button.classList.toggle("has-updates", hasUpdates);
   if (hasUpdates) {
@@ -1114,6 +1150,32 @@ function renderAdminNotificationState(state = readAdminNotificationState()) {
   } else {
     button.title = `${button.dataset.syncDetail || "No new task changes"}. Click to check Firestore now.`;
   }
+}
+
+function updateAdminCheckTimerDisplay() {
+  const timer = document.querySelector("#dataSourceStatusBtn .notification-timer");
+  const timerText = timer?.querySelector(".notification-timer-text");
+  if (!timer || !timerText) return;
+
+  const remaining = Math.max(0, adminNextChangeCheckAt - Date.now());
+  const totalSeconds = Math.ceil(remaining / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  const angle = ADMIN_CHANGE_CHECK_MS
+    ? Math.max(0, Math.min(360, (remaining / ADMIN_CHANGE_CHECK_MS) * 360))
+    : 0;
+
+  timer.style.setProperty("--timer-angle", `${angle}deg`);
+  timerText.textContent = `${minutes}:${String(seconds).padStart(2, "0")}`;
+  timer.setAttribute(
+    "aria-label",
+    `Next automatic Firestore check in ${minutes} minutes and ${seconds} seconds`
+  );
+}
+
+function resetAdminCheckCountdown() {
+  adminNextChangeCheckAt = Date.now() + ADMIN_CHANGE_CHECK_MS;
+  updateAdminCheckTimerDisplay();
 }
 
 async function fetchDateRestrictedChanges(dateKeys, field, sinceMillis, untilMillis = null) {
@@ -1215,11 +1277,20 @@ async function checkForAdminTaskChanges() {
 
 function startAdminTaskChangeChecks() {
   if (adminChangeCheckTimer) clearInterval(adminChangeCheckTimer);
-  adminChangeCheckTimer = setInterval(checkForAdminTaskChanges, ADMIN_CHANGE_CHECK_MS);
+  if (adminCountdownTimer) clearInterval(adminCountdownTimer);
+  resetAdminCheckCountdown();
+  adminChangeCheckTimer = setInterval(() => {
+    resetAdminCheckCountdown();
+    checkForAdminTaskChanges();
+  }, ADMIN_CHANGE_CHECK_MS);
+  adminCountdownTimer = setInterval(updateAdminCheckTimerDisplay, 1000);
 }
 
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) renderAdminNotificationState();
+  if (!document.hidden) {
+    renderAdminNotificationState();
+    updateAdminCheckTimerDisplay();
+  }
 });
 
 window.onerror = (msg, src, line) => {
@@ -2104,6 +2175,7 @@ window.syncAdminTasks = function () {
   if (adminTaskSyncRunning) return Promise.resolve();
   adminTaskSyncRunning = true;
   adminChangeCheckGeneration++;
+  startAdminTaskChangeChecks();
   const syncFrom = DATE_FROM;
   const syncTo = DATE_TO;
 
