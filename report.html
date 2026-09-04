@@ -10,6 +10,14 @@ body{font-family:Arial,sans-serif;background:#f3f3f3;padding:12px}
 h2{text-align:center}
 .filters{background:#fff;padding:12px;border-radius:8px;box-shadow:0 0 4px rgba(0,0,0,.1);margin-bottom:12px;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
 select,input,button{padding:8px;border-radius:6px;border:1px solid #ccc}
+.check-filter{position:relative;border:1px solid #ccc;border-radius:6px;background:#fff;min-width:0}
+.check-filter summary{padding:8px;cursor:pointer;list-style:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.check-filter summary::-webkit-details-marker{display:none}
+.check-filter summary::after{content:"▾";float:right;margin-left:8px}
+.check-filter[open] summary::after{content:"▴"}
+.check-options{position:absolute;z-index:20;left:0;right:0;top:calc(100% + 4px);max-height:260px;overflow:auto;padding:8px;background:#fff;border:1px solid #bbb;border-radius:6px;box-shadow:0 8px 22px rgba(0,0,0,.18)}
+.check-options label{display:flex;align-items:center;gap:7px;padding:5px 3px;cursor:pointer;overflow-wrap:anywhere}
+.check-options input{margin:0;padding:0;flex:0 0 auto}
 button{background:#007bff;color:#fff;border:none;cursor:pointer}
 button:hover{background:#0056b3}
 button:disabled{background:#999;cursor:not-allowed}
@@ -28,7 +36,7 @@ button:disabled{background:#999;cursor:not-allowed}
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Task Report <span class="app-version">V.R.0.0.1</span></h1>
+      <h1 class="app-title">Task Report <span class="app-version">V.R.0.0.2</span></h1>
     </div>
   </div>
   <div class="app-header-actions">
@@ -43,8 +51,14 @@ button:disabled{background:#999;cursor:not-allowed}
 <option value="COMPLETED">COMPLETED</option>
 </select>
 
-<select id="jobTypeFilter"><option value="">All Job Types</option></select>
-<select id="baFilter"><option value="">All BA</option></select>
+<details class="check-filter" id="jobTypeFilterMenu">
+  <summary id="jobTypeFilterLabel">All Job Types</summary>
+  <div id="jobTypeFilter" class="check-options"></div>
+</details>
+<details class="check-filter" id="baFilterMenu">
+  <summary id="baFilterLabel">All BA</summary>
+  <div id="baFilter" class="check-options"></div>
+</details>
 <select id="dmzFilter"><option value="">All DMZ</option></select>
 
 <input type="date" id="dateFrom">
@@ -254,9 +268,50 @@ window.loadTasksForSelectedDates=async function(){
 };
 
 function buildFilterOptions(){
-  fillSelect("jobTypeFilter","JOBTYPE","Job Types");
-  fillSelect("baFilter","BA","BA");
+  fillCheckboxGroup("jobTypeFilter","JOBTYPE","Job Types");
+  fillCheckboxGroup("baFilter","BA","BA");
   fillSelect("dmzFilter","DMZ","DMZ");
+}
+
+function fillCheckboxGroup(id,field,label){
+  const container=document.getElementById(id);
+  const previous=new Set(
+    [...container.querySelectorAll('input[type="checkbox"]:checked')].map(input=>input.value)
+  );
+  container.innerHTML="";
+
+  const values=[...new Set(
+    ALL_TASKS.map(t=>t[field])
+      .filter(v=>v!==undefined&&v!==null&&v!=="")
+      .map(String)
+  )].sort((a,b)=>a.localeCompare(b,undefined,{numeric:true,sensitivity:"base"}));
+
+  values.forEach(value=>{
+    const option=document.createElement("label");
+    const checkbox=document.createElement("input");
+    const text=document.createElement("span");
+    checkbox.type="checkbox";
+    checkbox.value=value;
+    checkbox.checked=previous.has(value);
+    text.textContent=value;
+    option.append(checkbox,text);
+    container.appendChild(option);
+  });
+
+  updateCheckboxLabel(id,label);
+}
+
+function getCheckedValues(id){
+  return new Set(
+    [...document.querySelectorAll(`#${id} input[type="checkbox"]:checked`)]
+      .map(input=>input.value)
+  );
+}
+
+function updateCheckboxLabel(id,label){
+  const selected=getCheckedValues(id);
+  const labelElement=document.getElementById(`${id}Label`);
+  labelElement.textContent=selected.size ? `${label} (${selected.size})` : `All ${label}`;
 }
 
 function fillSelect(id,field,label){
@@ -282,14 +337,14 @@ function fillSelect(id,field,label){
 
 function getFilteredTasks(){
   const status=statusFilter.value;
-  const jobType=jobTypeFilter.value;
-  const ba=baFilter.value;
+  const jobTypes=getCheckedValues("jobTypeFilter");
+  const bas=getCheckedValues("baFilter");
   const dmz=dmzFilter.value;
 
   return ALL_TASKS.filter(task=>{
     if(status&&normalizeStatus(task.status)!==status)return false;
-    if(jobType&&String(task.JOBTYPE||"")!==jobType)return false;
-    if(ba&&String(task.BA||"")!==ba)return false;
+    if(jobTypes.size&&!jobTypes.has(String(task.JOBTYPE||"")))return false;
+    if(bas.size&&!bas.has(String(task.BA||"")))return false;
     if(dmz&&String(task.DMZ||"")!==dmz)return false;
     return true;
   });
@@ -435,9 +490,17 @@ function exportCSV(headers,rows,from,to){
 
 [statusFilter,jobTypeFilter,baFilter,dmzFilter].forEach(el=>{
   el.addEventListener("change",()=>{
+    if(el===jobTypeFilter)updateCheckboxLabel("jobTypeFilter","Job Types");
+    if(el===baFilter)updateCheckboxLabel("baFilter","BA");
     const count=getFilteredTasks().length;
     dataStatus.textContent=
       `☁ Firestore — ${ALL_TASKS.length.toLocaleString()} loaded / ${count.toLocaleString()} matching current filters`;
+  });
+});
+
+document.addEventListener("click",event=>{
+  document.querySelectorAll(".check-filter[open]").forEach(menu=>{
+    if(!menu.contains(event.target))menu.removeAttribute("open");
   });
 });
 
