@@ -73,7 +73,7 @@ body {
 
   <div class="admin-header">
   <img src="./logo.jpg" class="admin-logo">
-  <h2>Tasks Viewer v1.1.0.1.2</h2>
+  <h2>Tasks Viewer v1.1.0.1.3</h2>
 
   <div>
     <input type="date" id="from">
@@ -209,6 +209,7 @@ let FIRESTORE_TASKS = [];
 let LOAD_GENERATION = 0;
 let DRIVER_UI_CONFIG = {};
 let CONFIGURED_BAS = new Set();
+let CONFIGURED_BA_VALUES = [];
 let FILTER_BA = new Set();
 let SEARCH_TERM = "";
 
@@ -275,9 +276,10 @@ async function loadConfig(){
   ]);
 
   DRIVER_UI_CONFIG = jobTypesSnap.val() || {};
-  CONFIGURED_BAS = new Set(
-    Object.keys(baListSnap.val() || {}).map(normalizeBAName)
-  );
+  CONFIGURED_BA_VALUES = Object.keys(baListSnap.val() || {})
+    .map(value => String(value || "").trim())
+    .filter(Boolean);
+  CONFIGURED_BAS = new Set(CONFIGURED_BA_VALUES.map(normalizeBAName));
 }
 
 function normalizeBAName(value){
@@ -287,6 +289,15 @@ function normalizeBAName(value){
 function isBAInDisplayConfig(ba){
   // Preserve the previous behavior if no BA display list has been configured.
   return !CONFIGURED_BAS.size || CONFIGURED_BAS.has(normalizeBAName(ba));
+}
+
+function getFirestoreAllowedBAs(){
+  if (window.USER_ROLE === "admin" || !window.USER_BA?.length) {
+    return [...CONFIGURED_BA_VALUES];
+  }
+
+  const viewerBAs = new Set(window.USER_BA.map(normalizeBAName));
+  return CONFIGURED_BA_VALUES.filter(ba => viewerBAs.has(normalizeBAName(ba)));
 }
 
 // =====================
@@ -418,6 +429,14 @@ async function backgroundValidate(keys, generation){
 
 async function loadFirestoreTasks(keys, generation){
   const liveTasks = [];
+  const allowedBAs = getFirestoreAllowedBAs();
+
+  if (!allowedBAs.length) {
+    FIRESTORE_TASKS = [];
+    rebuildCombinedTasks();
+    console.warn("Firestore task load skipped: no configured BA is available for this user.");
+    return;
+  }
 
   try {
     for (const key of keys) {
@@ -425,22 +444,30 @@ async function loadFirestoreTasks(keys, generation){
 
       const assignedDate =
         `${key.slice(0,4)}-${key.slice(4,6)}-${key.slice(6,8)}`;
-      const snapshot = await getDocs(query(
-        collection(firestore, TASK_COLLECTION),
-        where("assignedDate", "==", assignedDate),
-        where("status", "==", "COMPLETED")
-      ));
 
-      snapshot.forEach(docSnap => {
-        const task = normalizeViewerTask({ _key: docSnap.id, ...docSnap.data() });
-        if (isVisibleCompletedTask(task)) liveTasks.push(task);
-      });
+      for (const ba of allowedBAs) {
+        if (generation !== LOAD_GENERATION) return;
+
+        const snapshot = await getDocs(query(
+          collection(firestore, TASK_COLLECTION),
+          where("assignedDate", "==", assignedDate),
+          where("status", "==", "COMPLETED"),
+          where("BA", "==", ba)
+        ));
+
+        snapshot.forEach(docSnap => {
+          const task = normalizeViewerTask({ _key: docSnap.id, ...docSnap.data() });
+          if (isVisibleCompletedTask(task)) liveTasks.push(task);
+        });
+      }
     }
 
     if (generation !== LOAD_GENERATION) return;
     FIRESTORE_TASKS = liveTasks;
     rebuildCombinedTasks();
-    console.log(`Firestore added ${liveTasks.length} completed task(s)`);
+    console.log(
+      `Firestore added ${liveTasks.length} completed task(s) from ${allowedBAs.length} allowed BA(s)`
+    );
   } catch (error) {
     console.warn("Firestore task load failed; snapshot tasks remain available.", error);
   }
