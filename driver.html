@@ -630,7 +630,7 @@ import {
 import { getStorage, ref as sRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js";
 import { increment } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
   
-const VERSION = "V.R.0.0.16.1.4.7";
+const VERSION = "V.R.0.0.16.1.4.9";
 const BILLING_CACHE = {};
 window.BILLING_CACHE = BILLING_CACHE;
 const DRIVER_UI_CACHE = {};
@@ -1530,6 +1530,61 @@ async function archiveTransferredLocalTask(taskKey, assignedDriverId) {
   updateUploadCounter();
 
   return true;
+}
+
+async function reconcilePendingTaskOwnership(tasks) {
+  if (!navigator.onLine || !tasks.length) return 0;
+
+  const pendingTasks = tasks.filter(task =>
+    task &&
+    task._key &&
+    String(task.status || "PENDING").toUpperCase() === "PENDING"
+  );
+
+  if (!pendingTasks.length) {
+    return 0;
+  }
+
+  let archivedCount = 0;
+  const CHECK_BATCH_SIZE = 20;
+
+  for (let start = 0; start < pendingTasks.length; start += CHECK_BATCH_SIZE) {
+    const batch = pendingTasks.slice(start, start + CHECK_BATCH_SIZE);
+    const results = await Promise.all(batch.map(async localTask => {
+      try {
+        const snapshot = await getDoc(fsDoc(firestore, "TASK", localTask._key));
+        if (!snapshot.exists()) return null;
+
+        const serverTask = snapshot.data() || {};
+        const assignedDriver = String(
+          serverTask.agentId || serverTask.driverId || ""
+        ).trim();
+        const isTransferred = assignedDriver &&
+          assignedDriver.toUpperCase() !== String(DRIVER_ID || "").trim().toUpperCase();
+
+        return isTransferred
+          ? { taskKey: localTask._key, assignedDriver }
+          : null;
+      } catch (error) {
+        console.warn(`Ownership check failed for ${localTask._key}:`, error);
+        return null;
+      }
+    }));
+
+    for (const result of results) {
+      if (!result) continue;
+      if (await archiveTransferredLocalTask(result.taskKey, result.assignedDriver)) {
+        archivedCount++;
+      }
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 0));
+  }
+
+  if (archivedCount) {
+    console.log(`Archived ${archivedCount} transferred pending task(s).`);
+  }
+  return archivedCount;
 }
 
 async function cleanOrphanPhotos() {
@@ -4551,6 +4606,46 @@ async function getTasksForDownloadCount(selectedDate) {
   return count;
 }
 
+async function getPendingTransferredTaskCount(selectedDate) {
+  const dateKey = selectedDate.replace(/-/g, "");
+  const localTasks = await getTasksFromIndexedDB();
+  const localPendingIds = new Set(
+    localTasks
+      .filter(task =>
+        task.dateKey === dateKey &&
+        String(task.driverId || "").trim().toUpperCase() ===
+          String(DRIVER_ID || "").trim().toUpperCase() &&
+        String(task.status || "PENDING").toUpperCase() === "PENDING"
+      )
+      .map(task => task._key)
+  );
+
+  if (!localPendingIds.size) return 0;
+
+  try {
+    const transferredSnapshot = await getDocs(fsQuery(
+      collection(firestore, "TASK"),
+      where("assignedDate", "==", selectedDate),
+      where("lastTransferredFromAgentId", "==", DRIVER_ID)
+    ));
+
+    let count = 0;
+    transferredSnapshot.forEach(docSnap => {
+      if (!localPendingIds.has(docSnap.id)) return;
+      const task = docSnap.data() || {};
+      const assignedDriver = String(task.agentId || task.driverId || "").trim();
+      if (assignedDriver &&
+          assignedDriver.toUpperCase() !== String(DRIVER_ID).trim().toUpperCase()) {
+        count++;
+      }
+    });
+    return count;
+  } catch (error) {
+    console.warn("Transferred-task count check failed:", error);
+    return 0;
+  }
+}
+
 // =====================================================
 // 🔢 UPDATE "TASK FOR DOWNLOAD" BUTTON
 // =====================================================
@@ -4574,27 +4669,30 @@ async function updateTasksForDownloadCount() {
   if (!navigator.onLine) {
     btn.innerText =
       "Task for download (—)";
+    btn.disabled = true;
     return;
   }
 
   try {
 
-    const count =
-      await getTasksForDownloadCount(
-        selectedDate
-      );
+    const [count, transferredCount] = await Promise.all([
+      getTasksForDownloadCount(selectedDate),
+      getPendingTransferredTaskCount(selectedDate)
+    ]);
 
-    btn.innerText =
-      `Task for download (${count})`;
+    const changeCount = count + transferredCount;
+    btn.innerText = transferredCount
+      ? `Task updates (${changeCount})`
+      : `Task for download (${count})`;
 
     btn.dataset.count =
       String(count);
+    btn.dataset.transferredCount = String(transferredCount);
 
-    btn.disabled =
-      count === 0;
+    btn.disabled = changeCount === 0;
 
     btn.style.opacity =
-      count === 0 ? "0.6" : "1";
+      changeCount === 0 ? "0.6" : "1";
 
   } catch (err) {
 
@@ -4606,8 +4704,8 @@ async function updateTasksForDownloadCount() {
     btn.innerText =
       "Task for download (?)";
 
-    btn.disabled = false;
-    btn.style.opacity = "1";
+    btn.disabled = true;
+    btn.style.opacity = "0.6";
   }
 }
 
@@ -4855,7 +4953,7 @@ async function loadTasks() {
     ).length;
     updateUploadCounter();
 
-    const localTasks = cached.filter(t =>
+    let localTasks = cached.filter(t =>
       t.dateKey === dateKey &&
       String(t.driverId || "").trim().toUpperCase() ===
       String(DRIVER_ID).trim().toUpperCase() &&
@@ -4951,6 +5049,32 @@ document.getElementById("refreshTasksBtn").onclick =
       return;
     }
 
+    if (!navigator.onLine) {
+      alert("📴 Connect to the internet first.");
+      return;
+    }
+
+    const selectedDate = dateFilter.value;
+    if (!selectedDate) {
+      alert("Please select a date first.");
+      return;
+    }
+
+    const selectedDateKey = selectedDate.replace(/-/g, "");
+    const localForOwnershipCheck = (await getTasksFromIndexedDB()).filter(task =>
+      task.dateKey === selectedDateKey &&
+      String(task.driverId || "").trim().toUpperCase() ===
+        String(DRIVER_ID || "").trim().toUpperCase() &&
+      resolveStatus(task) !== "TRANSFERRED_ARCHIVED"
+    );
+
+    const archivedTransferredCount =
+      await reconcilePendingTaskOwnership(localForOwnershipCheck);
+
+    if (archivedTransferredCount) {
+      await loadTasks();
+    }
+
     // Block download if completed tasks are waiting
     // to be uploaded.
     const pendingUpload =
@@ -4971,6 +5095,8 @@ document.getElementById("refreshTasksBtn").onclick =
       return;
     }
 
+    await updateTasksForDownloadCount();
+
     const count =
       Number(
         document.getElementById(
@@ -4981,10 +5107,11 @@ document.getElementById("refreshTasksBtn").onclick =
     if (count === 0) {
 
       alert(
-        "📭 No tasks are currently waiting for download."
+        archivedTransferredCount
+          ? `📦 ${archivedTransferredCount} transferred pending task(s) were archived locally.\n\n` +
+            "📭 No new tasks are currently waiting for download."
+          : "📭 No tasks are currently waiting for download."
       );
-
-      await updateTasksForDownloadCount();
 
       return;
     }
