@@ -42,7 +42,7 @@ button:disabled{background:#999;cursor:not-allowed}
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Task Report <span class="app-version">V.R.0.0.5</span></h1>
+      <h1 class="app-title">Task Report <span class="app-version">V.R.0.0.6</span></h1>
     </div>
   </div>
   <div class="app-header-actions">
@@ -567,14 +567,21 @@ document.addEventListener("click",event=>{
   });
 });
 
-dateFrom.addEventListener("change",()=>loadTasksForSelectedDates());
-dateTo.addEventListener("change",()=>loadTasksForSelectedDates());
+function markReportDateRangeChanged(){
+  ALL_TASKS=[];
+  buildFilterOptions();
+  exportButton.disabled=true;
+  dataStatus.textContent="Select a date range, then click Load Firestore.";
+  progressBox.style.display="none";
+}
+
+dateFrom.addEventListener("change",markReportDateRangeChanged);
+dateTo.addEventListener("change",markReportDateRangeChanged);
 
 const today=getTodayPH();
 dateFrom.value=today;
 dateTo.value=today;
-
-await loadTasksForSelectedDates();
+markReportDateRangeChanged();
 
 </script>
 </body>
