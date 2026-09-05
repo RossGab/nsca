@@ -42,7 +42,7 @@ button:disabled{background:#999;cursor:not-allowed}
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Task Report <span class="app-version">V.R.0.0.6</span></h1>
+      <h1 class="app-title">Task Report <span class="app-version">V.R.0.0.9</span></h1>
     </div>
   </div>
   <div class="app-header-actions">
@@ -197,7 +197,7 @@ function normalizeTask(docSnap){
   };
 }
 
-async function fetchTasks(from,to){
+async function fetchTasks(from,to,onProgress=()=>{}){
   const q=query(
     collection(db,TASK_COLLECTION),
     where("createdAt",">=",Timestamp.fromDate(getPHStartOfDay(from))),
@@ -207,11 +207,21 @@ async function fetchTasks(from,to){
   const snap=await getDocs(q);
   const tasks=[];
 
-  snap.forEach(docSnap=>{
+  const documents=snap.docs;
+  onProgress(0,documents.length,"processing");
+  for(let i=0;i<documents.length;i++){
+    const docSnap=documents[i];
     const task=normalizeTask(docSnap);
     if(task.deleted!==true)tasks.push(task);
-  });
 
+    if((i+1)%500===0||i===documents.length-1){
+      onProgress(i+1,documents.length,"processing");
+      await new Promise(resolve=>setTimeout(resolve,0));
+    }
+  }
+
+  onProgress(documents.length,documents.length,"sorting");
+  await new Promise(resolve=>setTimeout(resolve,0));
   tasks.sort((a,b)=>{
     const da=toJSDate(a.createdAt)?.getTime()||0;
     const db=toJSDate(b.createdAt)?.getTime()||0;
@@ -273,10 +283,48 @@ window.loadTasksForSelectedDates=async function(){
     return;
   }
 
-  setLoading(true,"☁ Loading tasks directly from Firestore...");
+  setLoading(true,"Loading tasks directly from Firestore...");
+  const loadStartedAt=Date.now();
+  const loadElapsed=()=>`${Math.max(1,Math.round((Date.now()-loadStartedAt)/1000))} second(s) elapsed`;
+  showReportProgress(
+    "Connecting to Firestore",
+    `Waiting for tasks in the selected date range • ${loadElapsed()}`,
+    null,
+    true
+  );
+  let queryProgressTimer=setInterval(()=>{
+    showReportProgress(
+      "Loading tasks from Firestore",
+      `Still working — waiting for Firestore • ${loadElapsed()}`,
+      null,
+      true
+    );
+  },1000);
 
   try{
-    ALL_TASKS=await fetchTasks(from,to);
+    ALL_TASKS=await fetchTasks(from,to,(processed,total,phase)=>{
+      if(queryProgressTimer){
+        clearInterval(queryProgressTimer);
+        queryProgressTimer=null;
+      }
+
+      if(phase==="sorting"){
+        showReportProgress(
+          "Finalizing loaded tasks",
+          `${total.toLocaleString()} tasks received • Sorting by date • ${loadElapsed()}`,
+          null,
+          true
+        );
+        return;
+      }
+
+      const percent=total?processed/total*100:100;
+      showReportProgress(
+        "Processing Firestore results",
+        `${processed.toLocaleString()} / ${total.toLocaleString()} tasks • ${loadElapsed()}`,
+        percent
+      );
+    });
     buildFilterOptions();
     exportButton.disabled=ALL_TASKS.length===0;
 
@@ -295,6 +343,7 @@ window.loadTasksForSelectedDates=async function(){
       `<span class="error">❌ Firestore load failed: ${escapeHtml(error.message||String(error))}</span>`;
     alert("Failed to load tasks from Firestore. Check the browser console.");
   }finally{
+    if(queryProgressTimer)clearInterval(queryProgressTimer);
     setLoading(false);
   }
 };
@@ -484,56 +533,107 @@ window.generateReport=async function(){
 
     const wb=XLSX.utils.book_new();
 
-  // Dense worksheets store cells in arrays instead of creating millions of
-  // properties on one object. This prevents "Too many properties to enumerate"
-  // on large reports.
+    // Dense worksheets store cells in arrays instead of creating millions of
+    // properties on one object. Large reports are divided into worksheet tabs
+    // so SheetJS never has to create one extremely large worksheet XML string.
     const worksheetOptions={
       dense:true,
       cellDates:true,
       dateNF:"yyyy-mm-dd hh:mm:ss"
     };
-    const ws=XLSX.utils.aoa_to_sheet([headers],worksheetOptions);
     const EXCEL_BATCH_SIZE=500;
-
-    for(let start=0;start<rows.length;start+=EXCEL_BATCH_SIZE){
-      const end=Math.min(start+EXCEL_BATCH_SIZE,rows.length);
-      const batch=[];
-
-      for(let i=start;i<end;i++){
-        batch.push(headers.map(h=>rows[i][h]??""));
+    const ROWS_PER_SHEET=25000;
+    const rowsByJobType=new Map();
+    rows.forEach(row=>{
+      const jobType=String(row.JOBTYPE||"").trim()||"Unspecified";
+      if(!rowsByJobType.has(jobType))rowsByJobType.set(jobType,[]);
+      rowsByJobType.get(jobType).push(row);
+    });
+    const jobTypeGroups=[...rowsByJobType.entries()].sort(([a],[b])=>
+      a.localeCompare(b,undefined,{numeric:true,sensitivity:"base"})
+    );
+    const sheetCount=jobTypeGroups.reduce(
+      (total,[,jobRows])=>total+Math.ceil(jobRows.length/ROWS_PER_SHEET),
+      0
+    );
+    let truncatedCellCount=0;
+    let completedRows=0;
+    let currentSheetNumber=0;
+    const usedSheetNames=new Set();
+    const toExcelCell=value=>{
+      const cellValue=value??"";
+      if(typeof cellValue!=="string"||cellValue.length<=32767)return cellValue;
+      truncatedCellCount++;
+      return `${cellValue.slice(0,32750)}… [truncated]`;
+    };
+    const uniqueSheetName=(jobType,part,totalParts)=>{
+      const suffix=totalParts>1?` ${part}`:"";
+      const cleaned=String(jobType).replace(/[\\/?*\[\]:]/g," ").trim()||"Unspecified";
+      const base=`${cleaned.slice(0,Math.max(1,31-suffix.length))}${suffix}`;
+      let candidate=base;
+      let duplicate=2;
+      while(usedSheetNames.has(candidate.toUpperCase())){
+        const duplicateSuffix=` ${duplicate++}`;
+        candidate=`${base.slice(0,31-duplicateSuffix.length)}${duplicateSuffix}`;
       }
-
-      XLSX.utils.sheet_add_aoa(ws,batch,{origin:-1,...worksheetOptions});
-
-      showReportProgress(
-        "Step 2 of 3 — Building worksheet",
-        `${end.toLocaleString()} / ${rows.length.toLocaleString()} rows • ${elapsed()}`,
-        40+(end/rows.length)*50
-      );
-      await new Promise(r=>setTimeout(r,0));
-    }
-
-  // AutoFilter is worksheet metadata, so enabling it does not require an
-  // additional pass over the report rows.
-    ws["!autofilter"]={
-      ref:XLSX.utils.encode_range({
-        s:{r:0,c:0},
-        e:{r:rows.length,c:headers.length-1}
-      })
+      usedSheetNames.add(candidate.toUpperCase());
+      return candidate;
     };
 
-    XLSX.utils.book_append_sheet(wb,ws,"Tasks");
+    for(const [jobType,jobRows] of jobTypeGroups){
+      const parts=Math.ceil(jobRows.length/ROWS_PER_SHEET);
+      for(let part=1;part<=parts;part++){
+        currentSheetNumber++;
+        const sheetStart=(part-1)*ROWS_PER_SHEET;
+        const sheetEnd=Math.min(sheetStart+ROWS_PER_SHEET,jobRows.length);
+        const ws=XLSX.utils.aoa_to_sheet([headers],worksheetOptions);
+
+        for(let start=sheetStart;start<sheetEnd;start+=EXCEL_BATCH_SIZE){
+          const end=Math.min(start+EXCEL_BATCH_SIZE,sheetEnd);
+          const batch=[];
+
+          for(let i=start;i<end;i++){
+            batch.push(headers.map(h=>toExcelCell(jobRows[i][h])));
+          }
+
+          XLSX.utils.sheet_add_aoa(ws,batch,{origin:-1,...worksheetOptions});
+          const processedNow=end-start;
+          completedRows+=processedNow;
+          showReportProgress(
+            `Step 2 of 3 — ${jobType} (${currentSheetNumber} of ${sheetCount})`,
+            `${completedRows.toLocaleString()} / ${rows.length.toLocaleString()} rows • ${elapsed()}`,
+            40+(completedRows/rows.length)*50
+          );
+          await new Promise(r=>setTimeout(r,0));
+        }
+
+        ws["!autofilter"]={
+          ref:XLSX.utils.encode_range({
+            s:{r:0,c:0},
+            e:{r:sheetEnd-sheetStart,c:headers.length-1}
+          })
+        };
+        XLSX.utils.book_append_sheet(wb,ws,uniqueSheetName(jobType,part,parts));
+      }
+    }
+
     showReportProgress(
       "Step 3 of 3 — Packaging XLSX",
-      `The download is being prepared. Large reports may pause briefly • ${elapsed()}`,
+      `${sheetCount} worksheet(s) • Compression enabled • ${elapsed()}`,
       null,
       true
     );
     await new Promise(r=>setTimeout(r,50));
-    XLSX.writeFile(wb,`Task_Report_${from}_to_${to}.xlsx`);
+    XLSX.writeFile(
+      wb,
+      `Task_Report_${from}_to_${to}.xlsx`,
+      {compression:true,bookSST:false}
+    );
     showReportProgress(
       "Export complete",
-      `${rows.length.toLocaleString()} rows exported • ${elapsed()}`,
+      `${rows.length.toLocaleString()} rows in ${sheetCount} worksheet(s)`+
+        `${truncatedCellCount?` • ${truncatedCellCount.toLocaleString()} oversized cell(s) shortened`:""}`+
+        ` • ${elapsed()}`,
       100
     );
     setTimeout(()=>{progressBox.style.display="none";},5000);
