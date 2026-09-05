@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Task Report V5</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
 body{font-family:Arial,sans-serif;background:#f3f3f3;padding:12px}
 h2{text-align:center}
@@ -41,7 +42,7 @@ button:disabled{background:#999;cursor:not-allowed}
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Task Report <span class="app-version">V.R.0.0.10</span></h1>
+      <h1 class="app-title">Task Report WIP <span class="app-version">V.R.WIP.1</span></h1>
     </div>
   </div>
   <div class="app-header-actions">
@@ -70,7 +71,7 @@ button:disabled{background:#999;cursor:not-allowed}
 <input type="date" id="dateTo">
 
 <button id="loadButton" onclick="loadTasksForSelectedDates()">🔄 Load Firestore</button>
-<button id="exportButton" onclick="generateReport()" disabled>⬇ Export CSV</button>
+<button id="exportButton" onclick="generateReport()" disabled>⬇ Export XLSX</button>
 </div>
 
 <p class="note">Date range is based on <b>Created Date</b> using Philippine time.</p>
@@ -477,7 +478,7 @@ function escapeHtml(value){
     .replace(/'/g,"&#039;");
 }
 
-async function generateLegacyXlsxReport(){
+window.generateReport=async function(){
   const from=dateFrom.value;
   const to=dateTo.value;
   const filtered=getFilteredTasks();
@@ -650,94 +651,119 @@ async function generateLegacyXlsxReport(){
   }
 };
 
-// Production export: build CSV in small Blob parts instead of creating one
-// enormous string. This keeps large monthly exports responsive and avoids the
-// browser memory limit encountered while packaging XLSX files.
+const CLOUD_REPORT_URL=
+  "https://asia-southeast1-driva-pwa.cloudfunctions.net/generateTaskReport";
+
+// WIP export path: Firestore reading and XLSX construction happen inside the
+// Cloud Function. The browser only receives the finished compressed stream.
 window.generateReport=async function(){
   const from=dateFrom.value;
   const to=dateTo.value;
-  const filtered=getFilteredTasks();
-  if(!filtered.length){
-    alert("No data found for the selected filters.");
+  if(!from||!to){
+    alert("Please select both From and To dates.");
+    return;
+  }
+  if(from>to){
+    alert("Date From cannot be later than Date To.");
+    return;
+  }
+  if(dayCount(from,to)>62){
+    alert("Cloud reports are limited to 62 days per request.");
     return;
   }
 
-  loadButton.disabled=true;
   exportButton.disabled=true;
+  loadButton.disabled=true;
   const startedAt=Date.now();
   const elapsed=()=>`${Math.max(1,Math.round((Date.now()-startedAt)/1000))} second(s) elapsed`;
+  showReportProgress(
+    "Cloud report requested",
+    `Firebase is reading tasks and building Job Type worksheets • ${elapsed()}`,
+    null,
+    true
+  );
+  const waitingTimer=setInterval(()=>{
+    showReportProgress(
+      "Cloud Function is working",
+      `Keep this page open • ${elapsed()}`,
+      null,
+      true
+    );
+  },1000);
 
   try{
-    const headerSet=new Set(["TASK_ID"]);
-    for(let i=0;i<filtered.length;i++){
-      Object.keys(filtered[i]).forEach(key=>{
-        if(key!=="_key")headerSet.add(key.toUpperCase());
-      });
-      if((i+1)%500===0||i===filtered.length-1){
-        const completed=i+1;
+    const status=statusFilter.value;
+    const dmz=dmzFilter.value;
+    const response=await fetch(CLOUD_REPORT_URL,{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({
+        from,
+        to,
+        statuses:status?[status]:[],
+        jobTypes:[...getCheckedValues("jobTypeFilter")],
+        bas:[...getCheckedValues("baFilter")],
+        dmzs:dmz?[dmz]:[]
+      })
+    });
+    clearInterval(waitingTimer);
+
+    if(!response.ok){
+      let message=`Cloud report failed (${response.status}).`;
+      try{
+        const errorBody=await response.json();
+        if(errorBody?.error)message=errorBody.error;
+      }catch{}
+      throw new Error(message);
+    }
+
+    const taskCount=Number(response.headers.get("X-Task-Count")||0);
+    const reader=response.body?.getReader();
+    const chunks=[];
+    let receivedBytes=0;
+    if(reader){
+      while(true){
+        const {done,value}=await reader.read();
+        if(done)break;
+        chunks.push(value);
+        receivedBytes+=value.byteLength;
         showReportProgress(
-          "Step 1 of 2 — Preparing CSV columns",
-          `${completed.toLocaleString()} / ${filtered.length.toLocaleString()} tasks • ${elapsed()}`,
-          (completed/filtered.length)*25
+          "Downloading generated XLSX",
+          `${taskCount.toLocaleString()} tasks • ${(receivedBytes/1048576).toFixed(1)} MB received • ${elapsed()}`,
+          null,
+          true
         );
-        await new Promise(resolve=>setTimeout(resolve,0));
       }
+    }else{
+      chunks.push(new Uint8Array(await response.arrayBuffer()));
+      receivedBytes=chunks[0].byteLength;
     }
 
-    const headers=[...headerSet]
-      .filter(header=>header!=="TASK_ID")
-      .sort();
-    headers.unshift("TASK_ID");
-    const csvValue=value=>{
-      const displayValue=value instanceof Date?toPHDateTime(value):(value??"");
-      const safeValue=typeof displayValue==="string"&&/^[=+@]/.test(displayValue)
-        ?`'${displayValue}`
-        :displayValue;
-      return `"${String(safeValue).replace(/"/g,'""')}"`;
-    };
-    const parts=["\uFEFF",headers.map(csvValue).join(","),"\r\n"];
-    const CSV_BATCH_SIZE=500;
-
-    for(let start=0;start<filtered.length;start+=CSV_BATCH_SIZE){
-      const end=Math.min(start+CSV_BATCH_SIZE,filtered.length);
-      const lines=[];
-      for(let i=start;i<end;i++){
-        const row=flattenTaskForReport(filtered[i]);
-        lines.push(headers.map(header=>csvValue(row[header])).join(","));
-      }
-      parts.push(lines.join("\r\n"),"\r\n");
-      showReportProgress(
-        "Step 2 of 2 — Writing CSV",
-        `${end.toLocaleString()} / ${filtered.length.toLocaleString()} tasks • ${elapsed()}`,
-        25+(end/filtered.length)*70
-      );
-      await new Promise(resolve=>setTimeout(resolve,0));
-    }
-
-    showReportProgress("Preparing download",`${filtered.length.toLocaleString()} tasks • ${elapsed()}`,98,true);
-    await new Promise(resolve=>setTimeout(resolve,50));
-    const blob=new Blob(parts,{type:"text/csv;charset=utf-8;"});
+    const blob=new Blob(chunks,{
+      type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    });
     const url=URL.createObjectURL(blob);
     const link=document.createElement("a");
     link.href=url;
-    link.download=`Task_Report_${from}_to_${to}.csv`;
+    link.download=`Task_Report_${from}_to_${to}.xlsx`;
     document.body.appendChild(link);
     link.click();
     link.remove();
     setTimeout(()=>URL.revokeObjectURL(url),60000);
     showReportProgress(
-      "CSV export complete",
-      `${filtered.length.toLocaleString()} tasks • ${(blob.size/1048576).toFixed(1)} MB • ${elapsed()}`,
+      "Cloud export complete",
+      `${taskCount.toLocaleString()} tasks • ${(receivedBytes/1048576).toFixed(1)} MB • ${elapsed()}`,
       100
     );
     setTimeout(()=>{progressBox.style.display="none";},5000);
   }catch(error){
-    console.error("CSV report generation failed:",error);
-    showReportProgress("CSV export failed",error.message||String(error),0);
-    alert("Failed to generate the CSV report.");
+    clearInterval(waitingTimer);
+    console.error("Cloud XLSX report failed:",error);
+    showReportProgress("Cloud export failed",error.message||String(error),0);
+    alert(error.message||"Cloud report generation failed.");
   }finally{
     loadButton.disabled=false;
-    exportButton.disabled=ALL_TASKS.length===0;
+    exportButton.disabled=false;
   }
 };
 
@@ -760,8 +786,8 @@ document.addEventListener("click",event=>{
 function markReportDateRangeChanged(){
   ALL_TASKS=[];
   buildFilterOptions();
-  exportButton.disabled=true;
-  dataStatus.textContent="Select a date range, then click Load Firestore.";
+  exportButton.disabled=false;
+  dataStatus.textContent="Select a date range and export through the Cloud Function. Load Firestore is optional for choosing task filters.";
   progressBox.style.display="none";
 }
 
