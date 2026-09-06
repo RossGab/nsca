@@ -630,7 +630,7 @@ import {
 import { getStorage, ref as sRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js";
 import { increment } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
   
-const VERSION = "V.R.0.0.16.1.4.10";
+const VERSION = "V.R.0.0.16.1.4.11";
 const BILLING_CACHE = {};
 window.BILLING_CACHE = BILLING_CACHE;
 const DRIVER_UI_CACHE = {};
@@ -7957,6 +7957,11 @@ async function exportTasksToFile() {
 
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+
+  // Rebuild the working list from IndexedDB after marking completed tasks as
+  // exported. Pending tasks remain local and should stay visible immediately.
+  // Exported LOCAL_COMPLETED tasks are still eligible for Option 1 upload.
+  await loadTasks();
 
   alert("✅ Export complete");
 }
