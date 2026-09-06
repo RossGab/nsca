@@ -630,7 +630,7 @@ import {
 import { getStorage, ref as sRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js";
 import { increment } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
   
-const VERSION = "V.R.0.0.16.1.4.9";
+const VERSION = "V.R.0.0.16.1.4.10";
 const BILLING_CACHE = {};
 window.BILLING_CACHE = BILLING_CACHE;
 const DRIVER_UI_CACHE = {};
@@ -1532,20 +1532,52 @@ async function archiveTransferredLocalTask(taskKey, assignedDriverId) {
   return true;
 }
 
+async function archiveDeletedLocalTask(taskKey, reason = "Task was deleted by an administrator") {
+  const tasks = await getTasksFromIndexedDB();
+  const localTask = tasks.find(t => t._key === taskKey);
+
+  if (!localTask) return false;
+
+  await saveTasksToIndexedDB([{
+    ...localTask,
+    status: "DELETED_ARCHIVED",
+    deletedArchivedAt: new Date().toISOString(),
+    deleteArchiveReason: reason
+  }]);
+
+  // Preserve the task and photos in IndexedDB for recovery, but exclude the
+  // task from the working list, upload counter, direct sync, and JSON export.
+  TASKS_CACHE = TASKS_CACHE.filter(t => t._key !== taskKey);
+
+  const updatedTasks = await getTasksFromIndexedDB();
+  UPLOAD_QUEUE_COUNT = updatedTasks.filter(t =>
+    t.status === "LOCAL_COMPLETED" &&
+    !t.exported &&
+    String(t.driverId || "").trim().toUpperCase() ===
+      String(DRIVER_ID || "").trim().toUpperCase()
+  ).length;
+  updateUploadCounter();
+
+  return true;
+}
+
 async function reconcilePendingTaskOwnership(tasks) {
-  if (!navigator.onLine || !tasks.length) return 0;
-
-  const pendingTasks = tasks.filter(task =>
-    task &&
-    task._key &&
-    String(task.status || "PENDING").toUpperCase() === "PENDING"
-  );
-
-  if (!pendingTasks.length) {
-    return 0;
+  if (!navigator.onLine || !tasks.length) {
+    return { transferredCount: 0, deletedCount: 0 };
   }
 
-  let archivedCount = 0;
+  const pendingTasks = tasks.filter(task => {
+    if (!task || !task._key) return false;
+    const status = String(task.status || "PENDING").toUpperCase();
+    return status === "PENDING" || status === "LOCAL_COMPLETED";
+  });
+
+  if (!pendingTasks.length) {
+    return { transferredCount: 0, deletedCount: 0 };
+  }
+
+  let transferredCount = 0;
+  let deletedCount = 0;
   const CHECK_BATCH_SIZE = 20;
 
   for (let start = 0; start < pendingTasks.length; start += CHECK_BATCH_SIZE) {
@@ -1553,9 +1585,14 @@ async function reconcilePendingTaskOwnership(tasks) {
     const results = await Promise.all(batch.map(async localTask => {
       try {
         const snapshot = await getDoc(fsDoc(firestore, "TASK", localTask._key));
-        if (!snapshot.exists()) return null;
+        if (!snapshot.exists()) {
+          return { taskKey: localTask._key, deleted: true, reason: "Task no longer exists in Firestore" };
+        }
 
         const serverTask = snapshot.data() || {};
+        if (serverTask.deleted === true) {
+          return { taskKey: localTask._key, deleted: true };
+        }
         const assignedDriver = String(
           serverTask.agentId || serverTask.driverId || ""
         ).trim();
@@ -1573,18 +1610,20 @@ async function reconcilePendingTaskOwnership(tasks) {
 
     for (const result of results) {
       if (!result) continue;
-      if (await archiveTransferredLocalTask(result.taskKey, result.assignedDriver)) {
-        archivedCount++;
+      if (result.deleted) {
+        if (await archiveDeletedLocalTask(result.taskKey, result.reason)) deletedCount++;
+      } else if (await archiveTransferredLocalTask(result.taskKey, result.assignedDriver)) {
+        transferredCount++;
       }
     }
 
     await new Promise(resolve => setTimeout(resolve, 0));
   }
 
-  if (archivedCount) {
-    console.log(`Archived ${archivedCount} transferred pending task(s).`);
+  if (transferredCount || deletedCount) {
+    console.log(`Archived ${transferredCount} transferred and ${deletedCount} deleted local task(s).`);
   }
-  return archivedCount;
+  return { transferredCount, deletedCount };
 }
 
 async function cleanOrphanPhotos() {
@@ -1823,7 +1862,8 @@ function applyFiltersOnly() {
     taskStatus === "COMPLETED" ||
     taskStatus === "SYNC_PENDING" ||
     taskStatus === "EXPORTED" ||
-    taskStatus === "TRANSFERRED_ARCHIVED"
+    taskStatus === "TRANSFERRED_ARCHIVED" ||
+    taskStatus === "DELETED_ARCHIVED"
   ) return false;
 
   return true;
@@ -2270,7 +2310,7 @@ for (let taskIndex = 0; taskIndex < completed.length; taskIndex++) {
       }
 
     let allUploaded = true;
-    let transferredArchived = false;
+    let blockedArchived = false;
 
     for (let i = 0; i < related.length; i++) {
 
@@ -2326,10 +2366,10 @@ for (let taskIndex = 0; taskIndex < completed.length; taskIndex++) {
 
         if (!success) {
 
-           transferredArchived =
-             LAST_UPLOAD_BLOCK_REASON === "TRANSFERRED_ARCHIVED";
+           blockedArchived = ["TRANSFERRED_ARCHIVED", "DELETED_ARCHIVED"]
+             .includes(LAST_UPLOAD_BLOCK_REASON);
 
-           if (!transferredArchived) {
+           if (!blockedArchived) {
              alert(
                "❌ PHOTO UPLOAD FAILED\n\n" +
                "Task: " +
@@ -2533,14 +2573,17 @@ for (let taskIndex = 0; taskIndex < completed.length; taskIndex++) {
     }
     else {
 
-      if (transferredArchived) {
+      if (blockedArchived) {
+        const deletedArchived = LAST_UPLOAD_BLOCK_REASON === "DELETED_ARCHIVED";
         updateSyncProgress({
           current: taskIndex + 1,
           total: completed.length,
           currentTask:
             `${task._key}${task.CUSTOMERNAME ? " — " + task.CUSTOMERNAME : ""}`,
           currentPhoto:
-            "⚠️ Transferred — archived locally",
+            deletedArchived
+              ? "⚠️ Deleted — archived locally"
+              : "⚠️ Transferred — archived locally",
           successful,
           failed,
           message:
@@ -3703,6 +3746,9 @@ function resolveStatus(task) {
   if (task.status === "TRANSFERRED_ARCHIVED") {
     return "TRANSFERRED_ARCHIVED";
   }
+  if (task.status === "DELETED_ARCHIVED") {
+    return "DELETED_ARCHIVED";
+  }
   if (task.status === "LOCAL_COMPLETED") {
   if (task.exported) return "EXPORTED";
     return "SYNC_PENDING";
@@ -3785,10 +3831,30 @@ async function uploadNow(
       taskKey
     );
 
+    await archiveDeletedLocalTask(taskKey, "Task no longer exists in Firestore");
+    LAST_UPLOAD_BLOCK_REASON = "DELETED_ARCHIVED";
+    alert(
+      `⚠️ TASK DELETED\n\n` +
+      `Task: ${taskKey}\n\n` +
+      `The administrator deleted this task. Your local completion and photos ` +
+      `were archived for recovery and were not uploaded.`
+    );
     return false;
   }
 
   const task = taskSnap.data();
+
+  if (task.deleted === true) {
+    await archiveDeletedLocalTask(taskKey);
+    LAST_UPLOAD_BLOCK_REASON = "DELETED_ARCHIVED";
+    alert(
+      `⚠️ TASK DELETED\n\n` +
+      `Task: ${taskKey}\n\n` +
+      `The administrator deleted this task. Your local completion and photos ` +
+      `were archived for recovery and were not uploaded.`
+    );
+    return false;
+  }
 
   console.log(
     "🔥 Firestore task found:",
@@ -4609,39 +4675,50 @@ async function getTasksForDownloadCount(selectedDate) {
 async function getPendingTransferredTaskCount(selectedDate) {
   const dateKey = selectedDate.replace(/-/g, "");
   const localTasks = await getTasksFromIndexedDB();
-  const localPendingIds = new Set(
-    localTasks
-      .filter(task =>
-        task.dateKey === dateKey &&
-        String(task.driverId || "").trim().toUpperCase() ===
-          String(DRIVER_ID || "").trim().toUpperCase() &&
-        String(task.status || "PENDING").toUpperCase() === "PENDING"
-      )
-      .map(task => task._key)
-  );
+  const candidates = localTasks.filter(task => {
+    const status = String(task.status || "PENDING").toUpperCase();
+    return task._key &&
+      task.dateKey === dateKey &&
+      String(task.driverId || "").trim().toUpperCase() ===
+        String(DRIVER_ID || "").trim().toUpperCase() &&
+      (status === "PENDING" || status === "LOCAL_COMPLETED");
+  });
 
-  if (!localPendingIds.size) return 0;
+  if (!candidates.length) return 0;
 
   try {
-    const transferredSnapshot = await getDocs(fsQuery(
-      collection(firestore, "TASK"),
-      where("assignedDate", "==", selectedDate),
-      where("lastTransferredFromAgentId", "==", DRIVER_ID)
-    ));
-
     let count = 0;
-    transferredSnapshot.forEach(docSnap => {
-      if (!localPendingIds.has(docSnap.id)) return;
-      const task = docSnap.data() || {};
-      const assignedDriver = String(task.agentId || task.driverId || "").trim();
-      if (assignedDriver &&
-          assignedDriver.toUpperCase() !== String(DRIVER_ID).trim().toUpperCase()) {
-        count++;
+    const CHECK_BATCH_SIZE = 20;
+    const currentDriver = String(DRIVER_ID || "").trim().toUpperCase();
+
+    for (let start = 0; start < candidates.length; start += CHECK_BATCH_SIZE) {
+      const batch = candidates.slice(start, start + CHECK_BATCH_SIZE);
+      const snapshots = await Promise.all(batch.map(task =>
+        getDoc(fsDoc(firestore, "TASK", task._key))
+      ));
+
+      snapshots.forEach(snapshot => {
+        if (!snapshot.exists()) {
+          count++;
+          return;
+        }
+        const serverTask = snapshot.data() || {};
+        const assignedDriver = String(
+          serverTask.agentId || serverTask.driverId || ""
+        ).trim().toUpperCase();
+        if (serverTask.deleted === true ||
+            (assignedDriver && assignedDriver !== currentDriver)) {
+          count++;
+        }
+      });
+
+      if (start + CHECK_BATCH_SIZE < candidates.length) {
+        await new Promise(resolve => setTimeout(resolve, 0));
       }
-    });
+    }
     return count;
   } catch (error) {
-    console.warn("Transferred-task count check failed:", error);
+    console.warn("Local task change count check failed:", error);
     return 0;
   }
 }
@@ -4958,7 +5035,8 @@ async function loadTasks() {
       String(t.driverId || "").trim().toUpperCase() ===
       String(DRIVER_ID).trim().toUpperCase() &&
       resolveStatus(t) !== "COMPLETED" &&
-      resolveStatus(t) !== "TRANSFERRED_ARCHIVED"
+      resolveStatus(t) !== "TRANSFERRED_ARCHIVED" &&
+      resolveStatus(t) !== "DELETED_ARCHIVED"
     );
 
     if (!navigator.onLine) {
@@ -5065,13 +5143,16 @@ document.getElementById("refreshTasksBtn").onclick =
       task.dateKey === selectedDateKey &&
       String(task.driverId || "").trim().toUpperCase() ===
         String(DRIVER_ID || "").trim().toUpperCase() &&
-      resolveStatus(task) !== "TRANSFERRED_ARCHIVED"
+      resolveStatus(task) !== "TRANSFERRED_ARCHIVED" &&
+      resolveStatus(task) !== "DELETED_ARCHIVED"
     );
 
-    const archivedTransferredCount =
+    const archivedChanges =
       await reconcilePendingTaskOwnership(localForOwnershipCheck);
+    const archivedTransferredCount = archivedChanges.transferredCount;
+    const archivedDeletedCount = archivedChanges.deletedCount;
 
-    if (archivedTransferredCount) {
+    if (archivedTransferredCount || archivedDeletedCount) {
       await loadTasks();
     }
 
@@ -5108,7 +5189,12 @@ document.getElementById("refreshTasksBtn").onclick =
 
       alert(
         archivedTransferredCount
-          ? `📦 ${archivedTransferredCount} transferred pending task(s) were archived locally.\n\n` +
+          ? `📦 ${archivedTransferredCount} transferred task(s)` +
+            (archivedDeletedCount ? ` and ${archivedDeletedCount} deleted task(s)` : "") +
+            " were archived locally.\n\n" +
+            "📭 No new tasks are currently waiting for download."
+          : archivedDeletedCount
+          ? `📦 ${archivedDeletedCount} deleted task(s) were archived locally.\n\n` +
             "📭 No new tasks are currently waiting for download."
           : "📭 No tasks are currently waiting for download."
       );

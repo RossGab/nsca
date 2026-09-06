@@ -58,7 +58,7 @@
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Upload Driver Task Export <span class="app-version">V.R.1.2.0</span></h1>
+      <h1 class="app-title">Upload Driver Task Export <span class="app-version">V.R.1.2.1</span></h1>
       <p class="app-subtitle">Imports files produced by Driver Sync Option 2.</p>
     </div>
   </div>
@@ -383,7 +383,13 @@ function previewData() {
 async function uploadTask(task, relatedPhotos, options = {}) {
   const taskRef = doc(firestore, "TASK", task._key);
   const snapshot = await getDoc(taskRef);
-  if (!snapshot.exists()) throw new Error("Task does not exist in Firestore.");
+  if (!snapshot.exists()) {
+    return {
+      skipped: true,
+      category: "deleted",
+      reason: "task no longer exists in Firestore"
+    };
+  }
 
   const existing = snapshot.data() || {};
   const expectedDriver = safeId(task.driverId || exportData.driverId).toUpperCase();

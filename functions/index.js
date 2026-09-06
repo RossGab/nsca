@@ -132,21 +132,6 @@ function cellValue(value) {
   return result;
 }
 
-function safeWorksheetName(value, usedNames) {
-  const cleaned = String(value || "Unspecified")
-    .replace(/[\\/?*\[\]:]/g, " ")
-    .trim() || "Unspecified";
-  const base = cleaned.slice(0, 31);
-  let candidate = base;
-  let number = 2;
-  while (usedNames.has(candidate.toUpperCase())) {
-    const suffix = ` ${number++}`;
-    candidate = `${base.slice(0, 31 - suffix.length)}${suffix}`;
-  }
-  usedNames.add(candidate.toUpperCase());
-  return candidate;
-}
-
 exports.generateTaskReport = onRequest({
   region: "asia-southeast1",
   timeoutSeconds: 3600,
@@ -232,18 +217,9 @@ exports.generateTaskReport = onRequest({
       .filter(header => header !== "TASK_ID")
       .sort();
     headers.unshift("TASK_ID");
-    const rowsByJobType = new Map();
-    rows.forEach(row => {
-      const jobType = String(row.JOBTYPE || "").trim() || "Unspecified";
-      if (!rowsByJobType.has(jobType)) rowsByJobType.set(jobType, []);
-      rowsByJobType.get(jobType).push(row);
-    });
-    const oversizedJobType = [...rowsByJobType.entries()].find(
-      ([, jobRows]) => jobRows.length > 1048575
-    );
-    if (oversizedJobType) {
+    if (rows.length > 1048575) {
       res.status(413).json({
-        error: `${oversizedJobType[0]} exceeds Excel's 1,048,575 data-row worksheet limit.`
+        error: "The report exceeds Excel's 1,048,575 data-row worksheet limit."
       });
       return;
     }
@@ -260,23 +236,16 @@ exports.generateTaskReport = onRequest({
       useStyles: false,
       useSharedStrings: false
     });
-    const usedNames = new Set();
-    const groups = [...rowsByJobType.entries()].sort(([a], [b]) =>
-      a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" })
-    );
-
-    for (const [jobType, jobRows] of groups) {
-      const worksheet = workbook.addWorksheet(safeWorksheetName(jobType, usedNames));
-      worksheet.addRow(headers).commit();
-      worksheet.autoFilter = {
-        from: { row: 1, column: 1 },
-        to: { row: 1, column: headers.length }
-      };
-      for (const row of jobRows) {
-        worksheet.addRow(headers.map(header => cellValue(row[header]))).commit();
-      }
-      worksheet.commit();
+    const worksheet = workbook.addWorksheet("Tasks");
+    worksheet.addRow(headers).commit();
+    worksheet.autoFilter = {
+      from: { row: 1, column: 1 },
+      to: { row: 1, column: headers.length }
+    };
+    for (const row of rows) {
+      worksheet.addRow(headers.map(header => cellValue(row[header]))).commit();
     }
+    worksheet.commit();
     await workbook.commit();
   } catch (error) {
     console.error("Public task report failed", error);

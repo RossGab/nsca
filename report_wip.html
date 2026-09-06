@@ -42,7 +42,7 @@ button:disabled{background:#999;cursor:not-allowed}
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Task Report WIP <span class="app-version">V.R.WIP.1</span></h1>
+      <h1 class="app-title">Task Report WIP <span class="app-version">V.R.WIP.2</span></h1>
     </div>
   </div>
   <div class="app-header-actions">
@@ -678,7 +678,7 @@ window.generateReport=async function(){
   const elapsed=()=>`${Math.max(1,Math.round((Date.now()-startedAt)/1000))} second(s) elapsed`;
   showReportProgress(
     "Cloud report requested",
-    `Firebase is reading tasks and building Job Type worksheets • ${elapsed()}`,
+    `Firebase is reading tasks and building one Tasks worksheet • ${elapsed()}`,
     null,
     true
   );
