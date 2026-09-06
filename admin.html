@@ -89,6 +89,27 @@ h2 { text-align:center; }
 .driver-summary-driver { font-weight:700; }
 .driver-summary-sort { padding:0; border:0; background:transparent; color:inherit; font:inherit; font-weight:700; text-transform:inherit; cursor:pointer; white-space:nowrap; }
 .driver-summary-sort:hover { background:transparent; color:#0877d1; }
+.driver-summary-switcher { display:flex; gap:8px; margin:0 0 10px; }
+.driver-summary-switcher button { flex:0 0 auto; min-width:100px; padding:9px 14px; background:#dfe7ef; color:#263746; }
+.driver-summary-switcher button.active { background:#0877d1; color:#fff; }
+.summary-chart-card { background:#fff; border-radius:10px; padding:14px; margin-bottom:12px; box-shadow:0 0 4px rgba(0,0,0,.1); }
+.summary-chart-card h3 { margin:0 0 5px; font-size:16px; }
+.summary-chart-note { margin:0 0 14px; color:#667; font-size:12px; }
+.workload-row { display:grid; grid-template-columns:minmax(120px,220px) 1fr auto; gap:10px; align-items:center; margin:9px 0; }
+.workload-driver { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px; font-weight:700; }
+.workload-bar { display:flex; height:20px; overflow:hidden; border-radius:5px; background:#edf1f5; }
+.workload-segment.fordownload { background:#2583d8; }
+.workload-segment.pending { background:#f3a72f; }
+.workload-segment.completed { background:#2f8a27; }
+.workload-total { min-width:38px; text-align:right; font-size:12px; font-weight:700; }
+.chart-legend { display:flex; gap:14px; flex-wrap:wrap; margin-top:12px; font-size:12px; }
+.legend-dot { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:4px; }
+.transfer-chart { height:210px; display:flex; align-items:flex-end; gap:4px; padding-top:10px; border-bottom:1px solid #abb7c3; }
+.transfer-hour { flex:1; min-width:0; height:100%; display:flex; flex-direction:column; justify-content:flex-end; align-items:center; gap:4px; }
+.transfer-count { font-size:10px; color:#556; min-height:12px; }
+.transfer-bar { width:min(24px,80%); min-height:0; background:#7651c9; border-radius:4px 4px 0 0; }
+.transfer-label { font-size:9px; color:#667; white-space:nowrap; }
+@media(max-width:650px){.workload-row{grid-template-columns:105px 1fr auto}.transfer-label{font-size:8px}.transfer-chart{gap:2px}}
 
 button {
   flex:1;
@@ -370,7 +391,7 @@ button {
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.20</span></h1>
+      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.21</span></h1>
     </div>
   </div>
 
@@ -913,6 +934,7 @@ const EDITABLE_FIELDS = [
 let CURRENT_STATUS = null;
 let FILTER_BA = new Set();
 let DRIVER_SUMMARY_SORT = { key: "driver", direction: "asc" };
+let DRIVER_SUMMARY_VIEW = "list";
 let SEARCH_TERM = "";
 let MAP_VISIBLE = false;
 let SHOW_ONLINE_ONLY = false;
@@ -2651,10 +2673,10 @@ async function loadAdminPageFromFirestore(status) {
 
 function renderDriverTaskSummary(tasks) {
   const summary = new Map();
+  const filteredTasks = excludeDeletedTasks(tasks || [])
+    .filter(task => !FILTER_BA.size || FILTER_BA.has(task.BA));
 
-  excludeDeletedTasks(tasks || [])
-    .filter(task => !FILTER_BA.size || FILTER_BA.has(task.BA))
-    .forEach(task => {
+  filteredTasks.forEach(task => {
     const driver = String(task.driverId || task.agentId || "Unassigned").trim() || "Unassigned";
     const status = String(task.status || "").trim().toUpperCase();
     const workStatus = String(task.workStatus || "").trim().toLowerCase();
@@ -2688,7 +2710,13 @@ function renderDriverTaskSummary(tasks) {
     return `<button class="driver-summary-sort" type="button" onclick="sortDriverTaskSummary('${sortKey}')">${label}${arrow}</button>`;
   };
 
+  if (DRIVER_SUMMARY_VIEW === "graphs") {
+    renderDriverSummaryGraphs(filteredTasks, rows);
+    return;
+  }
+
   taskList.innerHTML = `
+    ${driverSummaryViewSwitcher()}
     <div class="driver-summary-wrap">
       <table class="driver-summary-table">
         <thead>
@@ -2717,6 +2745,84 @@ function renderDriverTaskSummary(tasks) {
   });
   document.getElementById("adminPagination").innerHTML = "";
 }
+
+function driverSummaryViewSwitcher() {
+  return `
+    <div class="driver-summary-switcher">
+      <button type="button" class="${DRIVER_SUMMARY_VIEW === "list" ? "active" : ""}" onclick="setDriverSummaryView('list')">📋 List</button>
+      <button type="button" class="${DRIVER_SUMMARY_VIEW === "graphs" ? "active" : ""}" onclick="setDriverSummaryView('graphs')">📊 Graphs</button>
+    </div>`;
+}
+
+function renderDriverSummaryGraphs(filteredTasks, rows) {
+  const displayedRows = rows.slice(0, 20);
+  const hourCounts = Array(24).fill(0);
+  filteredTasks.forEach(task => {
+    const millis = taskTimestampMillis(task.transferredAt);
+    if (!millis) return;
+    const hourText = new Intl.DateTimeFormat("en-US", {
+      hour: "2-digit",
+      hour12: false,
+      timeZone: "Asia/Manila"
+    }).format(new Date(millis));
+    const hour = Number(hourText) % 24;
+    if (Number.isInteger(hour)) hourCounts[hour]++;
+  });
+  const maxTransfers = Math.max(0, ...hourCounts);
+
+  taskList.innerHTML = `
+    ${driverSummaryViewSwitcher()}
+    <section class="summary-chart-card">
+      <h3>Driver Workload</h3>
+      <p class="summary-chart-note">Up to 20 drivers, following the current table sort and BA filter.</p>
+      <div class="workload-chart">
+        ${displayedRows.length ? displayedRows.map(([driver, counts], index) => {
+          const total = counts.fordownload + counts.pending + counts.completed;
+          const width = value => total ? (value / total * 100) : 0;
+          return `<div class="workload-row">
+            <div class="workload-driver" data-driver-index="${index}"></div>
+            <div class="workload-bar" title="For Download: ${counts.fordownload}; Pending: ${counts.pending}; Completed: ${counts.completed}">
+              <span class="workload-segment fordownload" style="width:${width(counts.fordownload)}%"></span>
+              <span class="workload-segment pending" style="width:${width(counts.pending)}%"></span>
+              <span class="workload-segment completed" style="width:${width(counts.completed)}%"></span>
+            </div>
+            <div class="workload-total">${total.toLocaleString()}</div>
+          </div>`;
+        }).join("") : '<div style="color:#777">No cached tasks found</div>'}
+      </div>
+      <div class="chart-legend">
+        <span><i class="legend-dot" style="background:#2583d8"></i>For Download</span>
+        <span><i class="legend-dot" style="background:#f3a72f"></i>Pending</span>
+        <span><i class="legend-dot" style="background:#2f8a27"></i>Completed</span>
+      </div>
+    </section>
+    <section class="summary-chart-card">
+      <h3>Latest Task Transfers by Hour</h3>
+      <p class="summary-chart-note">Philippine time. Each task contributes its most recent recorded transfer only.</p>
+      <div class="transfer-chart">
+        ${hourCounts.map((count, hour) => {
+          const height = maxTransfers ? Math.max(count ? 4 : 0, count / maxTransfers * 165) : 0;
+          return `<div class="transfer-hour" title="${String(hour).padStart(2, "0")}:00 — ${count} transfer(s)">
+            <span class="transfer-count">${count || ""}</span>
+            <span class="transfer-bar" style="height:${height}px"></span>
+            <span class="transfer-label">${String(hour).padStart(2, "0")}</span>
+          </div>`;
+        }).join("")}
+      </div>
+    </section>`;
+
+  taskList.querySelectorAll(".workload-driver").forEach((cell, index) => {
+    cell.textContent = displayedRows[index][0];
+    cell.title = displayedRows[index][0];
+  });
+  document.getElementById("adminPagination").innerHTML = "";
+}
+
+window.setDriverSummaryView = function (view) {
+  if (view !== "list" && view !== "graphs") return;
+  DRIVER_SUMMARY_VIEW = view;
+  renderDriverTaskSummary(window.__FIRESTORE_TASKS__ || []);
+};
 
 window.sortDriverTaskSummary = function (key) {
   const allowed = new Set(["driver", "fordownload", "pending", "completed"]);
