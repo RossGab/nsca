@@ -391,7 +391,7 @@ button {
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.21</span></h1>
+      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.22</span></h1>
     </div>
   </div>
 
@@ -2756,9 +2756,12 @@ function driverSummaryViewSwitcher() {
 
 function renderDriverSummaryGraphs(filteredTasks, rows) {
   const displayedRows = rows.slice(0, 20);
-  const hourCounts = Array(24).fill(0);
+  const completionHourCounts = Array(24).fill(0);
   filteredTasks.forEach(task => {
-    const millis = taskTimestampMillis(task.transferredAt);
+    const status = String(task.status || "").trim().toUpperCase();
+    const workStatus = String(task.workStatus || "").trim().toLowerCase();
+    if (status !== "COMPLETED" && workStatus !== "completed") return;
+    const millis = taskTimestampMillis(task.completedAt);
     if (!millis) return;
     const hourText = new Intl.DateTimeFormat("en-US", {
       hour: "2-digit",
@@ -2766,12 +2769,26 @@ function renderDriverSummaryGraphs(filteredTasks, rows) {
       timeZone: "Asia/Manila"
     }).format(new Date(millis));
     const hour = Number(hourText) % 24;
-    if (Number.isInteger(hour)) hourCounts[hour]++;
+    if (Number.isInteger(hour)) completionHourCounts[hour]++;
   });
-  const maxTransfers = Math.max(0, ...hourCounts);
+  const maxCompletions = Math.max(0, ...completionHourCounts);
 
   taskList.innerHTML = `
     ${driverSummaryViewSwitcher()}
+    <section class="summary-chart-card">
+      <h3>Completed Tasks by Hour</h3>
+      <p class="summary-chart-note">Completion time in Philippine time, based on each task's recorded completedAt value.</p>
+      <div class="transfer-chart">
+        ${completionHourCounts.map((count, hour) => {
+          const height = maxCompletions ? Math.max(count ? 4 : 0, count / maxCompletions * 165) : 0;
+          return `<div class="transfer-hour" title="${String(hour).padStart(2, "0")}:00 — ${count} completed task(s)">
+            <span class="transfer-count">${count || ""}</span>
+            <span class="transfer-bar" style="height:${height}px"></span>
+            <span class="transfer-label">${String(hour).padStart(2, "0")}</span>
+          </div>`;
+        }).join("")}
+      </div>
+    </section>
     <section class="summary-chart-card">
       <h3>Driver Workload</h3>
       <p class="summary-chart-note">Up to 20 drivers, following the current table sort and BA filter.</p>
@@ -2794,20 +2811,6 @@ function renderDriverSummaryGraphs(filteredTasks, rows) {
         <span><i class="legend-dot" style="background:#2583d8"></i>For Download</span>
         <span><i class="legend-dot" style="background:#f3a72f"></i>Pending</span>
         <span><i class="legend-dot" style="background:#2f8a27"></i>Completed</span>
-      </div>
-    </section>
-    <section class="summary-chart-card">
-      <h3>Latest Task Transfers by Hour</h3>
-      <p class="summary-chart-note">Philippine time. Each task contributes its most recent recorded transfer only.</p>
-      <div class="transfer-chart">
-        ${hourCounts.map((count, hour) => {
-          const height = maxTransfers ? Math.max(count ? 4 : 0, count / maxTransfers * 165) : 0;
-          return `<div class="transfer-hour" title="${String(hour).padStart(2, "0")}:00 — ${count} transfer(s)">
-            <span class="transfer-count">${count || ""}</span>
-            <span class="transfer-bar" style="height:${height}px"></span>
-            <span class="transfer-label">${String(hour).padStart(2, "0")}</span>
-          </div>`;
-        }).join("")}
       </div>
     </section>`;
 
