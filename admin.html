@@ -87,6 +87,8 @@ h2 { text-align:center; }
 .driver-summary-table td:first-child { text-align:left; }
 .driver-summary-table tbody tr:last-child td { border-bottom:0; }
 .driver-summary-driver { font-weight:700; }
+.driver-summary-sort { padding:0; border:0; background:transparent; color:inherit; font:inherit; font-weight:700; text-transform:inherit; cursor:pointer; white-space:nowrap; }
+.driver-summary-sort:hover { background:transparent; color:#0877d1; }
 
 button {
   flex:1;
@@ -368,7 +370,7 @@ button {
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.18</span></h1>
+      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.19</span></h1>
     </div>
   </div>
 
@@ -403,12 +405,12 @@ button {
 <div class="actions">
   <button class="assign" onclick="toggleLiveMap()">🗺 Live Map</button>
   <button class="assign" onclick="location.href='assign.html'">➕ Manage Task</button>
+  <button class="assign" onclick="showDriverTaskSummary()">📋 Driver Task Summary</button>
   <button class="openBtn" onclick="showAllOpenTasks()">📂 Open</button>
   <button class="doneBtn" onclick="showCompletedTasks()">✅ Completed</button>
   <button class="assign" onclick="location.href='add-driver.html'">👤 Add Driver</button>
   <button class="assign" onclick="location.href='config.html?v=20260831'">⚙ Driver Configuration</button>
   <button class="assign" onclick="location.href='upload-task.html'">⬆ Upload Driver Export</button>
-  <button class="assign" onclick="showDriverTaskSummary()">📋 Driver Task Summary</button>
   <button class="assign" onclick="openReport()">📊 Report</button>
   <button
     id="dataSourceStatusBtn"
@@ -910,6 +912,7 @@ const EDITABLE_FIELDS = [
 
 let CURRENT_STATUS = null;
 let FILTER_BA = new Set();
+let DRIVER_SUMMARY_SORT = { key: "driver", direction: "asc" };
 let SEARCH_TERM = "";
 let MAP_VISIBLE = false;
 let SHOW_ONLINE_ONLY = false;
@@ -2647,7 +2650,9 @@ async function loadAdminPageFromFirestore(status) {
 function renderDriverTaskSummary(tasks) {
   const summary = new Map();
 
-  excludeDeletedTasks(tasks || []).forEach(task => {
+  excludeDeletedTasks(tasks || [])
+    .filter(task => !FILTER_BA.size || FILTER_BA.has(task.BA))
+    .forEach(task => {
     const driver = String(task.driverId || task.agentId || "Unassigned").trim() || "Unassigned";
     const status = String(task.status || "").trim().toUpperCase();
     const workStatus = String(task.workStatus || "").trim().toLowerCase();
@@ -2663,15 +2668,34 @@ function renderDriverTaskSummary(tasks) {
     summary.set(driver, counts);
   });
 
-  const rows = [...summary.entries()].sort((a, b) =>
-    a[0].localeCompare(b[0], undefined, { numeric: true, sensitivity: "base" })
-  );
+  const { key, direction } = DRIVER_SUMMARY_SORT;
+  const multiplier = direction === "asc" ? 1 : -1;
+  const rows = [...summary.entries()].sort((a, b) => {
+    if (key === "driver") {
+      return multiplier * a[0].localeCompare(
+        b[0], undefined, { numeric: true, sensitivity: "base" }
+      );
+    }
+    const difference = a[1][key] - b[1][key];
+    if (difference) return multiplier * difference;
+    return a[0].localeCompare(b[0], undefined, { numeric: true, sensitivity: "base" });
+  });
+
+  const sortHeader = (label, sortKey) => {
+    const arrow = key === sortKey ? (direction === "asc" ? " ▲" : " ▼") : "";
+    return `<button class="driver-summary-sort" type="button" onclick="sortDriverTaskSummary('${sortKey}')">${label}${arrow}</button>`;
+  };
 
   taskList.innerHTML = `
     <div class="driver-summary-wrap">
       <table class="driver-summary-table">
         <thead>
-          <tr><th>Driver</th><th>For Download</th><th>Pending</th><th>Completed</th></tr>
+          <tr>
+            <th>${sortHeader("Driver", "driver")}</th>
+            <th>${sortHeader("For Download", "fordownload")}</th>
+            <th>${sortHeader("Pending", "pending")}</th>
+            <th>${sortHeader("Completed", "completed")}</th>
+          </tr>
         </thead>
         <tbody>
           ${rows.length ? rows.map(([driver, counts]) => `
@@ -2692,6 +2716,15 @@ function renderDriverTaskSummary(tasks) {
   document.getElementById("adminPagination").innerHTML = "";
 }
 
+window.sortDriverTaskSummary = function (key) {
+  const allowed = new Set(["driver", "fordownload", "pending", "completed"]);
+  if (!allowed.has(key)) return;
+  DRIVER_SUMMARY_SORT = DRIVER_SUMMARY_SORT.key === key
+    ? { key, direction: DRIVER_SUMMARY_SORT.direction === "asc" ? "desc" : "asc" }
+    : { key, direction: key === "driver" ? "asc" : "desc" };
+  renderDriverTaskSummary(window.__FIRESTORE_TASKS__ || []);
+};
+
 window.showDriverTaskSummary = async function () {
   CURRENT_STATUS = "SUMMARY";
   ADMIN_CURRENT_PAGE = 0;
@@ -2700,7 +2733,8 @@ window.showDriverTaskSummary = async function () {
   mapContainer.style.display = "none";
   taskList.style.display = "block";
   searchWrapper.style.display = "none";
-  baFilters.style.display = "none";
+  baFilters.style.display = "block";
+  renderGlobalBAFilters();
 
   if (window.__FIRESTORE_TASKS__) {
     renderDriverTaskSummary(window.__FIRESTORE_TASKS__);
@@ -2711,6 +2745,11 @@ window.showDriverTaskSummary = async function () {
   if (cached && Array.isArray(cached.tasks)) {
     const tasks = excludeDeletedTasks(cached.tasks).map(normalizeAdminCachedTask);
     window.__FIRESTORE_TASKS__ = tasks;
+    ALL_BA_FOR_DATE.clear();
+    tasks.forEach(task => {
+      if (task.BA) ALL_BA_FOR_DATE.add(task.BA);
+    });
+    renderGlobalBAFilters();
     renderDriverTaskSummary(tasks);
     updateDataSourceStatus(`Showing ${tasks.length} cached task(s); click to sync changes`);
     return;
