@@ -98,8 +98,9 @@ h2 { text-align:center; }
 .workload-row { display:grid; grid-template-columns:minmax(120px,220px) 1fr auto; gap:10px; align-items:center; margin:9px 0; }
 .workload-driver { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px; font-weight:700; }
 .workload-bar { display:flex; height:20px; overflow:hidden; border-radius:5px; background:#edf1f5; }
+.workload-segment { display:flex; align-items:center; justify-content:center; min-width:28px; overflow:hidden; padding:0 3px; box-sizing:border-box; color:#fff; font-size:10px; font-weight:800; line-height:20px; }
 .workload-segment.fordownload { background:#2583d8; }
-.workload-segment.pending { background:#f3a72f; }
+.workload-segment.pending { background:#f3a72f; color:#342100; }
 .workload-segment.completed { background:#2f8a27; }
 .workload-total { min-width:38px; text-align:right; font-size:12px; font-weight:700; }
 .chart-legend { display:flex; gap:14px; flex-wrap:wrap; margin-top:12px; font-size:12px; }
@@ -391,7 +392,7 @@ button {
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.22</span></h1>
+      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.23</span></h1>
     </div>
   </div>
 
@@ -2755,7 +2756,7 @@ function driverSummaryViewSwitcher() {
 }
 
 function renderDriverSummaryGraphs(filteredTasks, rows) {
-  const displayedRows = rows.slice(0, 20);
+  const displayedRows = rows;
   const completionHourCounts = Array(24).fill(0);
   filteredTasks.forEach(task => {
     const status = String(task.status || "").trim().toUpperCase();
@@ -2791,7 +2792,7 @@ function renderDriverSummaryGraphs(filteredTasks, rows) {
     </section>
     <section class="summary-chart-card">
       <h3>Driver Workload</h3>
-      <p class="summary-chart-note">Up to 20 drivers, following the current table sort and BA filter.</p>
+      <p class="summary-chart-note">All drivers, following the current table sort and BA filter.</p>
       <div class="workload-chart">
         ${displayedRows.length ? displayedRows.map(([driver, counts], index) => {
           const total = counts.fordownload + counts.pending + counts.completed;
@@ -2799,9 +2800,9 @@ function renderDriverSummaryGraphs(filteredTasks, rows) {
           return `<div class="workload-row">
             <div class="workload-driver" data-driver-index="${index}"></div>
             <div class="workload-bar" title="For Download: ${counts.fordownload}; Pending: ${counts.pending}; Completed: ${counts.completed}">
-              <span class="workload-segment fordownload" style="width:${width(counts.fordownload)}%"></span>
-              <span class="workload-segment pending" style="width:${width(counts.pending)}%"></span>
-              <span class="workload-segment completed" style="width:${width(counts.completed)}%"></span>
+              ${counts.fordownload ? `<span class="workload-segment fordownload" style="width:${width(counts.fordownload)}%">${counts.fordownload.toLocaleString()}</span>` : ""}
+              ${counts.pending ? `<span class="workload-segment pending" style="width:${width(counts.pending)}%">${counts.pending.toLocaleString()}</span>` : ""}
+              ${counts.completed ? `<span class="workload-segment completed" style="width:${width(counts.completed)}%">${counts.completed.toLocaleString()}</span>` : ""}
             </div>
             <div class="workload-total">${total.toLocaleString()}</div>
           </div>`;
