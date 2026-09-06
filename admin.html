@@ -72,6 +72,22 @@ h2 { text-align:center; }
 
 .actions button { min-width:120px; }
 
+.driver-summary-wrap {
+  overflow-x:auto;
+  background:#fff;
+  border-radius:10px;
+  box-shadow:0 0 4px rgba(0,0,0,.1);
+}
+
+.driver-summary-table { width:100%; border-collapse:collapse; min-width:560px; }
+.driver-summary-table th,
+.driver-summary-table td { padding:12px 14px; border-bottom:1px solid #e5eaf0; text-align:right; }
+.driver-summary-table th { background:#f4f7fa; color:#34495e; font-size:12px; text-transform:uppercase; }
+.driver-summary-table th:first-child,
+.driver-summary-table td:first-child { text-align:left; }
+.driver-summary-table tbody tr:last-child td { border-bottom:0; }
+.driver-summary-driver { font-weight:700; }
+
 button {
   flex:1;
   padding:12px;
@@ -352,7 +368,7 @@ button {
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.17</span></h1>
+      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.18</span></h1>
     </div>
   </div>
 
@@ -392,7 +408,7 @@ button {
   <button class="assign" onclick="location.href='add-driver.html'">👤 Add Driver</button>
   <button class="assign" onclick="location.href='config.html?v=20260831'">⚙ Driver Configuration</button>
   <button class="assign" onclick="location.href='upload-task.html'">⬆ Upload Driver Export</button>
-  <button class="assign" onclick="location.href='driver-task-summary.html'">📋 Driver Task Summary</button>
+  <button class="assign" onclick="showDriverTaskSummary()">📋 Driver Task Summary</button>
   <button class="assign" onclick="openReport()">📊 Report</button>
   <button
     id="dataSourceStatusBtn"
@@ -2471,6 +2487,17 @@ window.loadCachedTasks = async function (status) {
       return;
     }
 
+    if (status === "SUMMARY") {
+      window.__FIRESTORE_TASKS__ = null;
+      taskList.innerHTML = `
+        <div class="card" style="color:#666">
+          No cached tasks are available for this date range. Click the Firestore button to load them.
+        </div>`;
+      document.getElementById("adminPagination").innerHTML = "";
+      updateDataSourceStatus("No cached tasks for this date range");
+      return;
+    }
+
     // The first visit to an uncached date range must retrieve its initial data.
     await loadTasks(status);
   } finally {
@@ -2573,6 +2600,11 @@ window.loadTasks = async function (status) {
 async function loadAdminPageFromFirestore(status) {
   if (!window.__FIRESTORE_TASKS__) return;
 
+  if (status === "SUMMARY") {
+    renderDriverTaskSummary(window.__FIRESTORE_TASKS__);
+    return;
+  }
+
   let tasks = window.__FIRESTORE_TASKS__.filter(t =>
     status === "COMPLETED"
       ? t.status === "COMPLETED"
@@ -2611,6 +2643,85 @@ async function loadAdminPageFromFirestore(status) {
   renderAdminTasks(pageTasks);
   renderAdminPagination();
 }
+
+function renderDriverTaskSummary(tasks) {
+  const summary = new Map();
+
+  excludeDeletedTasks(tasks || []).forEach(task => {
+    const driver = String(task.driverId || task.agentId || "Unassigned").trim() || "Unassigned";
+    const status = String(task.status || "").trim().toUpperCase();
+    const workStatus = String(task.workStatus || "").trim().toLowerCase();
+    const counts = summary.get(driver) || { fordownload: 0, pending: 0, completed: 0 };
+
+    if (status === "COMPLETED" || workStatus === "completed") {
+      counts.completed++;
+    } else if (workStatus === "fordownload") {
+      counts.fordownload++;
+    } else {
+      counts.pending++;
+    }
+    summary.set(driver, counts);
+  });
+
+  const rows = [...summary.entries()].sort((a, b) =>
+    a[0].localeCompare(b[0], undefined, { numeric: true, sensitivity: "base" })
+  );
+
+  taskList.innerHTML = `
+    <div class="driver-summary-wrap">
+      <table class="driver-summary-table">
+        <thead>
+          <tr><th>Driver</th><th>For Download</th><th>Pending</th><th>Completed</th></tr>
+        </thead>
+        <tbody>
+          ${rows.length ? rows.map(([driver, counts]) => `
+            <tr>
+              <td class="driver-summary-driver"></td>
+              <td>${counts.fordownload.toLocaleString()}</td>
+              <td>${counts.pending.toLocaleString()}</td>
+              <td>${counts.completed.toLocaleString()}</td>
+            </tr>
+          `).join("") : '<tr><td colspan="4" style="text-align:center;color:#777">No cached tasks found</td></tr>'}
+        </tbody>
+      </table>
+    </div>`;
+
+  taskList.querySelectorAll(".driver-summary-driver").forEach((cell, index) => {
+    cell.textContent = rows[index][0];
+  });
+  document.getElementById("adminPagination").innerHTML = "";
+}
+
+window.showDriverTaskSummary = async function () {
+  CURRENT_STATUS = "SUMMARY";
+  ADMIN_CURRENT_PAGE = 0;
+  FILTER_DRIVER = null;
+  MAP_VISIBLE = false;
+  mapContainer.style.display = "none";
+  taskList.style.display = "block";
+  searchWrapper.style.display = "none";
+  baFilters.style.display = "none";
+
+  if (window.__FIRESTORE_TASKS__) {
+    renderDriverTaskSummary(window.__FIRESTORE_TASKS__);
+    return;
+  }
+
+  const cached = await readTaskCache(DATE_FROM, DATE_TO);
+  if (cached && Array.isArray(cached.tasks)) {
+    const tasks = excludeDeletedTasks(cached.tasks).map(normalizeAdminCachedTask);
+    window.__FIRESTORE_TASKS__ = tasks;
+    renderDriverTaskSummary(tasks);
+    updateDataSourceStatus(`Showing ${tasks.length} cached task(s); click to sync changes`);
+    return;
+  }
+
+  taskList.innerHTML = `
+    <div class="card" style="color:#666">
+      No cached tasks are available for this date range. Click the Firestore button to load them.
+    </div>`;
+  document.getElementById("adminPagination").innerHTML = "";
+};
 
 function renderAdminTasks(tasks) {
   taskList.innerHTML = "";
