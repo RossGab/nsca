@@ -370,7 +370,7 @@ button {
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.19</span></h1>
+      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.20</span></h1>
     </div>
   </div>
 
@@ -2492,12 +2492,14 @@ window.loadCachedTasks = async function (status) {
 
     if (status === "SUMMARY") {
       window.__FIRESTORE_TASKS__ = null;
+      searchWrapper.style.display = "none";
+      baFilters.style.display = "none";
       taskList.innerHTML = `
         <div class="card" style="color:#666">
           No cached tasks are available for this date range. Click the Firestore button to load them.
         </div>`;
       document.getElementById("adminPagination").innerHTML = "";
-      updateDataSourceStatus("No cached tasks for this date range");
+      updateDataSourceStatus("No cached tasks; click to sync from Firestore");
       return;
     }
 
@@ -3886,7 +3888,7 @@ function setLoaderText(txt) {
     // await refreshDashboard();
 
     showLoader("Loading tasks…");
-    await loadCachedTasks("PENDING");
+    await loadCachedTasks("SUMMARY");
   } catch (e) {
     alert("Dashboard failed to load. Please refresh.");
   } finally {
