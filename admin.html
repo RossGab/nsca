@@ -65,9 +65,12 @@ h2 { text-align:center; }
 
 .actions {
   display:flex;
+  flex-wrap:wrap;
   gap:8px;
   margin-bottom:12px;
 }
+
+.actions button { min-width:120px; }
 
 button {
   flex:1;
@@ -349,7 +352,7 @@ button {
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.16</span></h1>
+      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.17</span></h1>
     </div>
   </div>
 
@@ -389,6 +392,7 @@ button {
   <button class="assign" onclick="location.href='add-driver.html'">👤 Add Driver</button>
   <button class="assign" onclick="location.href='config.html?v=20260831'">⚙ Driver Configuration</button>
   <button class="assign" onclick="location.href='upload-task.html'">⬆ Upload Driver Export</button>
+  <button class="assign" onclick="location.href='driver-task-summary.html'">📋 Driver Task Summary</button>
   <button class="assign" onclick="openReport()">📊 Report</button>
   <button
     id="dataSourceStatusBtn"

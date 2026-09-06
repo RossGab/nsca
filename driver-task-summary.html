@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Driver Task Summary</title>
+<link rel="stylesheet" href="./admin-theme.css">
+<style>
+body{font-family:Arial,sans-serif;background:#eef3f8;margin:0;padding:12px;color:#17202a}
+.controls{display:flex;align-items:end;gap:10px;flex-wrap:wrap;background:#fff;padding:14px;border:1px solid #d8e0e8;border-radius:10px;margin-bottom:12px}
+.field{display:grid;gap:5px;font-size:12px;font-weight:700;color:#445}
+.field input{padding:9px;border:1px solid #b9c7d6;border-radius:6px;font:inherit;font-weight:400}
+.load{padding:10px 16px;border:0;border-radius:6px;background:#0877d1;color:#fff;font-weight:700;cursor:pointer}
+.load:disabled{background:#9aa8b6;cursor:wait}
+.status{min-height:18px;margin:8px 2px 12px;color:#52606d;font-size:13px}
+.table-wrap{overflow:auto;background:#fff;border:1px solid #d8e0e8;border-radius:10px}
+table{width:100%;border-collapse:collapse;min-width:570px}
+th,td{padding:12px 14px;border-bottom:1px solid #e5eaf0;text-align:right}
+th{position:sticky;top:0;background:#f4f7fa;color:#34495e;font-size:12px;text-transform:uppercase}
+th:first-child,td:first-child{text-align:left}
+tbody tr:last-child td{border-bottom:0}
+tbody tr:hover{background:#f8fbfe}
+.driver{font-weight:700;overflow-wrap:anywhere}
+.empty{text-align:center!important;padding:30px;color:#6b7785}
+@media(max-width:650px){body{padding:7px}.app-header{padding:12px}.controls{align-items:stretch}.field{flex:1 1 145px}.load{width:100%}th,td{padding:10px 9px}}
+</style>
+</head>
+<body>
+<header class="app-header">
+  <div class="app-brand">
+    <img src="./logo.jpg" class="app-logo" alt="Company Logo">
+    <div class="app-brand-copy">
+      <div class="app-eyebrow">NSCA Task Administration</div>
+      <h1 class="app-title">Driver Task Summary <span class="app-version">V.R.0.0.2</span></h1>
+    </div>
+  </div>
+  <div class="app-header-actions">
+    <a class="app-nav-button" href="admin.html">Back to Dashboard</a>
+  </div>
+</header>
+
+<main>
+  <section class="controls" aria-label="Summary date range">
+    <label class="field">From<input id="dateFrom" type="date"></label>
+    <label class="field">To<input id="dateTo" type="date"></label>
+    <button id="loadButton" class="load" type="button">Refresh from Firestore</button>
+  </section>
+  <div id="status" class="status" role="status"></div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Driver</th><th>For Download</th><th>Pending</th><th>Completed</th></tr></thead>
+      <tbody id="summaryBody"><tr><td class="empty" colspan="4">Loading summary…</td></tr></tbody>
+    </table>
+  </div>
+</main>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-app.js";
+import {
+  initializeFirestore,
+  collection,
+  query,
+  where,
+  getDocs
+} from "https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js";
+import {
+  readTaskCache,
+  writeTaskCache,
+  excludeDeletedTasks
+} from "./task-cache.js?v=4";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyDFW61pnwLvh6HGKWt10zLYNr860fI8vkg",
+  authDomain: "driva-pwa.firebaseapp.com",
+  projectId: "driva-pwa",
+  storageBucket: "driva-pwa.firebasestorage.app",
+  messagingSenderId: "299138219722",
+  appId: "1:299138219722:web:623ff6b0a067ea822dfe33"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = initializeFirestore(app, {}, "drver-task");
+const dateFrom = document.getElementById("dateFrom");
+const dateTo = document.getElementById("dateTo");
+const loadButton = document.getElementById("loadButton");
+const status = document.getElementById("status");
+const summaryBody = document.getElementById("summaryBody");
+
+function todayInPhilippines() {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Manila" });
+}
+
+function taskBucket(task) {
+  const statusValue = String(task.status || "").trim().toUpperCase();
+  const workStatus = String(task.workStatus || "").trim().toLowerCase();
+  if (statusValue === "COMPLETED" || workStatus === "completed") return "completed";
+  if (workStatus === "fordownload") return "fordownload";
+  return "pending";
+}
+
+function buildSummary(tasks, from, to) {
+  const summary = new Map();
+  let included = 0;
+  for (const task of excludeDeletedTasks(tasks)) {
+    const assignedDate = String(task.assignedDate || "").slice(0, 10);
+    if (assignedDate < from || assignedDate > to) continue;
+    const driver = String(task.agentId || task.driverId || "Unassigned").trim() || "Unassigned";
+    if (!summary.has(driver)) {
+      summary.set(driver, { fordownload: 0, pending: 0, completed: 0 });
+    }
+    summary.get(driver)[taskBucket(task)]++;
+    included++;
+  }
+  return { summary, included };
+}
+
+function renderSummary(summary) {
+  summaryBody.replaceChildren();
+  const rows = [...summary.entries()].sort((a, b) =>
+    a[0].localeCompare(b[0], undefined, { numeric: true, sensitivity: "base" })
+  );
+
+  if (!rows.length) {
+    const row = summaryBody.insertRow();
+    const cell = row.insertCell();
+    cell.colSpan = 4;
+    cell.className = "empty";
+    cell.textContent = "No tasks found for this date range.";
+    return;
+  }
+
+  for (const [driver, counts] of rows) {
+    const row = summaryBody.insertRow();
+    const driverCell = row.insertCell();
+    driverCell.className = "driver";
+    driverCell.textContent = driver;
+    row.insertCell().textContent = counts.fordownload.toLocaleString();
+    row.insertCell().textContent = counts.pending.toLocaleString();
+    row.insertCell().textContent = counts.completed.toLocaleString();
+  }
+}
+
+function selectedRange() {
+  const from = dateFrom.value;
+  const to = dateTo.value;
+  if (!from || !to) {
+    status.textContent = "Select both dates.";
+    return null;
+  }
+  if (from > to) {
+    status.textContent = "The From date must not be after the To date.";
+    return null;
+  }
+  return { from, to };
+}
+
+async function loadCachedSummary() {
+  const range = selectedRange();
+  if (!range) return;
+  const { from, to } = range;
+
+  status.textContent = "Checking the local task cache…";
+  const cached = await readTaskCache(from, to);
+  if (!cached || !Array.isArray(cached.tasks)) {
+    renderSummary(new Map());
+    status.textContent = "No cache is available for this date range. Press Refresh from Firestore.";
+    return;
+  }
+
+  const { summary, included } = buildSummary(cached.tasks, from, to);
+  renderSummary(summary);
+  const cachedAt = cached.syncedAt
+    ? new Date(cached.syncedAt).toLocaleString("en-PH", { timeZone: "Asia/Manila" })
+    : "unknown time";
+  status.textContent = `Cache • ${summary.size.toLocaleString()} driver(s) • ${included.toLocaleString()} active task(s) • Updated ${cachedAt}`;
+}
+
+async function refreshFromFirestore() {
+  const range = selectedRange();
+  if (!range) return;
+  const { from, to } = range;
+
+  loadButton.disabled = true;
+  status.textContent = "Loading tasks from Firestore…";
+  summaryBody.innerHTML = '<tr><td class="empty" colspan="4">Loading summary…</td></tr>';
+
+  try {
+    const snapshot = await getDocs(query(
+      collection(db, "TASK"),
+      where("assignedDate", ">=", from),
+      where("assignedDate", "<=", to)
+    ));
+    const tasks = [];
+    snapshot.forEach(documentSnapshot => {
+      tasks.push({ _key: documentSnapshot.id, ...(documentSnapshot.data() || {}) });
+    });
+
+    const activeTasks = excludeDeletedTasks(tasks);
+    const cacheEntry = await readTaskCache(from, to);
+    await writeTaskCache(from, to, activeTasks, {
+      full: true,
+      previousWatermark: cacheEntry?.watermarkMillis || 0,
+      previousCompletionWatermark: cacheEntry?.completionWatermarkMillis || 0
+    });
+
+    const { summary, included } = buildSummary(activeTasks, from, to);
+    renderSummary(summary);
+    status.textContent = `Firestore refreshed • ${summary.size.toLocaleString()} driver(s) • ${included.toLocaleString()} active task(s)`;
+  } catch (error) {
+    console.error("Driver task summary failed:", error);
+    summaryBody.innerHTML = '<tr><td class="empty" colspan="4">Failed to load summary.</td></tr>';
+    status.textContent = `Failed to load summary: ${error?.message || error}`;
+  } finally {
+    loadButton.disabled = false;
+  }
+}
+
+const today = todayInPhilippines();
+dateFrom.value = today;
+dateTo.value = today;
+loadButton.addEventListener("click", refreshFromFirestore);
+dateFrom.addEventListener("change", loadCachedSummary);
+dateTo.addEventListener("change", loadCachedSummary);
+loadCachedSummary();
+</script>
+</body>
+</html>
