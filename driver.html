@@ -630,7 +630,7 @@ import {
 import { getStorage, ref as sRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js";
 import { increment } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
   
-const VERSION = "V.R.0.0.16.1.4.11";
+const VERSION = "V.R.0.0.16.1.4.12";
 const BILLING_CACHE = {};
 window.BILLING_CACHE = BILLING_CACHE;
 const DRIVER_UI_CACHE = {};
@@ -673,6 +673,7 @@ let CURRENT_RENDER_LIST = [];
 let IS_DOWNLOADING = false;
 let LAST_RENDER_SIGNATURE = "";
 let SYNC_RUNNING = false;
+let EXPORT_RUNNING = false;
 
 let DRIVER_TASK_MAP_INITIALIZED_VIEW = false;
 // =====================================================
@@ -686,6 +687,7 @@ function setTaskWorkLocked(locked) {
   SYNC_RUNNING = locked;
 
   const controls = [
+    "syncBtn",
     "refreshTasksBtn",
     "settingsBtn",
     "dateFilter",
@@ -7877,93 +7879,160 @@ window.handleRadioTrigger = async function(taskKey, jobType, method, radioKey) {
 };
 
 async function exportTasksToFile() {
-
-  const tasks = await getTasksFromIndexedDB();
-  const photos = await getAllPhotosFromDB();
-
-  const completed = tasks.filter(t =>
-    t.status === "LOCAL_COMPLETED" &&
-    !t.exported &&
-    t.driverId === DRIVER_ID
-  );
-
-  if (!completed.length) {
-    alert("No completed tasks to export.");
+  if (EXPORT_RUNNING || SYNC_RUNNING) {
+    alert("An export or upload is already running. Please wait for it to finish.");
     return;
   }
 
-  const exportData = {
-    exportedAt: new Date().toISOString(),
-    driverId: DRIVER_ID,
-    totalTasks: completed.length,
-    tasks: [],
-    photos: []
-  };
+  EXPORT_RUNNING = true;
+  setTaskWorkLocked(true);
 
-  for (const t of completed) {
-    await saveTasksToIndexedDB([{
-      ...t,
-      exported: true
-    }]);
-  
-    exportData.tasks.push({
-      ...t,
-      exported: true
+  try {
+    const tasks = await getTasksFromIndexedDB();
+    const photos = await getAllPhotosFromDB();
+    const currentDriver = String(DRIVER_ID || "").trim().toUpperCase();
+    const completed = tasks.filter(task =>
+      task.status === "LOCAL_COMPLETED" &&
+      !task.exported &&
+      String(task.driverId || "").trim().toUpperCase() === currentDriver
+    );
+
+    if (!completed.length) {
+      hideSyncProgress();
+      alert("No completed tasks to export.");
+      return;
+    }
+
+    const completedByKey = new Map(completed.map(task => [task._key, task]));
+    const relatedPhotos = photos.filter(photo => completedByKey.has(photo.taskKey));
+    const photoBytes = relatedPhotos.reduce(
+      (total, photo) => total + (Number(photo.blob?.size) || 0), 0
+    );
+    const estimatedMB = photoBytes * 4 / 3 / 1024 / 1024;
+    const progressTotal = Math.max(1, relatedPhotos.length);
+
+    updateSyncProgress({
+      current: 0,
+      total: progressTotal,
+      currentTask: `${completed.length} completed task(s)`,
+      currentPhoto: `${relatedPhotos.length} photo(s) • approximately ${estimatedMB.toFixed(1)} MB`,
+      message: "Preparing export — do not close this page or press Sync again"
     });
-  }
-  
-  // 🔥 RECALCULATE UPLOAD QUEUE AFTER EXPORT
-  const updatedTasks = await getTasksFromIndexedDB();
-  
-  UPLOAD_QUEUE_COUNT = updatedTasks.filter(t =>
-    t.status === "LOCAL_COMPLETED" &&
-    !t.exported &&
-    String(t.driverId || "").toUpperCase() === DRIVER_ID.toUpperCase()
-  ).length;
-  
-  updateUploadCounter();
 
-  const completedKeys = new Set(completed.map(t => t._key));
+    const exportData = {
+      exportedAt: new Date().toISOString(),
+      driverId: DRIVER_ID,
+      totalTasks: completed.length,
+      tasks: completed.map(task => ({ ...task, exported: true })),
+      photos: []
+    };
 
-  for (const p of photos) {
-    if (!completedKeys.has(p.taskKey)) continue; // ✅ CRITICAL FIX
-  
-    const base64 = await blobToBase64(p.blob);
-    const taskData = completed.find(t => t._key === p.taskKey);
-    exportData.photos.push({
-      id: p.id,
-      taskKey: p.taskKey,
-      photoIndex: p.photoIndex,
-      takenAt: p.takenAt,
-      gps: p.gps,
-      deliveryData: taskData?.deliveryData || {},
-      base64
+    for (let index = 0; index < relatedPhotos.length; index++) {
+      const photo = relatedPhotos[index];
+      updateSyncProgress({
+        current: index,
+        total: progressTotal,
+        currentTask: photo.taskKey,
+        currentPhoto: `Converting photo ${index + 1}/${relatedPhotos.length}`,
+        message: "Building offline export — please wait"
+      });
+
+      if (!(photo.blob instanceof Blob) || photo.blob.size === 0) {
+        throw new Error(`Photo ${photo.photoIndex} for ${photo.taskKey} is missing or empty.`);
+      }
+
+      const base64 = await blobToBase64(photo.blob);
+      const taskData = completedByKey.get(photo.taskKey);
+      exportData.photos.push({
+        id: photo.id,
+        taskKey: photo.taskKey,
+        photoIndex: photo.photoIndex,
+        takenAt: photo.takenAt,
+        gps: photo.gps,
+        deliveryData: taskData?.deliveryData || {},
+        base64
+      });
+
+      updateSyncProgress({
+        current: index + 1,
+        total: progressTotal,
+        currentTask: photo.taskKey,
+        currentPhoto: `Converted photo ${index + 1}/${relatedPhotos.length}`,
+        message: "Building offline export — please wait"
+      });
+
+      if ((index + 1) % 10 === 0) {
+        await new Promise(resolve => requestAnimationFrame(resolve));
+      }
+    }
+
+    updateSyncProgress({
+      current: progressTotal,
+      total: progressTotal,
+      currentTask: `${completed.length} completed task(s)`,
+      currentPhoto: `${relatedPhotos.length} photo(s) converted`,
+      message: "Creating the download file — this may take a while"
     });
+    await new Promise(resolve => requestAnimationFrame(resolve));
+
+    // Compact JSON reduces file size and peak browser memory usage.
+    const blob = new Blob([JSON.stringify(exportData)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `tasks_export_${Date.now()}.json`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+
+    // Large downloads on mobile can be cancelled if this URL is revoked now.
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    // Change local state only after the browser download has been initiated.
+    await saveTasksToIndexedDB(
+      completed.map(task => ({ ...task, exported: true }))
+    );
+
+    const updatedTasks = await getTasksFromIndexedDB();
+    UPLOAD_QUEUE_COUNT = updatedTasks.filter(task =>
+      task.status === "LOCAL_COMPLETED" &&
+      !task.exported &&
+      String(task.driverId || "").trim().toUpperCase() === currentDriver
+    ).length;
+    updateUploadCounter();
+    await loadTasks();
+
+    updateSyncProgress({
+      current: progressTotal,
+      total: progressTotal,
+      currentTask: `${completed.length} completed task(s)`,
+      currentPhoto: `${relatedPhotos.length} photo(s)`,
+      successful: completed.length,
+      message: "Export ready — check the Downloads folder"
+    });
+    alert(
+      `✅ Export download started.\n\nTasks: ${completed.length}\n` +
+      `Photos: ${relatedPhotos.length}\n\n` +
+      `Keep the page open until the file appears in Downloads.`
+    );
+  } catch (error) {
+    console.error("Export failed:", error);
+    updateSyncProgress({
+      current: 0,
+      total: 1,
+      failed: 1,
+      message: "Export failed — tasks were not marked as exported",
+      currentPhoto: error?.message || String(error)
+    });
+    alert(
+      `❌ Export failed.\n\n${error?.message || error}\n\n` +
+      `The tasks were not marked as exported. Do not delete any local data.`
+    );
+  } finally {
+    EXPORT_RUNNING = false;
+    setTaskWorkLocked(false);
   }
-
-  const blob = new Blob(
-    [JSON.stringify(exportData, null, 2)],
-    { type: "application/json" }
-  );
-
-  const url = URL.createObjectURL(blob);
-
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `tasks_export_${Date.now()}.json`;
-
-  document.body.appendChild(a);
-  a.click();
-
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-
-  // Rebuild the working list from IndexedDB after marking completed tasks as
-  // exported. Pending tasks remain local and should stay visible immediately.
-  // Exported LOCAL_COMPLETED tasks are still eligible for Option 1 upload.
-  await loadTasks();
-
-  alert("✅ Export complete");
 }
 
 function blobToBase64(blob) {
