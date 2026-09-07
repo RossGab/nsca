@@ -451,6 +451,13 @@ img { width:100%;margin-top:8px;border-radius:6px; }
   >
     ✅ Successful: 0 &nbsp; | &nbsp; ❌ Failed: 0
   </div>
+  <button
+    id="downloadNextExportPartBtn"
+    type="button"
+    style="display:none;width:100%;margin-top:12px;padding:12px;border:0;border-radius:7px;background:#1976d2;color:#fff;font-size:15px;font-weight:bold;"
+  >
+    Download Next Part
+  </button>
 </div>
 
 <button
@@ -630,7 +637,7 @@ import {
 import { getStorage, ref as sRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js";
 import { increment } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
   
-const VERSION = "V.R.0.0.16.1.4.12";
+const VERSION = "V.R.0.0.16.1.4.13";
 const BILLING_CACHE = {};
 window.BILLING_CACHE = BILLING_CACHE;
 const DRIVER_UI_CACHE = {};
@@ -674,6 +681,7 @@ let IS_DOWNLOADING = false;
 let LAST_RENDER_SIGNATURE = "";
 let SYNC_RUNNING = false;
 let EXPORT_RUNNING = false;
+let PENDING_EXPORT_SESSION = null;
 
 let DRIVER_TASK_MAP_INITIALIZED_VIEW = false;
 // =====================================================
@@ -7899,68 +7907,123 @@ async function exportTasksToFile() {
 
     if (!completed.length) {
       hideSyncProgress();
+      finishExportSession();
       alert("No completed tasks to export.");
       return;
     }
 
-    const completedByKey = new Map(completed.map(task => [task._key, task]));
-    const relatedPhotos = photos.filter(photo => completedByKey.has(photo.taskKey));
-    const photoBytes = relatedPhotos.reduce(
-      (total, photo) => total + (Number(photo.blob?.size) || 0), 0
+    const photosByTask = new Map();
+    photos.forEach(photo => {
+      if (!photosByTask.has(photo.taskKey)) photosByTask.set(photo.taskKey, []);
+      photosByTask.get(photo.taskKey).push(photo);
+    });
+
+    const parts = buildExportParts(completed, photosByTask);
+    PENDING_EXPORT_SESSION = {
+      parts,
+      nextIndex: 0,
+      busy: false,
+      currentDriver,
+      exportedTasks: 0,
+      totalTasks: completed.length
+    };
+
+    await downloadNextExportPart();
+  } catch (error) {
+    handleExportFailure(error);
+  }
+}
+
+function buildExportParts(completed, photosByTask) {
+  const MAX_TASKS_PER_PART = 100;
+  const MAX_ESTIMATED_BYTES_PER_PART = 100 * 1024 * 1024;
+  const parts = [];
+  let part = { tasks: [], photos: [], estimatedBytes: 0 };
+
+  for (const task of completed) {
+    const taskPhotos = photosByTask.get(task._key) || [];
+    const estimatedBytes = taskPhotos.reduce(
+      (total, photo) => total + (Number(photo.blob?.size) || 0) * 4 / 3,
+      0
+    ) + JSON.stringify(task).length * 2;
+    const mustSplit = part.tasks.length > 0 && (
+      part.tasks.length >= MAX_TASKS_PER_PART ||
+      part.estimatedBytes + estimatedBytes > MAX_ESTIMATED_BYTES_PER_PART
     );
-    const estimatedMB = photoBytes * 4 / 3 / 1024 / 1024;
-    const progressTotal = Math.max(1, relatedPhotos.length);
+
+    if (mustSplit) {
+      parts.push(part);
+      part = { tasks: [], photos: [], estimatedBytes: 0 };
+    }
+    part.tasks.push(task);
+    part.photos.push(...taskPhotos);
+    part.estimatedBytes += estimatedBytes;
+  }
+
+  if (part.tasks.length) parts.push(part);
+  return parts;
+}
+
+async function downloadNextExportPart() {
+  const session = PENDING_EXPORT_SESSION;
+  if (!session || session.busy) return;
+  const part = session.parts[session.nextIndex];
+  if (!part) return;
+
+  session.busy = true;
+  const nextButton = document.getElementById("downloadNextExportPartBtn");
+  if (nextButton) {
+    nextButton.style.display = "none";
+    nextButton.disabled = true;
+  }
+
+  try {
+    const partNumber = session.nextIndex + 1;
+    const partCount = session.parts.length;
+    const progressTotal = Math.max(1, part.photos.length);
+    const taskByKey = new Map(part.tasks.map(task => [task._key, task]));
+    const exportData = {
+      exportedAt: new Date().toISOString(),
+      driverId: DRIVER_ID,
+      partNumber,
+      totalParts: partCount,
+      totalTasks: part.tasks.length,
+      tasks: part.tasks.map(task => ({ ...task, exported: true })),
+      photos: []
+    };
 
     updateSyncProgress({
       current: 0,
       total: progressTotal,
-      currentTask: `${completed.length} completed task(s)`,
-      currentPhoto: `${relatedPhotos.length} photo(s) • approximately ${estimatedMB.toFixed(1)} MB`,
-      message: "Preparing export — do not close this page or press Sync again"
+      currentTask: `Part ${partNumber}/${partCount} • ${part.tasks.length} task(s)`,
+      currentPhoto: `${part.photos.length} photo(s) • approximately ${(part.estimatedBytes / 1024 / 1024).toFixed(1)} MB`,
+      successful: session.exportedTasks,
+      message: "Preparing export part — do not close this page"
     });
 
-    const exportData = {
-      exportedAt: new Date().toISOString(),
-      driverId: DRIVER_ID,
-      totalTasks: completed.length,
-      tasks: completed.map(task => ({ ...task, exported: true })),
-      photos: []
-    };
-
-    for (let index = 0; index < relatedPhotos.length; index++) {
-      const photo = relatedPhotos[index];
-      updateSyncProgress({
-        current: index,
-        total: progressTotal,
-        currentTask: photo.taskKey,
-        currentPhoto: `Converting photo ${index + 1}/${relatedPhotos.length}`,
-        message: "Building offline export — please wait"
-      });
-
+    for (let index = 0; index < part.photos.length; index++) {
+      const photo = part.photos[index];
       if (!(photo.blob instanceof Blob) || photo.blob.size === 0) {
         throw new Error(`Photo ${photo.photoIndex} for ${photo.taskKey} is missing or empty.`);
       }
-
+      updateSyncProgress({
+        current: index,
+        total: progressTotal,
+        currentTask: `Part ${partNumber}/${partCount} • ${photo.taskKey}`,
+        currentPhoto: `Converting photo ${index + 1}/${part.photos.length}`,
+        successful: session.exportedTasks,
+        message: "Building offline export — please wait"
+      });
       const base64 = await blobToBase64(photo.blob);
-      const taskData = completedByKey.get(photo.taskKey);
       exportData.photos.push({
         id: photo.id,
         taskKey: photo.taskKey,
         photoIndex: photo.photoIndex,
         takenAt: photo.takenAt,
         gps: photo.gps,
-        deliveryData: taskData?.deliveryData || {},
+        deliveryData: taskByKey.get(photo.taskKey)?.deliveryData || {},
         base64
       });
-
-      updateSyncProgress({
-        current: index + 1,
-        total: progressTotal,
-        currentTask: photo.taskKey,
-        currentPhoto: `Converted photo ${index + 1}/${relatedPhotos.length}`,
-        message: "Building offline export — please wait"
-      });
-
       if ((index + 1) % 10 === 0) {
         await new Promise(resolve => requestAnimationFrame(resolve));
       }
@@ -7969,71 +8032,103 @@ async function exportTasksToFile() {
     updateSyncProgress({
       current: progressTotal,
       total: progressTotal,
-      currentTask: `${completed.length} completed task(s)`,
-      currentPhoto: `${relatedPhotos.length} photo(s) converted`,
-      message: "Creating the download file — this may take a while"
+      currentTask: `Part ${partNumber}/${partCount}`,
+      currentPhoto: `${part.photos.length} photo(s) converted`,
+      successful: session.exportedTasks,
+      message: "Creating download file — this may take a while"
     });
     await new Promise(resolve => requestAnimationFrame(resolve));
 
-    // Compact JSON reduces file size and peak browser memory usage.
     const blob = new Blob([JSON.stringify(exportData)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `tasks_export_${Date.now()}.json`;
+    anchor.download = `tasks_export_${Date.now()}_part_${partNumber}_of_${partCount}.json`;
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
-
-    // Large downloads on mobile can be cancelled if this URL is revoked now.
     setTimeout(() => URL.revokeObjectURL(url), 60_000);
     await new Promise(resolve => setTimeout(resolve, 500));
 
-    // Change local state only after the browser download has been initiated.
-    await saveTasksToIndexedDB(
-      completed.map(task => ({ ...task, exported: true }))
-    );
+    await saveTasksToIndexedDB(part.tasks.map(task => ({ ...task, exported: true })));
+    session.exportedTasks += part.tasks.length;
+    session.nextIndex++;
+    session.busy = false;
+    await refreshExportedTaskState(session.currentDriver);
 
-    const updatedTasks = await getTasksFromIndexedDB();
-    UPLOAD_QUEUE_COUNT = updatedTasks.filter(task =>
-      task.status === "LOCAL_COMPLETED" &&
-      !task.exported &&
-      String(task.driverId || "").trim().toUpperCase() === currentDriver
-    ).length;
-    updateUploadCounter();
-    await loadTasks();
+    if (session.nextIndex < session.parts.length) {
+      const upcoming = session.parts[session.nextIndex];
+      updateSyncProgress({
+        current: progressTotal,
+        total: progressTotal,
+        currentTask: `Downloaded part ${partNumber}/${partCount}`,
+        currentPhoto: `Next part: ${upcoming.tasks.length} task(s), ${upcoming.photos.length} photo(s)`,
+        successful: session.exportedTasks,
+        message: "Part downloaded — press Download Next Part"
+      });
+      if (nextButton) {
+        nextButton.textContent = `Download Part ${session.nextIndex + 1} of ${partCount}`;
+        nextButton.disabled = false;
+        nextButton.style.display = "block";
+      }
+      return;
+    }
 
     updateSyncProgress({
-      current: progressTotal,
-      total: progressTotal,
-      currentTask: `${completed.length} completed task(s)`,
-      currentPhoto: `${relatedPhotos.length} photo(s)`,
-      successful: completed.length,
-      message: "Export ready — check the Downloads folder"
-    });
-    alert(
-      `✅ Export download started.\n\nTasks: ${completed.length}\n` +
-      `Photos: ${relatedPhotos.length}\n\n` +
-      `Keep the page open until the file appears in Downloads.`
-    );
-  } catch (error) {
-    console.error("Export failed:", error);
-    updateSyncProgress({
-      current: 0,
+      current: 1,
       total: 1,
-      failed: 1,
-      message: "Export failed — tasks were not marked as exported",
-      currentPhoto: error?.message || String(error)
+      currentTask: `${session.totalTasks} task(s) exported`,
+      currentPhoto: `${partCount} file part(s) downloaded`,
+      successful: session.exportedTasks,
+      message: "All export parts started — check the Downloads folder"
     });
-    alert(
-      `❌ Export failed.\n\n${error?.message || error}\n\n` +
-      `The tasks were not marked as exported. Do not delete any local data.`
-    );
-  } finally {
-    EXPORT_RUNNING = false;
-    setTaskWorkLocked(false);
+    alert(`✅ All ${partCount} export part(s) have been downloaded.\n\nKeep every part and give all files to the administrator.`);
+    finishExportSession();
+  } catch (error) {
+    session.busy = false;
+    handleExportFailure(error);
   }
 }
+
+async function refreshExportedTaskState(currentDriver) {
+  const updatedTasks = await getTasksFromIndexedDB();
+  UPLOAD_QUEUE_COUNT = updatedTasks.filter(task =>
+    task.status === "LOCAL_COMPLETED" &&
+    !task.exported &&
+    String(task.driverId || "").trim().toUpperCase() === currentDriver
+  ).length;
+  updateUploadCounter();
+  await loadTasks();
+}
+
+function finishExportSession() {
+  const nextButton = document.getElementById("downloadNextExportPartBtn");
+  if (nextButton) {
+    nextButton.style.display = "none";
+    nextButton.disabled = false;
+  }
+  PENDING_EXPORT_SESSION = null;
+  EXPORT_RUNNING = false;
+  setTaskWorkLocked(false);
+}
+
+function handleExportFailure(error) {
+  console.error("Export failed:", error);
+  updateSyncProgress({
+    current: 0,
+    total: 1,
+    failed: 1,
+    message: "Current export part failed — its tasks were not marked exported",
+    currentPhoto: error?.message || String(error)
+  });
+  alert(
+    `❌ Export failed.\n\n${error?.message || error}\n\n` +
+    `Tasks in the failed part were not marked as exported. Keep all parts already downloaded.`
+  );
+  finishExportSession();
+}
+
+document.getElementById("downloadNextExportPartBtn").onclick = downloadNextExportPart;
 
 function blobToBase64(blob) {
   return new Promise((resolve, reject) => {
