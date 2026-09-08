@@ -50,6 +50,7 @@ const { onRequest } = require("firebase-functions/v2/https");
 const { getFirestore, Timestamp } = require("firebase-admin/firestore");
 const ExcelJS = require("exceljs");
 const crypto = require("node:crypto");
+const zlib = require("node:zlib");
 
 const REPORT_ORIGINS = new Set([
   "https://rossgab.github.io",
@@ -262,6 +263,144 @@ exports.generateTaskReport = onRequest({
       });
     } catch (lockError) {
       console.error("Unable to release report lock", lockError);
+    }
+  }
+});
+
+function snapshotDateIsEligible(dateText) {
+  const parsed = parseDateOnly(dateText);
+  if (!parsed) return false;
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit"
+  });
+  const today = formatter.format(new Date());
+  const cutoff = new Date(`${today}T00:00:00+08:00`);
+  cutoff.setUTCDate(cutoff.getUTCDate() - 2);
+  return dateText <= formatter.format(cutoff);
+}
+
+exports.refreshHistoricalTaskSnapshot = onRequest({
+  region: "asia-southeast1",
+  timeoutSeconds: 540,
+  memory: "2GiB",
+  maxInstances: 2,
+  concurrency: 1,
+  cors: false
+}, async (req, res) => {
+  const originAllowed = setReportCors(req, res);
+  if (req.method === "OPTIONS") {
+    res.status(originAllowed ? 204 : 403).end();
+    return;
+  }
+  if (req.method !== "POST" || !originAllowed) {
+    res.status(403).json({ error: "Snapshot request is not allowed." });
+    return;
+  }
+
+  const date = String(req.body?.date || "");
+  if (!snapshotDateIsEligible(date)) {
+    res.status(400).json({ error: "Only dates up to today minus two days can be snapshotted." });
+    return;
+  }
+
+  const db = getFirestore(REPORT_DATABASE_ID);
+  const manifestRef = db.collection("reportSnapshotManifests").doc(date);
+  const bucket = admin.storage().bucket();
+  const file = bucket.file(`task-report-snapshots/${date}.json.gz`);
+  const token = crypto.randomUUID();
+
+  try {
+    await db.runTransaction(async transaction => {
+      const manifest = await transaction.get(manifestRef);
+      if (Number(manifest.data()?.lockedUntil || 0) > Date.now()) {
+        throw new Error("SNAPSHOT_BUSY");
+      }
+      transaction.set(manifestRef, {
+        ...(manifest.data() || {}),
+        lockToken: token,
+        lockedUntil: Date.now() + 10 * 60 * 1000
+      }, { merge: true });
+    });
+
+    const manifest = (await manifestRef.get()).data() || {};
+    let tasksById = new Map();
+    let watermarkMillis = Number(manifest.watermarkMillis || 0);
+    let fullBuild = !manifest.snapshotExists;
+
+    if (!fullBuild) {
+      try {
+        const [compressed] = await file.download();
+        const saved = JSON.parse(zlib.gunzipSync(compressed).toString("utf8"));
+        tasksById = new Map((saved.tasks || []).map(task => [task._key, task]));
+      } catch {
+        fullBuild = true;
+        tasksById = new Map();
+        watermarkMillis = 0;
+      }
+    }
+
+    let query = db.collection(REPORT_COLLECTION).where("assignedDate", "==", date);
+    if (!fullBuild && watermarkMillis) {
+      query = query.where(
+        "updatedAt", ">", Timestamp.fromMillis(Math.max(0, watermarkMillis - 5 * 60 * 1000))
+      );
+    }
+    const snapshot = await query.get();
+    let latestWatermark = watermarkMillis;
+    snapshot.forEach(document => {
+      const raw = document.data() || {};
+      const updatedMillis = raw.updatedAt?.toMillis?.() || 0;
+      latestWatermark = Math.max(latestWatermark, updatedMillis);
+      if (raw.deleted === true || String(raw.assignedDate || "") !== date) {
+        tasksById.delete(document.id);
+      } else {
+        tasksById.set(document.id, { _key: document.id, ...raw });
+      }
+    });
+
+    const payload = {
+      date,
+      generatedAt: new Date().toISOString(),
+      watermarkMillis: latestWatermark,
+      tasks: [...tasksById.values()]
+    };
+    const compressed = zlib.gzipSync(Buffer.from(JSON.stringify(payload)));
+    await file.save(compressed, {
+      resumable: false,
+      metadata: { contentType: "application/json", contentEncoding: "gzip" }
+    });
+    await manifestRef.set({
+      date,
+      snapshotExists: true,
+      taskCount: tasksById.size,
+      watermarkMillis: latestWatermark,
+      generatedAt: Timestamp.now(),
+      changedTasks: snapshot.size,
+      lockedUntil: 0,
+      lockToken: null
+    }, { merge: true });
+
+    res.json({
+      date,
+      fullBuild,
+      changedTasks: snapshot.size,
+      taskCount: tasksById.size
+    });
+  } catch (error) {
+    console.error("Historical snapshot refresh failed", date, error);
+    if (error.message === "SNAPSHOT_BUSY") {
+      res.status(409).json({ error: `${date} is already being checked by another administrator.` });
+    } else {
+      res.status(500).json({ error: error.message || "Snapshot refresh failed." });
+    }
+  } finally {
+    try {
+      const current = await manifestRef.get();
+      if (current.data()?.lockToken === token) {
+        await manifestRef.set({ lockedUntil: 0, lockToken: null }, { merge: true });
+      }
+    } catch (error) {
+      console.error("Unable to release snapshot lock", date, error);
     }
   }
 });

@@ -392,7 +392,7 @@ button {
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.24</span></h1>
+      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.25</span></h1>
     </div>
   </div>
 
@@ -2962,7 +2962,9 @@ function renderAdminTasks(tasks) {
           </button>
         ` : ""}
         <div class="form-actions">
-          <button class="toggleBtn" onclick="enableEdit(this)">
+          <button class="toggleBtn" onclick="${t.status === "COMPLETED"
+            ? `openCompletedTaskEditor('${t._key}')`
+            : "enableEdit(this)"}">
             ✏ Modify Task
           </button>
         </div>
@@ -2996,6 +2998,12 @@ window.enableEdit = function (btn) {
     <button class="toggleBtn" style="background:#777"
       onclick="cancelEdit(this)">❌ Cancel</button>
   `;
+};
+
+window.openCompletedTaskEditor = function (taskId) {
+  const url = new URL("completed-task-edit.html", window.location.href);
+  url.searchParams.set("taskId", taskId);
+  window.open(url.href, "_blank", "noopener");
 };
   
 window.cancelEdit = function (btn) {

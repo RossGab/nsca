@@ -42,7 +42,7 @@ button:disabled{background:#999;cursor:not-allowed}
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Task Report WIP <span class="app-version">V.R.WIP.2</span></h1>
+      <h1 class="app-title">Task Report WIP <span class="app-version">V.R.WIP.3</span></h1>
     </div>
   </div>
   <div class="app-header-actions">
@@ -71,6 +71,7 @@ button:disabled{background:#999;cursor:not-allowed}
 <input type="date" id="dateTo">
 
 <button id="loadButton" onclick="loadTasksForSelectedDates()">🔄 Load Firestore</button>
+<button id="historicalRefreshButton" type="button">Check Historical Changes</button>
 <button id="exportButton" onclick="generateReport()" disabled>⬇ Export XLSX</button>
 </div>
 
@@ -115,6 +116,7 @@ const dmzFilter=document.getElementById("dmzFilter");
 const loadButton=document.getElementById("loadButton");
 const exportButton=document.getElementById("exportButton");
 const progressBox=document.getElementById("progressBox");
+const historicalRefreshButton=document.getElementById("historicalRefreshButton");
 const dataStatus=document.getElementById("dataStatus");
 
 function getTodayPH(){
@@ -653,6 +655,70 @@ window.generateReport=async function(){
 
 const CLOUD_REPORT_URL=
   "https://asia-southeast1-driva-pwa.cloudfunctions.net/generateTaskReport";
+const HISTORICAL_REFRESH_URL=
+  "https://asia-southeast1-driva-pwa.cloudfunctions.net/refreshHistoricalTaskSnapshot";
+
+function addDays(dateText,amount){
+  const date=new Date(`${dateText}T00:00:00+08:00`);
+  date.setUTCDate(date.getUTCDate()+amount);
+  return date.toLocaleDateString("en-CA",{timeZone:"Asia/Manila"});
+}
+
+historicalRefreshButton.addEventListener("click",async()=>{
+  const from=dateFrom.value;
+  const to=dateTo.value;
+  if(!from||!to||from>to){
+    alert("Select a valid date range first.");
+    return;
+  }
+  const historicalCutoff=addDays(getTodayPH(),-2);
+  const historicalTo=to<historicalCutoff?to:historicalCutoff;
+  if(from>historicalTo){
+    alert("The selected range has no historical dates yet. Today and yesterday are not snapshotted.");
+    return;
+  }
+
+  const dates=[];
+  for(let date=from;date<=historicalTo;date=addDays(date,1))dates.push(date);
+  historicalRefreshButton.disabled=true;
+  loadButton.disabled=true;
+  exportButton.disabled=true;
+  historicalRefreshButton.textContent="Checking historical changes…";
+
+  try{
+    let changed=0;
+    for(let index=0;index<dates.length;index++){
+      const date=dates[index];
+      showReportProgress(
+        "Checking historical snapshots",
+        `${date} • ${index+1}/${dates.length}`,
+        index/dates.length*100
+      );
+      const response=await fetch(HISTORICAL_REFRESH_URL,{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({date})
+      });
+      const result=await response.json().catch(()=>({}));
+      if(!response.ok)throw new Error(result.error||`Snapshot check failed for ${date}.`);
+      changed+=Number(result.changedTasks||0);
+    }
+    showReportProgress(
+      "Historical snapshots updated",
+      `${dates.length} date(s) checked • ${changed.toLocaleString()} changed task(s) merged`,
+      100
+    );
+  }catch(error){
+    console.error("Historical snapshot refresh failed:",error);
+    showReportProgress("Historical refresh failed",error.message||String(error),0);
+    alert(error.message||"Historical snapshot refresh failed.");
+  }finally{
+    historicalRefreshButton.disabled=false;
+    historicalRefreshButton.textContent="Check Historical Changes";
+    loadButton.disabled=false;
+    exportButton.disabled=false;
+  }
+});
 
 // WIP export path: Firestore reading and XLSX construction happen inside the
 // Cloud Function. The browser only receives the finished compressed stream.
