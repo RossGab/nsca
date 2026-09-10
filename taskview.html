@@ -102,7 +102,7 @@ body {
 
   <div class="admin-header">
   <img src="./logo.jpg" class="admin-logo">
-  <h2>Tasks Viewer V.R.1.1.0.1.8</h2>
+  <h2>Tasks Viewer V.R.1.1.0.1.9</h2>
 
   <div>
     <input type="date" id="from">
@@ -177,13 +177,14 @@ onAuthStateChanged(auth, async (user) => {
 
   let role = null;
   let userBA = [];
-  let viewerKey = null;
+  let userConfigKey = null;
   
   // 🔍 CHECK ADMIN
-  Object.values(data.admin || {}).forEach(u => {
+  Object.entries(data.admin || {}).forEach(([key, u]) => {
     if (String(u.email || "").toLowerCase() === email && u.active) {
       role = "admin";
-      userBA = []; // admin sees all configured BAs
+      userBA = Array.isArray(u.ba) ? u.ba : [];
+      userConfigKey = key;
     }
   });
   
@@ -192,7 +193,7 @@ onAuthStateChanged(auth, async (user) => {
     if (String(u.email || "").toLowerCase() === email && u.active) {
       role = "viewer";
       userBA = Array.isArray(u.ba) ? u.ba : [];
-      viewerKey = key;
+      userConfigKey = key;
     }
   });
 
@@ -220,11 +221,11 @@ onAuthStateChanged(auth, async (user) => {
   await loadTasks();
 
   // Apply BA assignment changes even while this page remains open.
-  if (role === "viewer" && viewerKey) {
+  if (userConfigKey) {
     let assignmentSignature = JSON.stringify(
       [...window.USER_BA].map(normalizeBAName).sort()
     );
-    onValue(ref(db, `config/taskviewUsers/viewer/${viewerKey}`), async userSnap => {
+    onValue(ref(db, `config/taskviewUsers/${role}/${userConfigKey}`), async userSnap => {
       const viewer = userSnap.val();
       const updatedBAs =
         viewer?.active && Array.isArray(viewer.ba) ? viewer.ba : [];
@@ -336,10 +337,6 @@ function isBAInDisplayConfig(ba){
 }
 
 function getFirestoreAllowedBAs(){
-  if (window.USER_ROLE === "admin") {
-    return [...CONFIGURED_BA_VALUES];
-  }
-
   const viewerBAs = new Set((window.USER_BA || []).map(normalizeBAName));
   return CONFIGURED_BA_VALUES.filter(ba => viewerBAs.has(normalizeBAName(ba)));
 }
@@ -583,10 +580,8 @@ function buildBAFilters(){
   );
 
   // 🔥 restrict BA filters for viewer
-  if (window.USER_ROLE !== "admin") {
-    const viewerBAs = new Set((window.USER_BA || []).map(normalizeBAName));
-    bas = new Set([...bas].filter(ba => viewerBAs.has(normalizeBAName(ba))));
-  }
+  const viewerBAs = new Set((window.USER_BA || []).map(normalizeBAName));
+  bas = new Set([...bas].filter(ba => viewerBAs.has(normalizeBAName(ba))));
 
   [...bas].sort().forEach(ba => {
     const label = document.createElement("label");
@@ -618,10 +613,8 @@ function render(){
   tasks = tasks.filter(t => t.BA !== "Test" && isBAInDisplayConfig(t.BA));
 
   // 🔥 APPLY USER BA FILTER
-  if (window.USER_ROLE !== "admin") {
-    const viewerBAs = new Set((window.USER_BA || []).map(normalizeBAName));
-    tasks = tasks.filter(t => viewerBAs.has(normalizeBAName(t.BA)));
-  }
+  const viewerBAs = new Set((window.USER_BA || []).map(normalizeBAName));
+  tasks = tasks.filter(t => viewerBAs.has(normalizeBAName(t.BA)));
 
   if(SEARCH_TERM){
     tasks = tasks.filter(t =>
