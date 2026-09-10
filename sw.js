@@ -1,4 +1,4 @@
-const CACHE_VERSION = "v27-manual-task-changes";
+const CACHE_VERSION = "v28-submit-feedback";
 const CACHE_NAME = `field-task-app-${CACHE_VERSION}`;
 
 const BASE_PATH = "/nsca/";
