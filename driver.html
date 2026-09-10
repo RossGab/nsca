@@ -3440,6 +3440,11 @@ cameraInput.onchange = async e => {
   
   window.submitTask = async function(taskKey) {
 
+  let btn = null;
+  let ownsSubmitLock = false;
+
+  try {
+
   // 🔒 DO NOT COMPLETE ANOTHER TASK DURING SYNC
   if (SYNC_RUNNING) {
     alert(
@@ -3453,16 +3458,20 @@ cameraInput.onchange = async e => {
 
   if (!(await validateDynamic(taskKey))) return;
 
-  if (submitLock[taskKey]) return;
+  if (submitLock[taskKey]) {
+    alert("⏳ This task is already being submitted. Please wait.");
+    return;
+  }
   submitLock[taskKey] = true;
+  ownsSubmitLock = true;
 
-  const btn = document.querySelector(
+  btn = document.querySelector(
     `button[onclick="submitTask('${taskKey}')"]`
   );
 
   if (btn) {
     btn.disabled = true;
-    btn.innerText = "📦 Saved Locally";
+    btn.innerText = "⏳ Submitting...";
   }
 
   const photos = PHOTO_BUFFER[taskKey];
@@ -3671,14 +3680,26 @@ updateTaskMapMarkerAfterLocalSubmit(
   removeTaskFromUI(taskKey);
   
   
-  submitLock[taskKey] = false;
-  if (btn) {
-    btn.disabled = false;
-    btn.innerText = "✅ Submit Task";
-  }
-  
-  
   return;
+  } catch (error) {
+    console.error("Submit task failed:", { taskKey, error });
+
+    alert(
+      "❌ TASK WAS NOT SUBMITTED\n\n" +
+      "Task: " + taskKey + "\n\n" +
+      "Reason: " + (error?.message || String(error)) + "\n\n" +
+      "Your task and captured photos remain saved on this device. Please try again."
+    );
+  } finally {
+    if (ownsSubmitLock) {
+      submitLock[taskKey] = false;
+    }
+
+    if (btn && document.body.contains(btn)) {
+      btn.disabled = false;
+      btn.innerText = "✅ Submit Task";
+    }
+  }
   }
 
 // =====================================================
