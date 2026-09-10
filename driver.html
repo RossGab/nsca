@@ -637,7 +637,7 @@ import {
 import { getStorage, ref as sRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js";
 import { increment } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
   
-const VERSION = "V.R.0.0.16.1.4.17";
+const VERSION = "V.R.0.0.16.1.4.18";
 const BILLING_CACHE = {};
 window.BILLING_CACHE = BILLING_CACHE;
 const DRIVER_UI_CACHE = {};
@@ -3104,6 +3104,8 @@ function syncDynamicFields(taskKey) {
   });
   // ✅ PERSIST FORM STATE
   const all = loadFormCache();
+  // Move the active task to the newest position so cache pruning preserves it.
+  delete all[taskKey];
   all[taskKey] = BILLING_CACHE[taskKey];
   saveFormCache(all);
 
@@ -3121,11 +3123,45 @@ function syncDynamicFields(taskKey) {
 }
 
 function loadFormCache() {
-  return JSON.parse(localStorage.getItem(FORM_CACHE_KEY) || "{}");
+  try {
+    const parsed = JSON.parse(localStorage.getItem(FORM_CACHE_KEY) || "{}");
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed
+      : {};
+  } catch (error) {
+    console.warn("Invalid driver form cache was discarded:", error);
+    localStorage.removeItem(FORM_CACHE_KEY);
+    return {};
+  }
 }
 
 function saveFormCache(cache) {
-  localStorage.setItem(FORM_CACHE_KEY, JSON.stringify(cache));
+  // This cache is only a convenience copy. IndexedDB remains the task/photo
+  // source of truth. Keep a bounded number of recent forms so localStorage can
+  // never prevent Submit from completing.
+  const recentEntries = Object.entries(cache || {}).slice(-100);
+  const boundedCache = Object.fromEntries(recentEntries);
+
+  try {
+    localStorage.setItem(FORM_CACHE_KEY, JSON.stringify(boundedCache));
+    return true;
+  } catch (error) {
+    console.warn("Driver form cache is full; pruning older forms:", error);
+  }
+
+  try {
+    const smallerCache = Object.fromEntries(recentEntries.slice(-25));
+    localStorage.removeItem(FORM_CACHE_KEY);
+    localStorage.setItem(FORM_CACHE_KEY, JSON.stringify(smallerCache));
+    return true;
+  } catch (error) {
+    // Do not block submission when this optional cache is unavailable.
+    console.warn("Driver form cache is unavailable; continuing with IndexedDB:", error);
+    try {
+      localStorage.removeItem(FORM_CACHE_KEY);
+    } catch {}
+    return false;
+  }
 }
 
 let lastSentTime = 0;
@@ -3691,6 +3727,10 @@ updateTaskMapMarkerAfterLocalSubmit(
   // 🧠 Photos already saved to IndexedDB at capture time
   delete PHOTO_BUFFER[taskKey];
   ACTIVE_CAPTURE_TASK = null;
+
+  const completedFormCache = loadFormCache();
+  delete completedFormCache[taskKey];
+  saveFormCache(completedFormCache);
   
   removeTaskFromUI(taskKey);
   
