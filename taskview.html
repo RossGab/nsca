@@ -36,6 +36,35 @@ body {
   animation:spin 1s linear infinite;
 }
 
+#databaseLoading {
+  display:none;
+  align-items:center;
+  gap:10px;
+  background:#eaf4ff;
+  color:#124f86;
+  border:1px solid #9bc8ef;
+  border-radius:8px;
+  padding:10px 12px;
+  margin-bottom:10px;
+  font-weight:bold;
+}
+
+#databaseLoading.complete {
+  background:#eaf8ee;
+  color:#176b32;
+  border-color:#9bd3aa;
+}
+
+.database-spinner {
+  width:18px;
+  height:18px;
+  flex:0 0 18px;
+  border:3px solid #bdd9ef;
+  border-top-color:#1676c2;
+  border-radius:50%;
+  animation:spin .8s linear infinite;
+}
+
 @keyframes spin { to { transform:rotate(360deg);} }
 
 .task {
@@ -73,7 +102,7 @@ body {
 
   <div class="admin-header">
   <img src="./logo.jpg" class="admin-logo">
-  <h2>Tasks Viewer V.R.1.1.0.1.5</h2>
+  <h2>Tasks Viewer V.R.1.1.0.1.7</h2>
 
   <div>
     <input type="date" id="from">
@@ -93,6 +122,11 @@ body {
 
 <div id="loadingScreen">
   <div class="spinner"></div>
+</div>
+
+<div id="databaseLoading" role="status" aria-live="polite">
+  <span class="database-spinner"></span>
+  <span id="databaseLoadingText">Reading database...</span>
 </div>
 
 <div id="taskList"></div>
@@ -286,17 +320,9 @@ function normalizeBAName(value){
   return String(value || "").trim().toUpperCase();
 }
 
-function matchesConfiguredBA(taskBA,configuredBA){
-  const taskValue=normalizeBAName(taskBA);
-  const configuredValue=normalizeBAName(configuredBA);
-  return taskValue===configuredValue||taskValue.startsWith(`${configuredValue} `);
-}
-
 function isBAInDisplayConfig(ba){
   // Preserve the previous behavior if no BA display list has been configured.
-  return !CONFIGURED_BAS.size || CONFIGURED_BA_VALUES.some(configuredBA =>
-    matchesConfiguredBA(ba,configuredBA)
-  );
+  return !CONFIGURED_BAS.size || CONFIGURED_BAS.has(normalizeBAName(ba));
 }
 
 function getFirestoreAllowedBAs(){
@@ -309,21 +335,7 @@ function getFirestoreAllowedBAs(){
 }
 
 function getFirestoreBAQueryValues(allowedBAs){
-  const jobTypes = Object.keys(DRIVER_UI_CONFIG || {})
-    .map(normalizeBAName)
-    .filter(Boolean);
-  const values = new Set();
-
-  allowedBAs.forEach(rawBA => {
-    const ba = normalizeBAName(rawBA);
-    if (!ba) return;
-    values.add(ba);
-    jobTypes.forEach(jobType => {
-      if (!ba.endsWith(` ${jobType}`)) values.add(`${ba} ${jobType}`);
-    });
-  });
-
-  return [...values];
+  return [...new Set(allowedBAs.map(normalizeBAName).filter(Boolean))];
 }
 
 function chunkValues(values,size=30){
@@ -373,10 +385,23 @@ async function idbSet(key, val) {
   });
 }
 
+function setDatabaseLoading(reading,message){
+  const box=document.getElementById("databaseLoading");
+  const text=document.getElementById("databaseLoadingText");
+  if(!box||!text)return;
+
+  box.style.display="flex";
+  box.classList.toggle("complete",!reading);
+  const spinner=box.querySelector(".database-spinner");
+  if(spinner)spinner.style.display=reading?"block":"none";
+  text.textContent=message;
+}
+
 /* LOAD TASKS */
 async function loadTasks(){
   const generation = ++LOAD_GENERATION;
   showLoader();
+  setDatabaseLoading(true,"Checking saved snapshots and reading Firestore...");
 
   const keys = getKeys(from.value,to.value);
   SNAPSHOT_TASKS = [];
@@ -406,6 +431,13 @@ async function loadTasks(){
     backgroundValidate(keys, generation),
     loadFirestoreTasks(keys, generation)
   ]);
+
+  if(generation===LOAD_GENERATION){
+    setDatabaseLoading(
+      false,
+      `Database check complete - ${TASKS.length.toLocaleString()} task(s) available.`
+    );
+  }
 }
 
 async function backgroundValidate(keys, generation){
@@ -489,6 +521,11 @@ async function loadFirestoreTasks(keys, generation){
         for (const baField of ["ba", "BA"]) {
           if (generation !== LOAD_GENERATION) return;
 
+          setDatabaseLoading(
+            true,
+            `Reading Firestore for ${assignedDate} — ${liveTasksById.size.toLocaleString()} completed task(s) found so far…`
+          );
+
           const snapshot = await getDocs(query(
             collection(firestore, TASK_COLLECTION),
             where("assignedDate", "==", assignedDate),
@@ -537,9 +574,8 @@ function buildBAFilters(){
 
   // 🔥 restrict BA filters for viewer
   if (window.USER_ROLE !== "admin" && window.USER_BA?.length) {
-    bas = new Set([...bas].filter(ba =>
-      window.USER_BA.some(configuredBA => matchesConfiguredBA(ba,configuredBA))
-    ));
+    const viewerBAs = new Set(window.USER_BA.map(normalizeBAName));
+    bas = new Set([...bas].filter(ba => viewerBAs.has(normalizeBAName(ba))));
   }
 
   [...bas].sort().forEach(ba => {
@@ -573,9 +609,8 @@ function render(){
 
   // 🔥 APPLY USER BA FILTER
   if (window.USER_ROLE !== "admin" && window.USER_BA?.length) {
-    tasks = tasks.filter(t =>
-      window.USER_BA.some(configuredBA => matchesConfiguredBA(t.BA,configuredBA))
-    );
+    const viewerBAs = new Set(window.USER_BA.map(normalizeBAName));
+    tasks = tasks.filter(t => viewerBAs.has(normalizeBAName(t.BA)));
   }
 
   if(SEARCH_TERM){
