@@ -73,7 +73,7 @@ body {
 
   <div class="admin-header">
   <img src="./logo.jpg" class="admin-logo">
-  <h2>Tasks Viewer v1.1.0.1.3</h2>
+  <h2>Tasks Viewer V.R.1.1.0.1.4</h2>
 
   <div>
     <input type="date" id="from">
@@ -428,7 +428,7 @@ async function backgroundValidate(keys, generation){
 }
 
 async function loadFirestoreTasks(keys, generation){
-  const liveTasks = [];
+  const liveTasksById = new Map();
   const allowedBAs = getFirestoreAllowedBAs();
 
   if (!allowedBAs.length) {
@@ -448,21 +448,29 @@ async function loadFirestoreTasks(keys, generation){
       for (const ba of allowedBAs) {
         if (generation !== LOAD_GENERATION) return;
 
-        const snapshot = await getDocs(query(
-          collection(firestore, TASK_COLLECTION),
-          where("assignedDate", "==", assignedDate),
-          where("status", "==", "COMPLETED"),
-          where("BA", "==", ba)
-        ));
+        // Current task documents use lowercase `ba`; older documents may use
+        // uppercase `BA`. Firestore field names are case-sensitive, so query
+        // both and merge by document ID.
+        for (const baField of ["ba", "BA"]) {
+          if (generation !== LOAD_GENERATION) return;
 
-        snapshot.forEach(docSnap => {
-          const task = normalizeViewerTask({ _key: docSnap.id, ...docSnap.data() });
-          if (isVisibleCompletedTask(task)) liveTasks.push(task);
-        });
+          const snapshot = await getDocs(query(
+            collection(firestore, TASK_COLLECTION),
+            where("assignedDate", "==", assignedDate),
+            where("status", "==", "COMPLETED"),
+            where(baField, "==", ba)
+          ));
+
+          snapshot.forEach(docSnap => {
+            const task = normalizeViewerTask({ _key: docSnap.id, ...docSnap.data() });
+            if (isVisibleCompletedTask(task)) liveTasksById.set(docSnap.id, task);
+          });
+        }
       }
     }
 
     if (generation !== LOAD_GENERATION) return;
+    const liveTasks = [...liveTasksById.values()];
     FIRESTORE_TASKS = liveTasks;
     rebuildCombinedTasks();
     console.log(
