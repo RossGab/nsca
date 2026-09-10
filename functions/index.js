@@ -122,6 +122,12 @@ function cellValue(value) {
   if (value === undefined || value === null) return "";
   if (value instanceof Timestamp) return value.toDate();
   if (value instanceof Date) return value;
+  if (typeof value === "object" && Number.isFinite(value._seconds)) {
+    return new Date(value._seconds * 1000 + Math.floor(Number(value._nanoseconds || 0) / 1000000));
+  }
+  if (typeof value === "object" && Number.isFinite(value.seconds)) {
+    return new Date(value.seconds * 1000 + Math.floor(Number(value.nanoseconds || 0) / 1000000));
+  }
   let result = value;
   if (typeof value === "object") {
     try { result = JSON.stringify(value); }
@@ -190,17 +196,18 @@ exports.generateTaskReport = onRequest({
   }
 
   try {
-    const snapshot = await db.collection(REPORT_COLLECTION)
-      .where("createdAt", ">=", Timestamp.fromMillis(bounds.startMillis))
-      .where("createdAt", "<=", Timestamp.fromMillis(bounds.endMillis))
-      .get();
     const rows = [];
     const headerSet = new Set(["TASK_ID"]);
 
-    snapshot.forEach(document => {
-      const raw = document.data() || {};
+    const sourceTasks = await loadHybridReportTasks(
+      db,
+      String(req.body.from),
+      String(req.body.to)
+    );
+    sourceTasks.forEach(sourceTask => {
+      const raw = sourceTask || {};
       if (raw.deleted === true) return;
-      const row = normalizedTask(document.id, raw);
+      const row = normalizedTask(raw._key, raw);
       if (statuses.size && !statuses.has(String(row.status))) return;
       if (jobTypes.size && !jobTypes.has(String(row.JOBTYPE))) return;
       if (bas.size && !bas.has(String(row.BA))) return;
@@ -279,6 +286,97 @@ function snapshotDateIsEligible(dateText) {
   return dateText <= formatter.format(cutoff);
 }
 
+function reportDateStrings(from, to) {
+  const start = parseDateOnly(from);
+  const end = parseDateOnly(to);
+  if (!start || !end) return [];
+  const dates = [];
+  const cursor = new Date(Date.UTC(start.year, start.month - 1, start.day));
+  const last = new Date(Date.UTC(end.year, end.month - 1, end.day));
+  while (cursor <= last) {
+    dates.push(cursor.toISOString().slice(0, 10));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return dates;
+}
+
+async function refreshSnapshotForDate(db, date) {
+  const manifestRef = db.collection("reportSnapshotManifests").doc(date);
+  const file = admin.storage().bucket().file(`task-report-snapshots/${date}.json.gz`);
+  const token = crypto.randomUUID();
+  const checkStartedMillis = Date.now();
+  try {
+    await db.runTransaction(async transaction => {
+      const manifest = await transaction.get(manifestRef);
+      if (Number(manifest.data()?.lockedUntil || 0) > Date.now()) throw new Error("SNAPSHOT_BUSY");
+      transaction.set(manifestRef, { lockToken: token, lockedUntil: Date.now() + 10 * 60 * 1000 }, { merge: true });
+    });
+    const manifest = (await manifestRef.get()).data() || {};
+    let tasksById = new Map();
+    let watermarkMillis = Number(manifest.watermarkMillis || 0);
+    let fullBuild = !manifest.snapshotExists;
+    if (!fullBuild) {
+      try {
+        const [compressed] = await file.download();
+        const saved = JSON.parse(zlib.gunzipSync(compressed).toString("utf8"));
+        tasksById = new Map((saved.tasks || []).map(task => [task._key, task]));
+      } catch {
+        fullBuild = true; tasksById = new Map(); watermarkMillis = 0;
+      }
+    }
+    let taskQuery = db.collection(REPORT_COLLECTION).where("assignedDate", "==", date);
+    if (!fullBuild && watermarkMillis) {
+      taskQuery = taskQuery.where("updatedAt", ">", Timestamp.fromMillis(watermarkMillis));
+    }
+    const changes = await taskQuery.get();
+    changes.forEach(document => {
+      const raw = document.data() || {};
+      if (raw.deleted === true || String(raw.assignedDate || "") !== date) tasksById.delete(document.id);
+      else tasksById.set(document.id, { _key: document.id, ...raw });
+    });
+    const payload = { date, generatedAt: new Date().toISOString(), watermarkMillis: checkStartedMillis, tasks: [...tasksById.values()] };
+    await file.save(zlib.gzipSync(Buffer.from(JSON.stringify(payload))), {
+      resumable: false,
+      metadata: { contentType: "application/json", contentEncoding: "gzip" }
+    });
+    await manifestRef.set({
+      date, snapshotExists: true, taskCount: tasksById.size,
+      watermarkMillis: checkStartedMillis, generatedAt: Timestamp.now(),
+      changedTasks: changes.size, lockedUntil: 0, lockToken: null
+    }, { merge: true });
+    return { date, fullBuild, changedTasks: changes.size, taskCount: tasksById.size, tasks: [...tasksById.values()] };
+  } finally {
+    try {
+      const current = await manifestRef.get();
+      if (current.data()?.lockToken === token) await manifestRef.set({ lockedUntil: 0, lockToken: null }, { merge: true });
+    } catch (error) {
+      console.error("Unable to release snapshot lock", date, error);
+    }
+  }
+}
+
+async function loadHybridReportTasks(db, from, to, onDate) {
+  const rows = [];
+  const dates = reportDateStrings(from, to);
+  for (let index = 0; index < dates.length; index++) {
+    const date = dates[index];
+    let dailyTasks;
+    if (snapshotDateIsEligible(date)) {
+      const result = await refreshSnapshotForDate(db, date);
+      dailyTasks = result.tasks;
+      if (onDate) onDate({ ...result, index, totalDates: dates.length, source: "snapshot" });
+    } else {
+      const live = await db.collection(REPORT_COLLECTION).where("assignedDate", "==", date).get();
+      dailyTasks = live.docs.map(document => ({ _key: document.id, ...document.data() }));
+      if (onDate) onDate({ date, changedTasks: live.size, taskCount: live.size, index, totalDates: dates.length, source: "live" });
+    }
+    for (const task of dailyTasks) {
+      if (task.deleted !== true && String(task.assignedDate || "") === date) rows.push(task);
+    }
+  }
+  return rows;
+}
+
 exports.refreshHistoricalTaskSnapshot = onRequest({
   region: "asia-southeast1",
   timeoutSeconds: 540,
@@ -308,6 +406,7 @@ exports.refreshHistoricalTaskSnapshot = onRequest({
   const bucket = admin.storage().bucket();
   const file = bucket.file(`task-report-snapshots/${date}.json.gz`);
   const token = crypto.randomUUID();
+  const checkStartedMillis = Date.now();
 
   try {
     await db.runTransaction(async transaction => {
@@ -341,12 +440,10 @@ exports.refreshHistoricalTaskSnapshot = onRequest({
 
     let query = db.collection(REPORT_COLLECTION).where("assignedDate", "==", date);
     if (!fullBuild && watermarkMillis) {
-      query = query.where(
-        "updatedAt", ">", Timestamp.fromMillis(Math.max(0, watermarkMillis - 5 * 60 * 1000))
-      );
+      query = query.where("updatedAt", ">", Timestamp.fromMillis(watermarkMillis));
     }
     const snapshot = await query.get();
-    let latestWatermark = watermarkMillis;
+    let latestWatermark = checkStartedMillis;
     snapshot.forEach(document => {
       const raw = document.data() || {};
       const updatedMillis = raw.updatedAt?.toMillis?.() || 0;
@@ -401,6 +498,66 @@ exports.refreshHistoricalTaskSnapshot = onRequest({
       }
     } catch (error) {
       console.error("Unable to release snapshot lock", date, error);
+    }
+  }
+});
+
+exports.prepareTaskReport = onRequest({
+  region: "asia-southeast1",
+  timeoutSeconds: 1800,
+  memory: "2GiB",
+  cpu: 2,
+  maxInstances: 2,
+  concurrency: 1,
+  cors: false
+}, async (req, res) => {
+  const originAllowed = setReportCors(req, res);
+  if (req.method === "OPTIONS") {
+    res.status(originAllowed ? 204 : 403).end();
+    return;
+  }
+  if (req.method !== "POST" || !originAllowed) {
+    res.status(403).json({ error: "Report preparation request is not allowed." });
+    return;
+  }
+  if (!reportBounds(req.body?.from, req.body?.to)) {
+    res.status(400).json({ error: `Select a valid range of ${REPORT_MAX_DAYS} days or less.` });
+    return;
+  }
+  try {
+    const db = getFirestore(REPORT_DATABASE_ID);
+    const sourceStats = { snapshotDates: 0, liveDates: 0, changedTasks: 0 };
+    const tasks = await loadHybridReportTasks(
+      db,
+      String(req.body.from),
+      String(req.body.to),
+      info => {
+        if (info.source === "snapshot") sourceStats.snapshotDates++;
+        else sourceStats.liveDates++;
+        sourceStats.changedTasks += Number(info.changedTasks || 0);
+      }
+    );
+    const normalized = tasks.map(raw => normalizedTask(raw._key, raw));
+    const values = field => [...new Set(
+      normalized.map(task => String(task[field] || "")).filter(Boolean)
+    )].sort((a, b) => a.localeCompare(b, undefined, {
+      numeric: true,
+      sensitivity: "base"
+    }));
+    res.json({
+      taskCount: normalized.length,
+      statuses: values("status"),
+      jobTypes: values("JOBTYPE"),
+      bas: values("BA"),
+      dmzs: values("DMZ"),
+      ...sourceStats
+    });
+  } catch (error) {
+    console.error("Task report preparation failed", error);
+    if (error.message === "SNAPSHOT_BUSY") {
+      res.status(409).json({ error: "A historical snapshot is already being refreshed. Please retry shortly." });
+    } else {
+      res.status(500).json({ error: error.message || "Report preparation failed." });
     }
   }
 });

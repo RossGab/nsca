@@ -42,7 +42,7 @@ button:disabled{background:#999;cursor:not-allowed}
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Task Report WIP <span class="app-version">V.R.WIP.3</span></h1>
+      <h1 class="app-title">Task Report WIP <span class="app-version">V.R.WIP.4</span></h1>
     </div>
   </div>
   <div class="app-header-actions">
@@ -70,12 +70,12 @@ button:disabled{background:#999;cursor:not-allowed}
 <input type="date" id="dateFrom">
 <input type="date" id="dateTo">
 
-<button id="loadButton" onclick="loadTasksForSelectedDates()">🔄 Load Firestore</button>
+<button id="loadButton" onclick="loadTasksForSelectedDates()">🔄 Prepare Report Data</button>
 <button id="historicalRefreshButton" type="button">Check Historical Changes</button>
 <button id="exportButton" onclick="generateReport()" disabled>⬇ Export XLSX</button>
 </div>
 
-<p class="note">Date range is based on <b>Created Date</b> using Philippine time.</p>
+<p class="note">Snapshot and live data are based on <b>Assigned Date</b> using Philippine time.</p>
 <div id="dataStatus">☁ Firestore</div>
 <div id="progressBox"></div>
 
@@ -106,6 +106,7 @@ const db=initializeFirestore(app,{}, "drver-task");
 const TASK_COLLECTION="TASK";
 
 let ALL_TASKS=[];
+let REPORT_TASK_COUNT=0;
 
 const dateFrom=document.getElementById("dateFrom");
 const dateTo=document.getElementById("dateTo");
@@ -199,43 +200,9 @@ function normalizeTask(docSnap){
   };
 }
 
-async function fetchTasks(from,to,onProgress=()=>{}){
-  const q=query(
-    collection(db,TASK_COLLECTION),
-    where("createdAt",">=",Timestamp.fromDate(getPHStartOfDay(from))),
-    where("createdAt","<=",Timestamp.fromDate(getPHEndOfDay(to)))
-  );
-
-  const snap=await getDocs(q);
-  const tasks=[];
-
-  const documents=snap.docs;
-  onProgress(0,documents.length,"processing");
-  for(let i=0;i<documents.length;i++){
-    const docSnap=documents[i];
-    const task=normalizeTask(docSnap);
-    if(task.deleted!==true)tasks.push(task);
-
-    if((i+1)%500===0||i===documents.length-1){
-      onProgress(i+1,documents.length,"processing");
-      await new Promise(resolve=>setTimeout(resolve,0));
-    }
-  }
-
-  onProgress(documents.length,documents.length,"sorting");
-  await new Promise(resolve=>setTimeout(resolve,0));
-  tasks.sort((a,b)=>{
-    const da=toJSDate(a.createdAt)?.getTime()||0;
-    const db=toJSDate(b.createdAt)?.getTime()||0;
-    return da-db;
-  });
-
-  return tasks;
-}
-
 function setLoading(on,text=""){
   loadButton.disabled=on;
-  exportButton.disabled=on||ALL_TASKS.length===0;
+  exportButton.disabled=on||REPORT_TASK_COUNT===0;
   progressBox.style.display=on?"block":"none";
   if(on)progressBox.textContent=text;
 }
@@ -280,74 +247,12 @@ window.loadTasksForSelectedDates=async function(){
     return;
   }
 
-  if(dayCount(from,to)>180){
-    alert("Maximum date range is 180 days.");
+  if(dayCount(from,to)>62){
+    alert("Maximum snapshot report range is 62 days.");
     return;
   }
 
-  setLoading(true,"Loading tasks directly from Firestore...");
-  const loadStartedAt=Date.now();
-  const loadElapsed=()=>`${Math.max(1,Math.round((Date.now()-loadStartedAt)/1000))} second(s) elapsed`;
-  showReportProgress(
-    "Connecting to Firestore",
-    `Waiting for tasks in the selected date range • ${loadElapsed()}`,
-    null,
-    true
-  );
-  let queryProgressTimer=setInterval(()=>{
-    showReportProgress(
-      "Loading tasks from Firestore",
-      `Still working — waiting for Firestore • ${loadElapsed()}`,
-      null,
-      true
-    );
-  },1000);
-
-  try{
-    ALL_TASKS=await fetchTasks(from,to,(processed,total,phase)=>{
-      if(queryProgressTimer){
-        clearInterval(queryProgressTimer);
-        queryProgressTimer=null;
-      }
-
-      if(phase==="sorting"){
-        showReportProgress(
-          "Finalizing loaded tasks",
-          `${total.toLocaleString()} tasks received • Sorting by date • ${loadElapsed()}`,
-          null,
-          true
-        );
-        return;
-      }
-
-      const percent=total?processed/total*100:100;
-      showReportProgress(
-        "Processing Firestore results",
-        `${processed.toLocaleString()} / ${total.toLocaleString()} tasks • ${loadElapsed()}`,
-        percent
-      );
-    });
-    buildFilterOptions();
-    exportButton.disabled=ALL_TASKS.length===0;
-
-    dataStatus.textContent=
-      `☁ Firestore — ${ALL_TASKS.length.toLocaleString()} task(s) loaded`;
-
-    if(!ALL_TASKS.length){
-      dataStatus.textContent=
-        "☁ Firestore — No tasks found for the selected Created Date range.";
-    }
-  }catch(error){
-    console.error("Firestore report load failed:",error);
-    ALL_TASKS=[];
-    exportButton.disabled=true;
-    dataStatus.innerHTML=
-      `<span class="error">❌ Firestore load failed: ${escapeHtml(error.message||String(error))}</span>`;
-    alert("Failed to load tasks from Firestore. Check the browser console.");
-  }finally{
-    if(queryProgressTimer)clearInterval(queryProgressTimer);
-    setLoading(false);
-  }
+  return prepareTaskReportRange(from,to);
 };
 
 function buildFilterOptions(){
@@ -649,7 +554,7 @@ window.generateReport=async function(){
     alert("Failed to generate the XLSX report. Keep the page open and check the browser console.");
   }finally{
     loadButton.disabled=false;
-    exportButton.disabled=ALL_TASKS.length===0;
+    exportButton.disabled=REPORT_TASK_COUNT===0;
   }
 };
 
@@ -657,6 +562,98 @@ const CLOUD_REPORT_URL=
   "https://asia-southeast1-driva-pwa.cloudfunctions.net/generateTaskReport";
 const HISTORICAL_REFRESH_URL=
   "https://asia-southeast1-driva-pwa.cloudfunctions.net/refreshHistoricalTaskSnapshot";
+const PREPARE_REPORT_URL=
+  "https://asia-southeast1-driva-pwa.cloudfunctions.net/prepareTaskReport";
+
+function fillCheckboxValues(id,values,label){
+  const container=document.getElementById(id);
+  const previous=new Set(
+    [...container.querySelectorAll('input[type="checkbox"]:checked')].map(input=>input.value)
+  );
+  container.innerHTML="";
+  (values||[]).forEach(value=>{
+    const option=document.createElement("label");
+    const checkbox=document.createElement("input");
+    const text=document.createElement("span");
+    checkbox.type="checkbox";
+    checkbox.value=value;
+    checkbox.checked=previous.has(value);
+    text.textContent=value;
+    option.append(checkbox,text);
+    container.appendChild(option);
+  });
+  updateCheckboxLabel(id,label);
+}
+
+function fillSelectValues(id,values,label){
+  const select=document.getElementById(id);
+  const previous=select.value;
+  select.innerHTML=`<option value="">All ${label}</option>`;
+  (values||[]).forEach(value=>{
+    const option=document.createElement("option");
+    option.value=value;
+    option.textContent=value;
+    select.appendChild(option);
+  });
+  if((values||[]).includes(previous))select.value=previous;
+}
+
+async function prepareTaskReportRange(from,to){
+  setLoading(true,"Preparing snapshot report...");
+  historicalRefreshButton.disabled=true;
+  const startedAt=Date.now();
+  const elapsed=()=>`${Math.max(1,Math.round((Date.now()-startedAt)/1000))} second(s) elapsed`;
+  showReportProgress(
+    "Preparing report data",
+    `Refreshing historical snapshots and reading recent dates • ${elapsed()}`,
+    null,
+    true
+  );
+  const timer=setInterval(()=>{
+    showReportProgress(
+      "Preparing report data",
+      `Historical changes are being merged; recent dates remain live • ${elapsed()}`,
+      null,
+      true
+    );
+  },1000);
+  try{
+    const response=await fetch(PREPARE_REPORT_URL,{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({from,to})
+    });
+    const result=await response.json().catch(()=>({}));
+    if(!response.ok)throw new Error(result.error||`Report preparation failed (${response.status}).`);
+    REPORT_TASK_COUNT=Number(result.taskCount||0);
+    fillCheckboxValues("jobTypeFilter",result.jobTypes,"Job Types");
+    fillCheckboxValues("baFilter",result.bas,"BA");
+    fillSelectValues("dmzFilter",result.dmzs,"DMZ");
+    exportButton.disabled=REPORT_TASK_COUNT===0;
+    dataStatus.textContent=
+      `☁ Snapshot report — ${REPORT_TASK_COUNT.toLocaleString()} task(s) • `+
+      `${Number(result.snapshotDates||0)} snapshot date(s) • `+
+      `${Number(result.liveDates||0)} live date(s) • `+
+      `${Number(result.changedTasks||0).toLocaleString()} change(s) processed`;
+    showReportProgress(
+      "Report data ready",
+      `${REPORT_TASK_COUNT.toLocaleString()} task(s) available for filtering and export • ${elapsed()}`,
+      100
+    );
+    setTimeout(()=>{progressBox.style.display="none";},5000);
+  }catch(error){
+    console.error("Snapshot report preparation failed:",error);
+    REPORT_TASK_COUNT=0;
+    exportButton.disabled=true;
+    dataStatus.innerHTML=`<span class="error">❌ Snapshot preparation failed: ${escapeHtml(error.message||String(error))}</span>`;
+    showReportProgress("Preparation failed",error.message||String(error),0);
+    alert(error.message||"Snapshot report preparation failed.");
+  }finally{
+    clearInterval(timer);
+    historicalRefreshButton.disabled=false;
+    setLoading(false);
+  }
+}
 
 function addDays(dateText,amount){
   const date=new Date(`${dateText}T00:00:00+08:00`);
@@ -716,7 +713,7 @@ historicalRefreshButton.addEventListener("click",async()=>{
     historicalRefreshButton.disabled=false;
     historicalRefreshButton.textContent="Check Historical Changes";
     loadButton.disabled=false;
-    exportButton.disabled=false;
+    exportButton.disabled=REPORT_TASK_COUNT===0;
   }
 });
 
@@ -744,7 +741,7 @@ window.generateReport=async function(){
   const elapsed=()=>`${Math.max(1,Math.round((Date.now()-startedAt)/1000))} second(s) elapsed`;
   showReportProgress(
     "Cloud report requested",
-    `Firebase is reading tasks and building one Tasks worksheet • ${elapsed()}`,
+    `Firebase is refreshing snapshots, reading recent dates, and building one Tasks worksheet • ${elapsed()}`,
     null,
     true
   );
@@ -784,6 +781,7 @@ window.generateReport=async function(){
     }
 
     const taskCount=Number(response.headers.get("X-Task-Count")||0);
+    REPORT_TASK_COUNT=taskCount;
     const reader=response.body?.getReader();
     const chunks=[];
     let receivedBytes=0;
@@ -829,7 +827,7 @@ window.generateReport=async function(){
     alert(error.message||"Cloud report generation failed.");
   }finally{
     loadButton.disabled=false;
-    exportButton.disabled=false;
+    exportButton.disabled=REPORT_TASK_COUNT===0;
   }
 };
 
@@ -837,9 +835,10 @@ window.generateReport=async function(){
   el.addEventListener("change",()=>{
     if(el===jobTypeFilter)updateCheckboxLabel("jobTypeFilter","Job Types");
     if(el===baFilter)updateCheckboxLabel("baFilter","BA");
-    const count=getFilteredTasks().length;
-    dataStatus.textContent=
-      `☁ Firestore — ${ALL_TASKS.length.toLocaleString()} loaded / ${count.toLocaleString()} matching current filters`;
+    const selectedCount=getCheckedValues("jobTypeFilter").size+
+      getCheckedValues("baFilter").size+(statusFilter.value?1:0)+(dmzFilter.value?1:0);
+    dataStatus.dataset.filters=String(selectedCount);
+    dataStatus.title=`${selectedCount} active filter selection(s). Filters are applied during cloud export.`;
   });
 });
 
@@ -851,6 +850,7 @@ document.addEventListener("click",event=>{
 
 function markReportDateRangeChanged(){
   ALL_TASKS=[];
+  REPORT_TASK_COUNT=0;
   buildFilterOptions();
   exportButton.disabled=false;
   dataStatus.textContent="Select a date range and export through the Cloud Function. Load Firestore is optional for choosing task filters.";
