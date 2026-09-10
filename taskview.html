@@ -102,7 +102,7 @@ body {
 
   <div class="admin-header">
   <img src="./logo.jpg" class="admin-logo">
-  <h2>Tasks Viewer V.R.1.1.0.1.7</h2>
+  <h2>Tasks Viewer V.R.1.1.0.1.8</h2>
 
   <div>
     <input type="date" id="from">
@@ -139,7 +139,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
 import {
-  getDatabase, ref, get
+  getDatabase, ref, get, onValue
 } from
 "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 
@@ -176,35 +176,23 @@ onAuthStateChanged(auth, async (user) => {
   const data = snap.val() || {};
 
   let role = null;
-  let userBA = null;
+  let userBA = [];
+  let viewerKey = null;
   
   // 🔍 CHECK ADMIN
   Object.values(data.admin || {}).forEach(u => {
-    if (u.email === email && u.active) {
+    if (String(u.email || "").toLowerCase() === email && u.active) {
       role = "admin";
-      userBA = null; // admin sees all
+      userBA = []; // admin sees all configured BAs
     }
   });
   
   // 🔍 CHECK VIEWER
-  Object.values(data.viewer || {}).forEach(u => {
-    if (u.email === email && u.active) {
+  Object.entries(data.viewer || {}).forEach(([key, u]) => {
+    if (String(u.email || "").toLowerCase() === email && u.active) {
       role = "viewer";
-      userBA = u.ba || []; // 👈 IMPORTANT
-    }
-  });
-
-  // 🔍 CHECK ADMIN
-  Object.values(data.admin || {}).forEach(u => {
-    if (u.email === email && u.active) {
-      role = "admin";
-    }
-  });
-
-  // 🔍 CHECK VIEWER
-  Object.values(data.viewer || {}).forEach(u => {
-    if (u.email === email && u.active) {
-      role = "viewer";
+      userBA = Array.isArray(u.ba) ? u.ba : [];
+      viewerKey = key;
     }
   });
 
@@ -230,6 +218,28 @@ onAuthStateChanged(auth, async (user) => {
   // 🚀 LOAD DATA
   await loadConfig();
   await loadTasks();
+
+  // Apply BA assignment changes even while this page remains open.
+  if (role === "viewer" && viewerKey) {
+    let assignmentSignature = JSON.stringify(
+      [...window.USER_BA].map(normalizeBAName).sort()
+    );
+    onValue(ref(db, `config/taskviewUsers/viewer/${viewerKey}`), async userSnap => {
+      const viewer = userSnap.val();
+      const updatedBAs =
+        viewer?.active && Array.isArray(viewer.ba) ? viewer.ba : [];
+      const updatedSignature = JSON.stringify(
+        [...updatedBAs].map(normalizeBAName).sort()
+      );
+      if (updatedSignature === assignmentSignature) return;
+
+      assignmentSignature = updatedSignature;
+      window.USER_BA = updatedBAs;
+      FILTER_BA.clear();
+      await loadConfig();
+      await loadTasks();
+    });
+  }
 });
 
 /* SNAPSHOT */
@@ -326,11 +336,11 @@ function isBAInDisplayConfig(ba){
 }
 
 function getFirestoreAllowedBAs(){
-  if (window.USER_ROLE === "admin" || !window.USER_BA?.length) {
+  if (window.USER_ROLE === "admin") {
     return [...CONFIGURED_BA_VALUES];
   }
 
-  const viewerBAs = new Set(window.USER_BA.map(normalizeBAName));
+  const viewerBAs = new Set((window.USER_BA || []).map(normalizeBAName));
   return CONFIGURED_BA_VALUES.filter(ba => viewerBAs.has(normalizeBAName(ba)));
 }
 
@@ -573,8 +583,8 @@ function buildBAFilters(){
   );
 
   // 🔥 restrict BA filters for viewer
-  if (window.USER_ROLE !== "admin" && window.USER_BA?.length) {
-    const viewerBAs = new Set(window.USER_BA.map(normalizeBAName));
+  if (window.USER_ROLE !== "admin") {
+    const viewerBAs = new Set((window.USER_BA || []).map(normalizeBAName));
     bas = new Set([...bas].filter(ba => viewerBAs.has(normalizeBAName(ba))));
   }
 
@@ -608,8 +618,8 @@ function render(){
   tasks = tasks.filter(t => t.BA !== "Test" && isBAInDisplayConfig(t.BA));
 
   // 🔥 APPLY USER BA FILTER
-  if (window.USER_ROLE !== "admin" && window.USER_BA?.length) {
-    const viewerBAs = new Set(window.USER_BA.map(normalizeBAName));
+  if (window.USER_ROLE !== "admin") {
+    const viewerBAs = new Set((window.USER_BA || []).map(normalizeBAName));
     tasks = tasks.filter(t => viewerBAs.has(normalizeBAName(t.BA)));
   }
 
