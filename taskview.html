@@ -73,7 +73,7 @@ body {
 
   <div class="admin-header">
   <img src="./logo.jpg" class="admin-logo">
-  <h2>Tasks Viewer V.R.1.1.0.1.4</h2>
+  <h2>Tasks Viewer V.R.1.1.0.1.5</h2>
 
   <div>
     <input type="date" id="from">
@@ -286,9 +286,17 @@ function normalizeBAName(value){
   return String(value || "").trim().toUpperCase();
 }
 
+function matchesConfiguredBA(taskBA,configuredBA){
+  const taskValue=normalizeBAName(taskBA);
+  const configuredValue=normalizeBAName(configuredBA);
+  return taskValue===configuredValue||taskValue.startsWith(`${configuredValue} `);
+}
+
 function isBAInDisplayConfig(ba){
   // Preserve the previous behavior if no BA display list has been configured.
-  return !CONFIGURED_BAS.size || CONFIGURED_BAS.has(normalizeBAName(ba));
+  return !CONFIGURED_BAS.size || CONFIGURED_BA_VALUES.some(configuredBA =>
+    matchesConfiguredBA(ba,configuredBA)
+  );
 }
 
 function getFirestoreAllowedBAs(){
@@ -298,6 +306,32 @@ function getFirestoreAllowedBAs(){
 
   const viewerBAs = new Set(window.USER_BA.map(normalizeBAName));
   return CONFIGURED_BA_VALUES.filter(ba => viewerBAs.has(normalizeBAName(ba)));
+}
+
+function getFirestoreBAQueryValues(allowedBAs){
+  const jobTypes = Object.keys(DRIVER_UI_CONFIG || {})
+    .map(normalizeBAName)
+    .filter(Boolean);
+  const values = new Set();
+
+  allowedBAs.forEach(rawBA => {
+    const ba = normalizeBAName(rawBA);
+    if (!ba) return;
+    values.add(ba);
+    jobTypes.forEach(jobType => {
+      if (!ba.endsWith(` ${jobType}`)) values.add(`${ba} ${jobType}`);
+    });
+  });
+
+  return [...values];
+}
+
+function chunkValues(values,size=30){
+  const chunks=[];
+  for(let index=0;index<values.length;index+=size){
+    chunks.push(values.slice(index,index+size));
+  }
+  return chunks;
 }
 
 // =====================
@@ -430,6 +464,7 @@ async function backgroundValidate(keys, generation){
 async function loadFirestoreTasks(keys, generation){
   const liveTasksById = new Map();
   const allowedBAs = getFirestoreAllowedBAs();
+  const baQueryChunks = chunkValues(getFirestoreBAQueryValues(allowedBAs));
 
   if (!allowedBAs.length) {
     FIRESTORE_TASKS = [];
@@ -445,7 +480,7 @@ async function loadFirestoreTasks(keys, generation){
       const assignedDate =
         `${key.slice(0,4)}-${key.slice(4,6)}-${key.slice(6,8)}`;
 
-      for (const ba of allowedBAs) {
+      for (const baValues of baQueryChunks) {
         if (generation !== LOAD_GENERATION) return;
 
         // Current task documents use lowercase `ba`; older documents may use
@@ -458,7 +493,7 @@ async function loadFirestoreTasks(keys, generation){
             collection(firestore, TASK_COLLECTION),
             where("assignedDate", "==", assignedDate),
             where("status", "==", "COMPLETED"),
-            where(baField, "==", ba)
+            where(baField, "in", baValues)
           ));
 
           snapshot.forEach(docSnap => {
@@ -474,7 +509,8 @@ async function loadFirestoreTasks(keys, generation){
     FIRESTORE_TASKS = liveTasks;
     rebuildCombinedTasks();
     console.log(
-      `Firestore added ${liveTasks.length} completed task(s) from ${allowedBAs.length} allowed BA(s)`
+      `Firestore added ${liveTasks.length} completed task(s) from ${allowedBAs.length} allowed BA(s)`,
+      { queriedBAValues: baQueryChunks.flat() }
     );
   } catch (error) {
     console.warn("Firestore task load failed; snapshot tasks remain available.", error);
@@ -501,7 +537,9 @@ function buildBAFilters(){
 
   // 🔥 restrict BA filters for viewer
   if (window.USER_ROLE !== "admin" && window.USER_BA?.length) {
-    bas = new Set([...bas].filter(ba => window.USER_BA.includes(ba)));
+    bas = new Set([...bas].filter(ba =>
+      window.USER_BA.some(configuredBA => matchesConfiguredBA(ba,configuredBA))
+    ));
   }
 
   [...bas].sort().forEach(ba => {
@@ -535,7 +573,9 @@ function render(){
 
   // 🔥 APPLY USER BA FILTER
   if (window.USER_ROLE !== "admin" && window.USER_BA?.length) {
-    tasks = tasks.filter(t => window.USER_BA.includes(t.BA));
+    tasks = tasks.filter(t =>
+      window.USER_BA.some(configuredBA => matchesConfiguredBA(t.BA,configuredBA))
+    );
   }
 
   if(SEARCH_TERM){
