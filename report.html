@@ -41,7 +41,7 @@ button:disabled{background:#999;cursor:not-allowed}
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Task Report <span class="app-version">V.R.0.0.10</span></h1>
+      <h1 class="app-title">Task Report <span class="app-version">V.R.0.0.11</span></h1>
     </div>
   </div>
   <div class="app-header-actions">
@@ -84,6 +84,9 @@ import {
   collection,
   query,
   where,
+  orderBy,
+  limit,
+  startAfter,
   getDocs,
   Timestamp
 } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js";
@@ -196,31 +199,78 @@ function normalizeTask(docSnap){
   };
 }
 
-async function fetchTasks(from,to,onProgress=()=>{}){
-  const q=query(
-    collection(db,TASK_COLLECTION),
-    where("createdAt",">=",Timestamp.fromDate(getPHStartOfDay(from))),
-    where("createdAt","<=",Timestamp.fromDate(getPHEndOfDay(to)))
-  );
+const REPORT_QUERY_BATCH_SIZE=2000;
+const REPORT_QUERY_MAX_RETRIES=3;
 
-  const snap=await getDocs(q);
-  const tasks=[];
+function wait(ms){
+  return new Promise(resolve=>setTimeout(resolve,ms));
+}
 
-  const documents=snap.docs;
-  onProgress(0,documents.length,"processing");
-  for(let i=0;i<documents.length;i++){
-    const docSnap=documents[i];
-    const task=normalizeTask(docSnap);
-    if(task.deleted!==true)tasks.push(task);
+function isRetryableFirestoreError(error){
+  const code=String(error?.code||"").replace("firestore/","");
+  return ["aborted","deadline-exceeded","internal","resource-exhausted","unavailable"].includes(code)||
+    /timed out|temporarily unavailable|network/i.test(error?.message||"");
+}
 
-    if((i+1)%500===0||i===documents.length-1){
-      onProgress(i+1,documents.length,"processing");
-      await new Promise(resolve=>setTimeout(resolve,0));
+async function getReportBatch(buildQuery,batchNumber,loadedCount,onProgress){
+  let lastError=null;
+  for(let attempt=1;attempt<=REPORT_QUERY_MAX_RETRIES;attempt++){
+    try{
+      return await getDocs(buildQuery());
+    }catch(error){
+      lastError=error;
+      if(!isRetryableFirestoreError(error)||attempt===REPORT_QUERY_MAX_RETRIES)throw error;
+      const delay=750*Math.pow(2,attempt-1);
+      onProgress(loadedCount,0,"retrying",batchNumber,attempt,delay);
+      await wait(delay);
     }
   }
+  throw lastError;
+}
 
-  onProgress(documents.length,documents.length,"sorting");
-  await new Promise(resolve=>setTimeout(resolve,0));
+async function fetchTasks(from,to,onProgress=()=>{}){
+  const tasks=[];
+  const tasksRef=collection(db,TASK_COLLECTION);
+  const start=Timestamp.fromDate(getPHStartOfDay(from));
+  const end=Timestamp.fromDate(getPHEndOfDay(to));
+  let lastDocument=null;
+  let batchNumber=0;
+
+  try{
+    while(true){
+      batchNumber++;
+      onProgress(tasks.length,0,"querying",batchNumber);
+
+      const snap=await getReportBatch(()=>{
+        const constraints=[
+          where("createdAt",">=",start),
+          where("createdAt","<=",end),
+          orderBy("createdAt","asc"),
+          limit(REPORT_QUERY_BATCH_SIZE)
+        ];
+        if(lastDocument)constraints.push(startAfter(lastDocument));
+        return query(tasksRef,...constraints);
+      },batchNumber,tasks.length,onProgress);
+
+      if(snap.empty)break;
+      for(const docSnap of snap.docs){
+        const task=normalizeTask(docSnap);
+        if(task.deleted!==true)tasks.push(task);
+      }
+
+      lastDocument=snap.docs[snap.docs.length-1];
+      onProgress(tasks.length,snap.size,"batch-complete",batchNumber);
+      await wait(0);
+      if(snap.size<REPORT_QUERY_BATCH_SIZE)break;
+    }
+  }catch(error){
+    error.partialTasks=tasks;
+    error.failedBatch=batchNumber;
+    throw error;
+  }
+
+  onProgress(tasks.length,tasks.length,"sorting",batchNumber);
+  await wait(0);
   tasks.sort((a,b)=>{
     const da=toJSDate(a.createdAt)?.getTime()||0;
     const db=toJSDate(b.createdAt)?.getTime()||0;
@@ -301,7 +351,7 @@ window.loadTasksForSelectedDates=async function(){
   },1000);
 
   try{
-    ALL_TASKS=await fetchTasks(from,to,(processed,total,phase)=>{
+    ALL_TASKS=await fetchTasks(from,to,(processed,batchSize,phase,batchNumber,attempt,delay)=>{
       if(queryProgressTimer){
         clearInterval(queryProgressTimer);
         queryProgressTimer=null;
@@ -310,18 +360,28 @@ window.loadTasksForSelectedDates=async function(){
       if(phase==="sorting"){
         showReportProgress(
           "Finalizing loaded tasks",
-          `${total.toLocaleString()} tasks received • Sorting by date • ${loadElapsed()}`,
+          `${processed.toLocaleString()} tasks received • Sorting by date • ${loadElapsed()}`,
           null,
           true
         );
         return;
       }
 
-      const percent=total?processed/total*100:100;
+      if(phase==="retrying"){
+        showReportProgress(
+          `Retrying Firestore batch ${batchNumber}`,
+          `Attempt ${attempt+1} of ${REPORT_QUERY_MAX_RETRIES} in ${(delay/1000).toFixed(1)}s • ${loadElapsed()}`,
+          null,
+          true
+        );
+        return;
+      }
+
       showReportProgress(
-        "Processing Firestore results",
-        `${processed.toLocaleString()} / ${total.toLocaleString()} tasks • ${loadElapsed()}`,
-        percent
+        `Loading Firestore batch ${batchNumber}`,
+        `${processed.toLocaleString()} tasks loaded${phase==="batch-complete"?` • ${batchSize.toLocaleString()} received in this batch`:""} • ${loadElapsed()}`,
+        null,
+        true
       );
     });
     buildFilterOptions();
@@ -336,11 +396,16 @@ window.loadTasksForSelectedDates=async function(){
     }
   }catch(error){
     console.error("Firestore report load failed:",error);
-    ALL_TASKS=[];
+    ALL_TASKS=Array.isArray(error.partialTasks)?error.partialTasks:[];
     exportButton.disabled=true;
     dataStatus.innerHTML=
-      `<span class="error">❌ Firestore load failed: ${escapeHtml(error.message||String(error))}</span>`;
-    alert("Failed to load tasks from Firestore. Check the browser console.");
+      `<span class="error">❌ Firestore load failed at batch ${Number(error.failedBatch)||1}: ${escapeHtml(error.message||String(error))}`+
+      `${ALL_TASKS.length?` (${ALL_TASKS.length.toLocaleString()} partial tasks retained; export remains disabled.)`:""}</span>`;
+    alert(
+      "Failed to finish loading tasks from Firestore.\n\n"+
+      (ALL_TASKS.length?`${ALL_TASKS.length.toLocaleString()} partial tasks were loaded, but export is disabled to prevent an incomplete report.\n\n`:"")+
+      "Please retry."
+    );
   }finally{
     if(queryProgressTimer)clearInterval(queryProgressTimer);
     setLoading(false);
