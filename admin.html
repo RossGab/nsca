@@ -392,7 +392,7 @@ button {
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.26</span></h1>
+      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.27</span></h1>
     </div>
   </div>
 
@@ -484,6 +484,12 @@ button {
     Filter by BA
   </div>
   <div id="baCheckboxes" style="display:flex;flex-wrap:wrap;gap:10px;"></div>
+  <div id="jobTypeFilterSection" style="margin-top:10px;padding-top:10px;border-top:1px solid #e5eaf0;">
+    <div style="font-size:13px;font-weight:bold;margin-bottom:6px;">
+      Filter by Job Type
+    </div>
+    <div id="jobTypeCheckboxes" style="display:flex;flex-wrap:wrap;gap:10px;"></div>
+  </div>
 </div>
 
 <!-- ===== TASK LIST ===== -->
@@ -934,6 +940,7 @@ const EDITABLE_FIELDS = [
 
 let CURRENT_STATUS = null;
 let FILTER_BA = new Set();
+let FILTER_JOBTYPE = new Set();
 let DRIVER_SUMMARY_SORT = { key: "driver", direction: "asc" };
 let DRIVER_SUMMARY_VIEW = "graphs";
 let SEARCH_TERM = "";
@@ -983,11 +990,19 @@ searchBox.addEventListener("input", e => {
   }
 
   const container = document.getElementById("baFilters");
-  const box = document.getElementById("baCheckboxes");
+  const baBox = document.getElementById("baCheckboxes");
+  const jobTypeSection = document.getElementById("jobTypeFilterSection");
+  const jobTypeBox = document.getElementById("jobTypeCheckboxes");
+  const availableJobTypes = new Set(
+    (window.__FIRESTORE_TASKS__ || [])
+      .map(task => String(task.JOBTYPE || task.jobType || "").trim())
+      .filter(Boolean)
+  );
 
-  box.innerHTML = "";
+  baBox.innerHTML = "";
+  jobTypeBox.innerHTML = "";
 
-  if (!ALL_BA_FOR_DATE.size) {
+  if (!ALL_BA_FOR_DATE.size && !availableJobTypes.size) {
     container.style.display = "none";
     return;
   }
@@ -1015,7 +1030,31 @@ searchBox.addEventListener("input", e => {
       loadAdminPageFromFirestore(CURRENT_STATUS);
     };
 
-    box.appendChild(label);
+    baBox.appendChild(label);
+  });
+
+  jobTypeSection.style.display = availableJobTypes.size ? "block" : "none";
+  [...availableJobTypes].sort().forEach(jobType => {
+    const label = document.createElement("label");
+    label.style.cssText =
+      "font-size:13px;display:flex;align-items:center;gap:5px;cursor:pointer;";
+
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.value = jobType;
+    input.checked = FILTER_JOBTYPE.has(jobType);
+    input.onchange = () => {
+      if (input.checked) FILTER_JOBTYPE.add(jobType);
+      else FILTER_JOBTYPE.delete(jobType);
+
+      ADMIN_CURRENT_PAGE = 0;
+      loadAdminPageFromFirestore(CURRENT_STATUS);
+    };
+
+    const text = document.createElement("span");
+    text.textContent = jobType;
+    label.append(input, text);
+    jobTypeBox.appendChild(label);
   });
 }
   
@@ -2655,6 +2694,10 @@ async function loadAdminPageFromFirestore(status) {
     tasks = tasks.filter(t => FILTER_BA.has(t.BA));
   }
 
+  if (FILTER_JOBTYPE.size) {
+    tasks = tasks.filter(t => FILTER_JOBTYPE.has(t.JOBTYPE));
+  }
+
   if (status === "COMPLETED") {
     tasks.sort((a, b) => {
       const timeDifference = completedTaskMillis(b) - completedTaskMillis(a);
@@ -2675,7 +2718,8 @@ async function loadAdminPageFromFirestore(status) {
 function renderDriverTaskSummary(tasks) {
   const summary = new Map();
   const filteredTasks = excludeDeletedTasks(tasks || [])
-    .filter(task => !FILTER_BA.size || FILTER_BA.has(task.BA));
+    .filter(task => !FILTER_BA.size || FILTER_BA.has(task.BA))
+    .filter(task => !FILTER_JOBTYPE.size || FILTER_JOBTYPE.has(task.JOBTYPE));
 
   filteredTasks.forEach(task => {
     const driver = String(task.driverId || task.agentId || "Unassigned").trim() || "Unassigned";
@@ -2792,7 +2836,7 @@ function renderDriverSummaryGraphs(filteredTasks, rows) {
     </section>
     <section class="summary-chart-card">
       <h3>Driver Workload</h3>
-      <p class="summary-chart-note">All drivers, following the current table sort and BA filter.</p>
+      <p class="summary-chart-note">All drivers, following the current table sort, BA filter, and Job Type filter.</p>
       <div class="workload-chart">
         ${displayedRows.length ? displayedRows.map(([driver, counts], index) => {
           const total = counts.fordownload + counts.pending + counts.completed;
