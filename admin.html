@@ -392,7 +392,7 @@ button {
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.27</span></h1>
+      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.28</span></h1>
     </div>
   </div>
 
@@ -480,16 +480,20 @@ button {
 </div>
   <div id="baFilters" style="display:none; background:#fff; padding:8px;
      border-radius:6px; margin-bottom:12px; box-shadow:0 0 4px rgba(0,0,0,.1);">
-  <div style="font-size:13px;font-weight:bold;margin-bottom:6px;">
-    Filter by BA
+  <div style="display:flex;align-items:center;gap:18px;font-size:13px;font-weight:bold;margin-bottom:8px;">
+    <label style="display:flex;align-items:center;gap:5px;cursor:pointer;">
+      <input type="radio" name="taskFilterMode" value="ba" checked
+             onchange="setTaskFilterMode('ba')">
+      Filter by BA
+    </label>
+    <label style="display:flex;align-items:center;gap:5px;cursor:pointer;">
+      <input type="radio" name="taskFilterMode" value="jobtype"
+             onchange="setTaskFilterMode('jobtype')">
+      Filter by Job Type
+    </label>
   </div>
   <div id="baCheckboxes" style="display:flex;flex-wrap:wrap;gap:10px;"></div>
-  <div id="jobTypeFilterSection" style="margin-top:10px;padding-top:10px;border-top:1px solid #e5eaf0;">
-    <div style="font-size:13px;font-weight:bold;margin-bottom:6px;">
-      Filter by Job Type
-    </div>
-    <div id="jobTypeCheckboxes" style="display:flex;flex-wrap:wrap;gap:10px;"></div>
-  </div>
+  <div id="jobTypeCheckboxes" style="display:none;flex-wrap:wrap;gap:10px;"></div>
 </div>
 
 <!-- ===== TASK LIST ===== -->
@@ -941,6 +945,7 @@ const EDITABLE_FIELDS = [
 let CURRENT_STATUS = null;
 let FILTER_BA = new Set();
 let FILTER_JOBTYPE = new Set();
+let TASK_FILTER_MODE = "ba";
 let DRIVER_SUMMARY_SORT = { key: "driver", direction: "asc" };
 let DRIVER_SUMMARY_VIEW = "graphs";
 let SEARCH_TERM = "";
@@ -991,7 +996,6 @@ searchBox.addEventListener("input", e => {
 
   const container = document.getElementById("baFilters");
   const baBox = document.getElementById("baCheckboxes");
-  const jobTypeSection = document.getElementById("jobTypeFilterSection");
   const jobTypeBox = document.getElementById("jobTypeCheckboxes");
   const availableJobTypes = new Set(
     (window.__FIRESTORE_TASKS__ || [])
@@ -1033,7 +1037,6 @@ searchBox.addEventListener("input", e => {
     baBox.appendChild(label);
   });
 
-  jobTypeSection.style.display = availableJobTypes.size ? "block" : "none";
   [...availableJobTypes].sort().forEach(jobType => {
     const label = document.createElement("label");
     label.style.cssText =
@@ -1056,7 +1059,25 @@ searchBox.addEventListener("input", e => {
     label.append(input, text);
     jobTypeBox.appendChild(label);
   });
+
+  baBox.style.display = TASK_FILTER_MODE === "ba" ? "flex" : "none";
+  jobTypeBox.style.display =
+    TASK_FILTER_MODE === "jobtype" && availableJobTypes.size ? "flex" : "none";
+  const activeMode = container.querySelector(
+    `input[name="taskFilterMode"][value="${TASK_FILTER_MODE}"]`
+  );
+  if (activeMode) activeMode.checked = true;
 }
+
+window.setTaskFilterMode = function(mode) {
+  if (mode !== "ba" && mode !== "jobtype") return;
+  TASK_FILTER_MODE = mode;
+
+  const baBox = document.getElementById("baCheckboxes");
+  const jobTypeBox = document.getElementById("jobTypeCheckboxes");
+  baBox.style.display = mode === "ba" ? "flex" : "none";
+  jobTypeBox.style.display = mode === "jobtype" ? "flex" : "none";
+};
   
 /* ===== SLA ===== */
 function getTaskSLAStartMillis(task) {
