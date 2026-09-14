@@ -60,6 +60,27 @@
     button:disabled {
       background: #aaa;
     }
+    .recovery-actions {
+      display: none;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 14px;
+    }
+    .recovery-actions button {
+      flex: 1 1 120px;
+      margin-top: 0;
+      padding: 11px;
+      font-size: 14px;
+    }
+    .secondary-button { background: #526579; }
+    .repair-button { background: #b36b00; }
+    #errorDetails {
+      display: none;
+      margin-top: 10px;
+      color: #7a3d00;
+      font-size: 12px;
+      overflow-wrap: anywhere;
+    }
   </style>
 </head>
 <body>
@@ -75,13 +96,72 @@
 <button id="installBtn" disabled>
   Waiting for install…
 </button>
+<div id="recoveryActions" class="recovery-actions">
+  <button id="retryBtn" type="button">Retry</button>
+  <button id="openBtn" type="button" class="secondary-button">Open Driver App Online</button>
+  <button id="repairBtn" type="button" class="repair-button">Repair Offline Files</button>
+</div>
+<div id="errorDetails"></div>
 </div>
 
 <script>
 let deferredPrompt = null;
 const statusText = document.getElementById("statusText");
 const installBtn = document.getElementById("installBtn");
+const recoveryActions = document.getElementById("recoveryActions");
+const retryBtn = document.getElementById("retryBtn");
+const openBtn = document.getElementById("openBtn");
+const repairBtn = document.getElementById("repairBtn");
+const errorDetails = document.getElementById("errorDetails");
 let installPromptTimer = null;
+const PREPARE_ATTEMPTS = 3;
+const PREPARE_TIMEOUT_MS = 15000;
+
+function wait(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function withTimeout(promise, timeoutMs, message) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(message)), timeoutMs)
+    )
+  ]);
+}
+
+function hideRecoveryActions() {
+  recoveryActions.style.display = "none";
+  errorDetails.style.display = "none";
+}
+
+function describePreparationError(error) {
+  const message = String(error?.message || error || "");
+  const errorName = String(error?.name || "");
+
+  if (errorName === "QuotaExceededError" || /quota|storage.*full/i.test(message)) {
+    return "The browser does not have enough storage for the app's offline files. Existing tasks and captured photos were not deleted.";
+  }
+  if (!navigator.onLine || /network|fetch|offline|load/i.test(message)) {
+    return "The required offline files could not be downloaded. Check the internet connection and retry.";
+  }
+  if (/timeout/i.test(message)) {
+    return "Preparing the offline app took too long. Check the connection and retry.";
+  }
+  if (/security|not allowed|denied/i.test(message)) {
+    return "This browser blocked offline app preparation. Open this page in Chrome and retry.";
+  }
+  return "The browser could not prepare the app's offline files.";
+}
+
+function showPreparationFailure(error) {
+  statusText.innerText = describePreparationError(error);
+  installBtn.style.display = "none";
+  recoveryActions.style.display = "flex";
+  errorDetails.style.display = "block";
+  errorDetails.innerText =
+    `Technical details: ${error?.name || "Error"}: ${error?.message || error || "Unknown error"}`;
+}
 
 function showManualInstallHelp() {
   if (deferredPrompt || isStandalone() || isIOS() || isInAppBrowser()) return;
@@ -101,21 +181,94 @@ async function preparePWA() {
   if (!("serviceWorker" in navigator)) {
     statusText.innerText = "PWA installation is not supported. Please use Chrome, Edge, or Safari.";
     installBtn.style.display = "none";
+    recoveryActions.style.display = "flex";
+    retryBtn.style.display = "none";
+    repairBtn.style.display = "none";
     return;
   }
 
-  try {
-    const registration = await navigator.serviceWorker.register("./sw.js", { scope: "./" });
-    await registration.update();
-    await navigator.serviceWorker.ready;
+  hideRecoveryActions();
+  retryBtn.style.display = "block";
+  repairBtn.style.display = "block";
+  retryBtn.disabled = false;
+  repairBtn.disabled = false;
+  installBtn.style.display = "block";
+  installBtn.disabled = true;
+  installBtn.innerText = "Preparing offline app...";
 
-    installPromptTimer = setTimeout(showManualInstallHelp, 8000);
-  } catch (error) {
-    console.error("Driver PWA preparation failed:", error);
-    statusText.innerText = "Could not prepare the app. Check your connection and reload this page.";
-    installBtn.style.display = "none";
+  let lastError;
+  for (let attempt = 1; attempt <= PREPARE_ATTEMPTS; attempt++) {
+    try {
+      statusText.innerText = attempt === 1
+        ? "Preparing the app for offline use..."
+        : `Preparation failed. Retrying (${attempt}/${PREPARE_ATTEMPTS})...`;
+
+      const registration = await withTimeout(
+        navigator.serviceWorker.register("./sw.js", { scope: "./" }),
+        PREPARE_TIMEOUT_MS,
+        "Service worker registration timed out"
+      );
+      await withTimeout(
+        registration.update(),
+        PREPARE_TIMEOUT_MS,
+        "Offline file update timed out"
+      );
+      await withTimeout(
+        navigator.serviceWorker.ready,
+        PREPARE_TIMEOUT_MS,
+        "Offline app activation timed out"
+      );
+
+      statusText.innerText = "Offline app files are ready.";
+      installPromptTimer = setTimeout(showManualInstallHelp, 3000);
+      return;
+    } catch (error) {
+      lastError = error;
+      console.warn(
+        `Driver PWA preparation attempt ${attempt} of ${PREPARE_ATTEMPTS} failed:`,
+        error
+      );
+      if (attempt < PREPARE_ATTEMPTS) await wait(1000);
+    }
   }
+
+  console.error("Driver PWA preparation failed:", lastError);
+  showPreparationFailure(lastError);
 }
+
+retryBtn.onclick = () => preparePWA();
+openBtn.onclick = () => location.href = "./driver.html";
+repairBtn.onclick = async () => {
+  repairBtn.disabled = true;
+  retryBtn.disabled = true;
+  statusText.innerText = "Repairing offline app files...";
+  errorDetails.style.display = "none";
+
+  try {
+    const cacheNames = await caches.keys();
+    await Promise.all(
+      cacheNames
+        .filter(name => name.startsWith("field-task-app-"))
+        .map(name => caches.delete(name))
+    );
+
+    const appScope = new URL("./", location.href).href;
+    const registrations = await navigator.serviceWorker.getRegistrations();
+    await Promise.all(
+      registrations
+        .filter(registration => registration.scope === appScope)
+        .map(registration => registration.unregister())
+    );
+
+    await preparePWA();
+  } catch (error) {
+    console.error("Offline app repair failed:", error);
+    showPreparationFailure(error);
+  } finally {
+    repairBtn.disabled = false;
+    retryBtn.disabled = false;
+  }
+};
 
 function isStandalone() {
   return window.matchMedia("(display-mode: standalone)").matches ||
@@ -181,11 +334,14 @@ installBtn.onclick = async () => {
 window.addEventListener("appinstalled", () => {
   clearTimeout(installPromptTimer);
   installBtn.style.display = "none";
+  hideRecoveryActions();
   statusText.innerText =
     "✅ App installed! Open it from your home screen.";
 });
 
-preparePWA();
+if (!isStandalone() && !isIOS() && !isInAppBrowser()) {
+  preparePWA();
+}
 </script>
 </body>
 </html>
