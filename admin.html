@@ -392,7 +392,7 @@ button {
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.30</span></h1>
+      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.31</span></h1>
     </div>
   </div>
 
@@ -468,8 +468,7 @@ button {
     </select>
     <input id="globalTaskSearchInput" placeholder="Enter task details"
       style="flex:1;min-width:220px;padding:10px;border:1px solid #ccc;border-radius:6px;">
-    <button type="button" onclick="searchTaskCache()">Search Cache</button>
-    <button type="button" onclick="searchWholeFirestore()">Search Firestore</button>
+    <button type="button" onclick="searchTaskEverywhere()">Search Tasks</button>
   </div>
   <div id="taskSearchStatus" style="margin-top:9px;font-size:13px;color:#566;"></div>
 </div>
@@ -2372,7 +2371,7 @@ window.showTaskSearch = function() {
       Enter task details, then search the current cache or Firestore.
     </div>`;
   setTaskSearchStatus(
-    "Cache search supports partial text. Firestore search uses an exact indexed value and returns up to 50 tasks."
+    "Search checks the selected date range cache, then performs an exact Firestore lookup. Firestore results are limited to 50 tasks."
   );
   document.getElementById("globalTaskSearchInput").focus();
 };
@@ -2400,6 +2399,7 @@ window.searchTaskCache = async function() {
     .filter(task => taskMatchesCachedSearch(task, term, field))
     .slice(0, 100);
   renderTaskSearchResults(results, "the selected date range cache");
+  return results;
 };
 
 function firestoreSearchFields(field) {
@@ -2414,7 +2414,7 @@ function firestoreSearchFields(field) {
   return fields[field] || [];
 }
 
-window.searchWholeFirestore = async function() {
+window.searchWholeFirestore = async function(cachedResults = []) {
   openTaskSearchView();
   const input = document.getElementById("globalTaskSearchInput");
   const field = document.getElementById("taskSearchField").value;
@@ -2428,6 +2428,11 @@ window.searchWholeFirestore = async function() {
   showLoader("Searching Firestore...");
 
   try {
+    const cachedResultsById = new Map(
+      (cachedResults || [])
+        .filter(task => task?._key)
+        .map(task => [task._key, task])
+    );
     const resultsById = new Map();
     if (field === "auto" || field === "taskId") {
       const taskIds = [...new Set([term, term.toUpperCase()])];
@@ -2468,10 +2473,14 @@ window.searchWholeFirestore = async function() {
       });
     }
 
+    cachedResultsById.forEach((task, taskId) => {
+      if (!resultsById.has(taskId)) resultsById.set(taskId, task);
+    });
+
     const results = [...resultsById.values()]
       .map(normalizeAdminCachedTask)
       .slice(0, 50);
-    renderTaskSearchResults(results, "Firestore");
+    renderTaskSearchResults(results, "the cache and Firestore");
   } catch (error) {
     console.error("Task Search Firestore query failed:", error);
     taskList.innerHTML = "";
@@ -2484,8 +2493,14 @@ window.searchWholeFirestore = async function() {
   }
 };
 
+window.searchTaskEverywhere = async function() {
+  const cachedResults = await window.searchTaskCache();
+  if (!cachedResults) return;
+  await window.searchWholeFirestore(cachedResults);
+};
+
 document.getElementById("globalTaskSearchInput").addEventListener("keydown", event => {
-  if (event.key === "Enter") window.searchTaskCache();
+  if (event.key === "Enter") window.searchTaskEverywhere();
 });
   
 window.showCompletedTasks = function () {
@@ -3228,12 +3243,6 @@ function renderAdminTasks(tasks) {
           <button class="deleteBtn"
             onclick="revertToPending('${t._key}')">
             🔁 Back to Pending (Reset)
-          </button>
-        ` : ""}
-        ${t.status !== "COMPLETED" ? `
-          <button class="doneBtn"
-            onclick="markAsCompleted('${t._key}')">
-            ✅ Set as Completed
           </button>
         ` : ""}
         <div class="form-actions">
