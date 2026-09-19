@@ -392,7 +392,7 @@ button {
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.29</span></h1>
+      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.30</span></h1>
     </div>
   </div>
 
@@ -427,6 +427,7 @@ button {
 <div class="actions">
   <button class="assign" onclick="toggleLiveMap()">🗺 Live Map</button>
   <button class="assign" onclick="location.href='assign.html'">➕ Manage Task</button>
+  <button class="assign" onclick="showTaskSearch()">🔎 Task Search</button>
   <button class="assign" onclick="showDriverTaskSummary()">📋 Driver Task Summary</button>
   <button class="openBtn" onclick="showAllOpenTasks()">📂 Open</button>
   <button class="doneBtn" onclick="showCompletedTasks()">✅ Completed</button>
@@ -452,6 +453,27 @@ button {
 </div>
   
 <!-- 🔍 SEARCH (Open & Completed only) -->
+<div id="taskSearchPanel" style="display:none;background:#fff;padding:14px;
+     border-radius:8px;margin-bottom:12px;box-shadow:0 0 4px rgba(0,0,0,.1);">
+  <div style="font-size:16px;font-weight:bold;margin-bottom:10px;">Task Search</div>
+  <div style="display:flex;flex-wrap:wrap;gap:8px;">
+    <select id="taskSearchField" style="padding:10px;border:1px solid #ccc;border-radius:6px;">
+      <option value="auto">Auto: Task ID, Account or Meter</option>
+      <option value="taskId">Task ID</option>
+      <option value="account">Account Number</option>
+      <option value="meter">Meter Number</option>
+      <option value="driver">Driver ID</option>
+      <option value="customer">Customer Name (exact)</option>
+      <option value="address">Address (exact)</option>
+    </select>
+    <input id="globalTaskSearchInput" placeholder="Enter task details"
+      style="flex:1;min-width:220px;padding:10px;border:1px solid #ccc;border-radius:6px;">
+    <button type="button" onclick="searchTaskCache()">Search Cache</button>
+    <button type="button" onclick="searchWholeFirestore()">Search Firestore</button>
+  </div>
+  <div id="taskSearchStatus" style="margin-top:9px;font-size:13px;color:#566;"></div>
+</div>
+
 <div id="searchWrapper" style="display:none; position:relative; margin-bottom:12px;">
   <input
     id="searchBox"
@@ -572,6 +594,7 @@ import {
   getDocs,
   query,
   where,
+  limit,
   orderBy,
   writeBatch,
   updateDoc,
@@ -957,6 +980,7 @@ let DRIVER_BA_MAP = {};
 const searchWrapper = document.getElementById("searchWrapper");
 const baFilters = document.getElementById("baFilters");
 const searchBox = document.getElementById("searchBox");
+const taskSearchPanel = document.getElementById("taskSearchPanel");
 
 const ADMIN_PAGE_SIZE = 200;
 let ADMIN_CURRENT_PAGE = 0;
@@ -2280,8 +2304,192 @@ window.markAsCompleted = async function (taskId) {
     hideLoader();
   }
 };
+
+function setTaskSearchStatus(message, isError = false) {
+  const status = document.getElementById("taskSearchStatus");
+  status.textContent = message;
+  status.style.color = isError ? "#b00020" : "#566";
+}
+
+function openTaskSearchView() {
+  CURRENT_STATUS = "SEARCH";
+  MAP_VISIBLE = false;
+  FILTER_DRIVER = null;
+  mapContainer.style.display = "none";
+  taskList.style.display = "block";
+  searchWrapper.style.display = "none";
+  baFilters.style.display = "none";
+  taskSearchPanel.style.display = "block";
+  document.getElementById("adminPagination").innerHTML = "";
+}
+
+function closeTaskSearchView() {
+  taskSearchPanel.style.display = "none";
+}
+
+function taskMatchesCachedSearch(task, searchText, field) {
+  const value = String(searchText || "").trim().toLowerCase();
+  if (!value) return false;
+
+  const valuesByField = {
+    taskId: [task._key, task.taskId, task.id],
+    account: [task.ACCOUNTNUMBER, task.accountNumber],
+    meter: [task.METERNUMBER, task.meterNumber],
+    driver: [task.driverId, task.agentId],
+    customer: [task.CUSTOMERNAME, task.customerName],
+    address: [task.ADDRESS, task.address]
+  };
+
+  const values = field === "auto"
+    ? Object.values(task).filter(item =>
+        item == null || ["string", "number", "boolean"].includes(typeof item)
+      )
+    : (valuesByField[field] || []);
+
+  return values.some(item =>
+    String(item ?? "").toLowerCase().includes(value)
+  );
+}
+
+function renderTaskSearchResults(tasks, sourceLabel) {
+  const results = excludeDeletedTasks(tasks || []).map(normalizeAdminCachedTask);
+  FILTERED_TASK_IDS = results.map(task => task._key);
+  ADMIN_CURRENT_PAGE = 0;
+  renderAdminTasks(results);
+  document.getElementById("adminPagination").innerHTML =
+    `${results.length.toLocaleString()} result(s) from ${sourceLabel}`;
+  setTaskSearchStatus(
+    results.length
+      ? `Found ${results.length.toLocaleString()} task(s) in ${sourceLabel}. Pending and completed tasks are included.`
+      : `No matching task was found in ${sourceLabel}.`
+  );
+}
+
+window.showTaskSearch = function() {
+  openTaskSearchView();
+  taskList.innerHTML = `
+    <div class="card" style="color:#666">
+      Enter task details, then search the current cache or Firestore.
+    </div>`;
+  setTaskSearchStatus(
+    "Cache search supports partial text. Firestore search uses an exact indexed value and returns up to 50 tasks."
+  );
+  document.getElementById("globalTaskSearchInput").focus();
+};
+
+window.searchTaskCache = async function() {
+  openTaskSearchView();
+  const input = document.getElementById("globalTaskSearchInput");
+  const field = document.getElementById("taskSearchField").value;
+  const term = input.value.trim();
+  if (!term) {
+    setTaskSearchStatus("Enter task details first.", true);
+    return;
+  }
+
+  let cachedTasks = Array.isArray(window.__FIRESTORE_TASKS__)
+    ? window.__FIRESTORE_TASKS__
+    : [];
+
+  if (!cachedTasks.length) {
+    const cached = await readTaskCache(DATE_FROM, DATE_TO);
+    cachedTasks = Array.isArray(cached?.tasks) ? cached.tasks : [];
+  }
+
+  const results = cachedTasks
+    .filter(task => taskMatchesCachedSearch(task, term, field))
+    .slice(0, 100);
+  renderTaskSearchResults(results, "the selected date range cache");
+};
+
+function firestoreSearchFields(field) {
+  const fields = {
+    account: ["accountNumber", "ACCOUNTNUMBER"],
+    meter: ["meterNumber", "METERNUMBER"],
+    driver: ["driverId", "agentId"],
+    customer: ["customerName", "CUSTOMERNAME"],
+    address: ["address", "ADDRESS"]
+  };
+  if (field === "auto") return [...fields.account, ...fields.meter];
+  return fields[field] || [];
+}
+
+window.searchWholeFirestore = async function() {
+  openTaskSearchView();
+  const input = document.getElementById("globalTaskSearchInput");
+  const field = document.getElementById("taskSearchField").value;
+  const term = input.value.trim();
+  if (!term) {
+    setTaskSearchStatus("Enter task details first.", true);
+    return;
+  }
+
+  setTaskSearchStatus("Searching Firestore...");
+  showLoader("Searching Firestore...");
+
+  try {
+    const resultsById = new Map();
+    if (field === "auto" || field === "taskId") {
+      const taskIds = [...new Set([term, term.toUpperCase()])];
+      const taskSnapshots = await Promise.all(
+        taskIds.map(taskId => getDoc(doc(db, TASK_COLLECTION, taskId)))
+      );
+      taskSnapshots.forEach(taskSnapshot => {
+        if (taskSnapshot.exists()) {
+          resultsById.set(taskSnapshot.id, {
+            _key: taskSnapshot.id,
+            ...taskSnapshot.data()
+          });
+        }
+      });
+    }
+
+    if (field !== "taskId") {
+      const candidates = [...new Set([term, term.toUpperCase()])];
+      const searches = [];
+      firestoreSearchFields(field).forEach(fieldName => {
+        candidates.forEach(candidate => {
+          searches.push(getDocs(query(
+            collection(db, TASK_COLLECTION),
+            where(fieldName, "==", candidate),
+            limit(50)
+          )));
+        });
+      });
+
+      const snapshots = await Promise.all(searches);
+      snapshots.forEach(snapshot => {
+        snapshot.forEach(taskSnapshot => {
+          resultsById.set(taskSnapshot.id, {
+            _key: taskSnapshot.id,
+            ...taskSnapshot.data()
+          });
+        });
+      });
+    }
+
+    const results = [...resultsById.values()]
+      .map(normalizeAdminCachedTask)
+      .slice(0, 50);
+    renderTaskSearchResults(results, "Firestore");
+  } catch (error) {
+    console.error("Task Search Firestore query failed:", error);
+    taskList.innerHTML = "";
+    setTaskSearchStatus(
+      `Firestore search failed: ${error?.message || error}`,
+      true
+    );
+  } finally {
+    hideLoader();
+  }
+};
+
+document.getElementById("globalTaskSearchInput").addEventListener("keydown", event => {
+  if (event.key === "Enter") window.searchTaskCache();
+});
   
 window.showCompletedTasks = function () {
+  closeTaskSearchView();
   // ✅ STEP 4
   searchWrapper.style.display = "block";
   baFilters.style.display = "block";
@@ -2296,6 +2504,7 @@ window.showCompletedTasks = function () {
 };
 
 window.showAllOpenTasks = function () {
+  closeTaskSearchView();
   // ✅ STEP 4
   searchWrapper.style.display = "block";
   baFilters.style.display = "block";
@@ -2903,6 +3112,7 @@ window.sortDriverTaskSummary = function (key) {
 };
 
 window.showDriverTaskSummary = async function () {
+  closeTaskSearchView();
   CURRENT_STATUS = "SUMMARY";
   ADMIN_CURRENT_PAGE = 0;
   FILTER_DRIVER = null;
@@ -3428,6 +3638,7 @@ window.cancelEdit = function (btn) {
 let map, markers={};
 
 window.toggleLiveMap = async function () {
+  closeTaskSearchView();
 
   MAP_VISIBLE = !MAP_VISIBLE;
 
