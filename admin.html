@@ -392,7 +392,7 @@ button {
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.31</span></h1>
+      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.32</span></h1>
     </div>
   </div>
 
@@ -433,6 +433,7 @@ button {
   <button class="doneBtn" onclick="showCompletedTasks()">✅ Completed</button>
   <button class="assign" onclick="location.href='add-driver.html'">👤 Add Driver</button>
   <button class="assign" onclick="location.href='config.html?v=20260831'">⚙ Driver Configuration</button>
+  <button id="adminBAScopeBtn" class="assign" onclick="openAdminBAScope()">⚙ Admin BA Scope</button>
   <button class="assign" onclick="location.href='upload-task.html'">⬆ Upload Driver Export</button>
   <button class="assign" onclick="openReport()">📊 Report</button>
   <button
@@ -453,6 +454,20 @@ button {
 </div>
   
 <!-- 🔍 SEARCH (Open & Completed only) -->
+<div id="adminBAScopePanel" style="display:none;background:#fff;padding:14px;
+     border-radius:8px;margin-bottom:12px;box-shadow:0 0 4px rgba(0,0,0,.1);">
+  <div style="font-size:16px;font-weight:bold;margin-bottom:6px;">Admin BA Scope</div>
+  <div style="font-size:13px;color:#566;margin-bottom:10px;">
+    Only tasks belonging to the selected BAs will be queried and cached on this browser.
+  </div>
+  <div id="adminBAScopeOptions" style="display:flex;flex-wrap:wrap;gap:10px;"></div>
+  <div style="display:flex;gap:8px;margin-top:12px;">
+    <button type="button" onclick="saveAdminBAScope()">Save BA Scope</button>
+    <button type="button" style="background:#687786" onclick="closeAdminBAScope()">Cancel</button>
+  </div>
+  <div id="adminBAScopeStatus" style="margin-top:8px;font-size:13px;color:#b00020;"></div>
+</div>
+
 <div id="taskSearchPanel" style="display:none;background:#fff;padding:14px;
      border-radius:8px;margin-bottom:12px;box-shadow:0 0 4px rgba(0,0,0,.1);">
   <div style="font-size:16px;font-weight:bold;margin-bottom:10px;">Task Search</div>
@@ -612,7 +627,7 @@ import {
   taskTimestampMillis,
   updateTasksInAllCaches,
   writeTaskCache
-} from "./task-cache.js?v=4";
+} from "./task-cache.js?v=5";
 
 import {
   getDatabase,
@@ -937,6 +952,106 @@ const db = initializeFirestore(
 const rtdb = getDatabase(app);
 
 const auth = getAuth(app);
+const ADMIN_PREFS_DB = "nsca-admin-preferences";
+const ADMIN_PREFS_STORE = "settings";
+const ADMIN_PREFS_VERSION = 1;
+let ADMIN_SELECTED_BAS = [];
+let ADMIN_BA_SCOPE_KEY = "ba:none";
+
+function normalizeAdminBA(value) {
+  return String(value || "").trim().toUpperCase();
+}
+
+function setAdminBAScope(values) {
+  ADMIN_SELECTED_BAS = [...new Set(
+    (values || []).map(normalizeAdminBA).filter(Boolean)
+  )].sort();
+  ADMIN_BA_SCOPE_KEY = ADMIN_SELECTED_BAS.length
+    ? `ba:${ADMIN_SELECTED_BAS.map(encodeURIComponent).join("|")}`
+    : "ba:none";
+  const button = document.getElementById("adminBAScopeBtn");
+  if (button) {
+    button.textContent = ADMIN_SELECTED_BAS.length
+      ? `⚙ Admin BA Scope (${ADMIN_SELECTED_BAS.length})`
+      : "⚙ Admin BA Scope";
+    button.title = ADMIN_SELECTED_BAS.length
+      ? ADMIN_SELECTED_BAS.join(", ")
+      : "Select which BAs this browser should load";
+  }
+}
+
+function openAdminPreferencesDB() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(ADMIN_PREFS_DB, ADMIN_PREFS_VERSION);
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains(ADMIN_PREFS_STORE)) {
+        request.result.createObjectStore(ADMIN_PREFS_STORE);
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function readSavedAdminBAScope() {
+  let database;
+  try {
+    database = await openAdminPreferencesDB();
+    const transaction = database.transaction(ADMIN_PREFS_STORE, "readonly");
+    const request = transaction.objectStore(ADMIN_PREFS_STORE).get("selectedBAs");
+    const values = await new Promise((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result || []);
+      request.onerror = () => reject(request.error);
+    });
+    setAdminBAScope(Array.isArray(values) ? values : []);
+  } catch (error) {
+    console.warn("Admin BA scope could not be read:", error);
+    setAdminBAScope([]);
+  } finally {
+    database?.close();
+  }
+}
+
+async function writeSavedAdminBAScope(values) {
+  let database;
+  try {
+    database = await openAdminPreferencesDB();
+    const transaction = database.transaction(ADMIN_PREFS_STORE, "readwrite");
+    const request = transaction.objectStore(ADMIN_PREFS_STORE)
+      .put(values, "selectedBAs");
+    await new Promise((resolve, reject) => {
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  } finally {
+    database?.close();
+  }
+}
+
+function readAdminTaskCache(from, to) {
+  return readTaskCache(from, to, ADMIN_BA_SCOPE_KEY);
+}
+
+function writeAdminTaskCache(from, to, tasks, options = {}) {
+  return writeTaskCache(from, to, tasks, {
+    ...options,
+    scope: ADMIN_BA_SCOPE_KEY
+  });
+}
+
+function getAdminBAChunks(size = 30) {
+  const chunks = [];
+  for (let index = 0; index < ADMIN_SELECTED_BAS.length; index += size) {
+    chunks.push(ADMIN_SELECTED_BAS.slice(index, index + size));
+  }
+  return chunks;
+}
+
+function adminBAConstraint(values) {
+  return values.length === 1
+    ? where("ba", "==", values[0])
+    : where("ba", "in", values);
+}
 // Firestore collections used by this dashboard.
 // TASK is confirmed by the existing Firestore task dashboard.
 // The driver/status/config collections are isolated here so they are easy to change
@@ -1101,6 +1216,90 @@ window.setTaskFilterMode = function(mode) {
   baBox.style.display = mode === "ba" ? "flex" : "none";
   jobTypeBox.style.display = mode === "jobtype" ? "flex" : "none";
 };
+
+async function renderAdminBAScopeOptions() {
+  const box = document.getElementById("adminBAScopeOptions");
+  const status = document.getElementById("adminBAScopeStatus");
+  box.textContent = "Loading BA options...";
+  status.textContent = "";
+
+  try {
+    const snapshot = await get(ref(rtdb, "config/baList"));
+    const availableBAs = [...new Set([
+      ...Object.keys(snapshot.val() || {}),
+      ...ADMIN_SELECTED_BAS
+    ].map(normalizeAdminBA).filter(Boolean))].sort();
+
+    box.replaceChildren();
+    availableBAs.forEach(ba => {
+      const label = document.createElement("label");
+      label.style.cssText =
+        "display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer;";
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.value = ba;
+      input.checked = ADMIN_SELECTED_BAS.includes(ba);
+      const text = document.createElement("span");
+      text.textContent = ba;
+      label.append(input, text);
+      box.appendChild(label);
+    });
+
+    if (!availableBAs.length) {
+      status.textContent = "No configured BAs were found.";
+    }
+  } catch (error) {
+    console.error("Failed to load Admin BA options:", error);
+    box.replaceChildren();
+    status.textContent = "Failed to load the configured BA list.";
+  }
+}
+
+window.openAdminBAScope = async function() {
+  const panel = document.getElementById("adminBAScopePanel");
+  panel.style.display = "block";
+  panel.scrollIntoView({ behavior: "smooth", block: "start" });
+  await renderAdminBAScopeOptions();
+};
+
+window.closeAdminBAScope = function() {
+  document.getElementById("adminBAScopePanel").style.display = "none";
+};
+
+window.saveAdminBAScope = async function() {
+  const panel = document.getElementById("adminBAScopePanel");
+  const status = document.getElementById("adminBAScopeStatus");
+  const selected = [...panel.querySelectorAll(
+    '#adminBAScopeOptions input[type="checkbox"]:checked'
+  )].map(input => input.value);
+
+  if (!selected.length) {
+    status.textContent = "Select at least one BA before saving.";
+    return;
+  }
+
+  showLoader("Saving BA scope...");
+  try {
+    await writeSavedAdminBAScope(selected);
+    setAdminBAScope(selected);
+    adminChangeCheckGeneration++;
+    window.__FIRESTORE_TASKS__ = null;
+    FILTER_BA.clear();
+    FILTER_JOBTYPE.clear();
+    panel.style.display = "none";
+    await loadTasks("SUMMARY");
+    startAdminTaskChangeChecks();
+    updateDataSourceStatus(
+      `BA scope: ${ADMIN_SELECTED_BAS.join(", ")}`,
+      Date.now()
+    );
+  } catch (error) {
+    console.error("Failed to save Admin BA scope:", error);
+    status.textContent = "Failed to save the BA scope on this browser.";
+  } finally {
+    hideLoader();
+  }
+};
   
 /* ===== SLA ===== */
 function getTaskSLAStartMillis(task) {
@@ -1148,6 +1347,10 @@ async function loadDriverSnapshot() {
 
 const LAST_ADMIN_SYNC_KEY = "nsca-admin-last-task-sync";
 
+function lastAdminSyncKey() {
+  return `${LAST_ADMIN_SYNC_KEY}:${ADMIN_BA_SCOPE_KEY}`;
+}
+
 function formatLastAdminSync(millis) {
   return new Date(millis).toLocaleString("en-PH", {
     timeZone: "Asia/Manila",
@@ -1165,11 +1368,11 @@ function updateDataSourceStatus(detail = "Firestore", successfulSyncMillis = nul
   if (!btn) return;
 
   if (successfulSyncMillis) {
-    localStorage.setItem(LAST_ADMIN_SYNC_KEY, String(successfulSyncMillis));
+    localStorage.setItem(lastAdminSyncKey(), String(successfulSyncMillis));
   }
 
   const lastSync = Number(
-    successfulSyncMillis || localStorage.getItem(LAST_ADMIN_SYNC_KEY) || 0
+    successfulSyncMillis || localStorage.getItem(lastAdminSyncKey()) || 0
   );
 
   btn.className = "snapshot-btn data-fresh";
@@ -1191,7 +1394,7 @@ let adminChangeCheckGeneration = 0;
 let adminTaskSyncRunning = false;
 
 function adminNotificationStateKey(from = DATE_FROM, to = DATE_TO) {
-  return `${ADMIN_NOTIFICATION_STATE_PREFIX}${from}::${to}`;
+  return `${ADMIN_NOTIFICATION_STATE_PREFIX}${ADMIN_BA_SCOPE_KEY}::${from}::${to}`;
 }
 
 function readAdminNotificationState(from = DATE_FROM, to = DATE_TO) {
@@ -1307,37 +1510,48 @@ function readAdminNextChangeCheckAt() {
 
 async function fetchDateRestrictedChanges(dateKeys, field, sinceMillis, untilMillis = null) {
   const documents = new Map();
+  const baChunks = getAdminBAChunks();
+  if (!baChunks.length) return [];
 
   for (const dateKey of dateKeys) {
     const assignedDate =
       `${dateKey.slice(0, 4)}-${dateKey.slice(4, 6)}-${dateKey.slice(6, 8)}`;
-    const constraints = [
-      where("assignedDate", "==", assignedDate),
-      where(field, ">", Timestamp.fromMillis(Math.max(0, sinceMillis))),
-      orderBy(field)
-    ];
-    if (untilMillis !== null) {
-      constraints.splice(2, 0, where(field, "<=", Timestamp.fromMillis(untilMillis)));
-    }
+    for (const baValues of baChunks) {
+      const constraints = [
+        where("assignedDate", "==", assignedDate),
+        adminBAConstraint(baValues),
+        where(field, ">", Timestamp.fromMillis(Math.max(0, sinceMillis))),
+        orderBy(field)
+      ];
+      if (untilMillis !== null) {
+        constraints.splice(3, 0, where(field, "<=", Timestamp.fromMillis(untilMillis)));
+      }
 
-    const snapshot = await getDocs(query(
-      collection(db, TASK_COLLECTION),
-      ...constraints
-    ));
-    snapshot.forEach(docSnap => documents.set(docSnap.id, docSnap));
+      const snapshot = await getDocs(query(
+        collection(db, TASK_COLLECTION),
+        ...constraints
+      ));
+      snapshot.forEach(docSnap => documents.set(docSnap.id, docSnap));
+    }
   }
 
   return [...documents.values()];
 }
 
 async function checkForAdminTaskChanges() {
-  if (document.hidden || adminChangeCheckRunning || !DATE_FROM || !DATE_TO) return;
+  if (
+    document.hidden ||
+    adminChangeCheckRunning ||
+    !DATE_FROM ||
+    !DATE_TO ||
+    !ADMIN_SELECTED_BAS.length
+  ) return;
   const checkGeneration = adminChangeCheckGeneration;
   const checkFrom = DATE_FROM;
   const checkTo = DATE_TO;
   adminChangeCheckRunning = true;
   try {
-    const cached = await readTaskCache(checkFrom, checkTo);
+    const cached = await readAdminTaskCache(checkFrom, checkTo);
     if (!cached || taskCacheNeedsFullRefresh(cached) || !cached.watermarkMillis) return;
 
     const dateKeys = getDateRangeKeys(checkFrom, checkTo);
@@ -2391,7 +2605,7 @@ window.searchTaskCache = async function() {
     : [];
 
   if (!cachedTasks.length) {
-    const cached = await readTaskCache(DATE_FROM, DATE_TO);
+    const cached = await readAdminTaskCache(DATE_FROM, DATE_TO);
     cachedTasks = Array.isArray(cached?.tasks) ? cached.tasks : [];
   }
 
@@ -2428,6 +2642,11 @@ window.searchWholeFirestore = async function(cachedResults = []) {
   showLoader("Searching Firestore...");
 
   try {
+    const allowedBAs = new Set(ADMIN_SELECTED_BAS);
+    const baChunks = getAdminBAChunks();
+    if (!baChunks.length) {
+      throw new Error("Select at least one BA in Admin BA Scope.");
+    }
     const cachedResultsById = new Map(
       (cachedResults || [])
         .filter(task => task?._key)
@@ -2440,10 +2659,14 @@ window.searchWholeFirestore = async function(cachedResults = []) {
         taskIds.map(taskId => getDoc(doc(db, TASK_COLLECTION, taskId)))
       );
       taskSnapshots.forEach(taskSnapshot => {
-        if (taskSnapshot.exists()) {
+        const taskData = taskSnapshot.data() || {};
+        if (
+          taskSnapshot.exists() &&
+          allowedBAs.has(normalizeAdminBA(taskData.ba ?? taskData.BA))
+        ) {
           resultsById.set(taskSnapshot.id, {
             _key: taskSnapshot.id,
-            ...taskSnapshot.data()
+            ...taskData
           });
         }
       });
@@ -2454,11 +2677,14 @@ window.searchWholeFirestore = async function(cachedResults = []) {
       const searches = [];
       firestoreSearchFields(field).forEach(fieldName => {
         candidates.forEach(candidate => {
-          searches.push(getDocs(query(
-            collection(db, TASK_COLLECTION),
-            where(fieldName, "==", candidate),
-            limit(50)
-          )));
+          baChunks.forEach(baValues => {
+            searches.push(getDocs(query(
+              collection(db, TASK_COLLECTION),
+              where(fieldName, "==", candidate),
+              adminBAConstraint(baValues),
+              limit(50)
+            )));
+          });
         });
       });
 
@@ -2534,6 +2760,10 @@ window.showAllOpenTasks = function () {
 };
 
 window.syncAdminTasks = function () {
+  if (!ADMIN_SELECTED_BAS.length) {
+    window.openAdminBAScope();
+    return Promise.resolve();
+  }
   if (adminTaskSyncRunning) return Promise.resolve();
   adminTaskSyncRunning = true;
   adminChangeCheckGeneration++;
@@ -2625,23 +2855,29 @@ async function loadTasksFromFirestoreLegacy(status) {
   showLoader("Loading Firestore…");
 
   const keys = getDateRangeKeys(DATE_FROM, DATE_TO);
+  const baChunks = getAdminBAChunks();
   let firestoreTasks = [];
 
   try {
+    if (!baChunks.length) {
+      throw new Error("Select at least one BA in Admin BA Scope.");
+    }
     for (let i = 0; i < keys.length; i++) {
       const dateKey = keys[i];
       const firestoreDate =
         `${dateKey.slice(0, 4)}-${dateKey.slice(4, 6)}-${dateKey.slice(6, 8)}`;
 
-      const q = query(
-        collection(db, TASK_COLLECTION),
-        where("assignedDate", "==", firestoreDate),
-        orderBy("createdAt")
-      );
+      for (const baValues of baChunks) {
+        const q = query(
+          collection(db, TASK_COLLECTION),
+          where("assignedDate", "==", firestoreDate),
+          adminBAConstraint(baValues),
+          orderBy("createdAt")
+        );
 
-      const snap = await getDocs(q);
+        const snap = await getDocs(q);
 
-      snap.forEach(docSnap => {
+        snap.forEach(docSnap => {
         const raw = docSnap.data() || {};
 
         // Normalize the Firestore task schema to the fields used by this UI.
@@ -2666,8 +2902,9 @@ async function loadTasksFromFirestoreLegacy(status) {
           status: getAdminEffectiveStatus(raw)
         };
 
-        if (task.deleted !== true) firestoreTasks.push(task);
-      });
+          if (task.deleted !== true) firestoreTasks.push(task);
+        });
+      }
 
       const progress = ((i + 1) / keys.length) * 100;
       setLoaderText(`Firestore: ${i + 1}/${keys.length} date(s)`);
@@ -2746,19 +2983,26 @@ function normalizeAdminCachedTask(task) {
 
 async function fetchFullTaskRange(dateKeys) {
   const tasks = [];
+  const baChunks = getAdminBAChunks();
+  if (!baChunks.length) {
+    throw new Error("Select at least one BA in Admin BA Scope.");
+  }
   for (let i = 0; i < dateKeys.length; i++) {
     const dateKey = dateKeys[i];
     const firestoreDate =
       `${dateKey.slice(0, 4)}-${dateKey.slice(4, 6)}-${dateKey.slice(6, 8)}`;
-    const snapshot = await getDocs(query(
-      collection(db, TASK_COLLECTION),
-      where("assignedDate", "==", firestoreDate),
-      orderBy("createdAt")
-    ));
-    snapshot.forEach(docSnap => {
-      const task = { _key: docSnap.id, ...docSnap.data() };
-      if (task.deleted !== true) tasks.push(task);
-    });
+    for (const baValues of baChunks) {
+      const snapshot = await getDocs(query(
+        collection(db, TASK_COLLECTION),
+        where("assignedDate", "==", firestoreDate),
+        adminBAConstraint(baValues),
+        orderBy("createdAt")
+      ));
+      snapshot.forEach(docSnap => {
+        const task = { _key: docSnap.id, ...docSnap.data() };
+        if (task.deleted !== true) tasks.push(task);
+      });
+    }
     setLoaderText(`Full sync: ${i + 1}/${dateKeys.length} date(s)`);
   }
   return tasks;
@@ -2766,7 +3010,10 @@ async function fetchFullTaskRange(dateKeys) {
 
 async function applyAdminTaskData(rawTasks, status) {
   CURRENT_STATUS = status;
-  const tasks = (rawTasks || []).map(normalizeAdminCachedTask);
+  const allowedBAs = new Set(ADMIN_SELECTED_BAS);
+  const tasks = (rawTasks || [])
+    .map(normalizeAdminCachedTask)
+    .filter(task => allowedBAs.has(normalizeAdminBA(task.BA)));
   window.__FIRESTORE_TASKS__ = tasks;
   ADMIN_TASK_IDS = tasks.map(task => task._key);
   FILTERED_TASK_IDS = [...ADMIN_TASK_IDS];
@@ -2782,12 +3029,20 @@ async function applyAdminTaskData(rawTasks, status) {
 }
 
 window.loadCachedTasks = async function (status) {
+  if (!ADMIN_SELECTED_BAS.length) {
+    taskList.innerHTML = `
+      <div class="card" style="color:#666">
+        Select at least one BA in <b>Admin BA Scope</b> before loading tasks.
+      </div>`;
+    await window.openAdminBAScope();
+    return;
+  }
   CURRENT_STATUS = status;
   taskList.innerHTML = "Loading cache...";
   showLoader("Loading cached tasks…");
 
   try {
-    const cached = await readTaskCache(DATE_FROM, DATE_TO);
+    const cached = await readAdminTaskCache(DATE_FROM, DATE_TO);
     if (cached && Array.isArray(cached.tasks)) {
       await applyAdminTaskData(excludeDeletedTasks(cached.tasks), status);
       updateDataSourceStatus(
@@ -2830,18 +3085,22 @@ window.showCachedTaskStatus = async function (status) {
 };
 
 window.loadTasks = async function (status) {
+  if (!ADMIN_SELECTED_BAS.length) {
+    await window.openAdminBAScope();
+    return;
+  }
   CURRENT_STATUS = status;
   taskList.innerHTML = "Loading...";
   showLoader("Checking task cache…");
 
   try {
     const dateKeys = getDateRangeKeys(DATE_FROM, DATE_TO);
-    const cached = await readTaskCache(DATE_FROM, DATE_TO);
+    const cached = await readAdminTaskCache(DATE_FROM, DATE_TO);
     let rawTasks;
 
     if (taskCacheNeedsFullRefresh(cached)) {
       rawTasks = excludeDeletedTasks(await fetchFullTaskRange(dateKeys));
-      await writeTaskCache(DATE_FROM, DATE_TO, rawTasks, { full: true });
+      await writeAdminTaskCache(DATE_FROM, DATE_TO, rawTasks, { full: true });
       updateDataSourceStatus(
         `Full sync loaded ${rawTasks.length} task(s)`,
         Date.now()
@@ -2888,7 +3147,7 @@ window.loadTasks = async function (status) {
       const updates = [...updatesById.values()];
 
       rawTasks = mergeTaskUpdates(rawTasks, updates, DATE_FROM, DATE_TO);
-      await writeTaskCache(DATE_FROM, DATE_TO, rawTasks, {
+      await writeAdminTaskCache(DATE_FROM, DATE_TO, rawTasks, {
         previousFullSyncedAt: cached.fullSyncedAt,
         previousWatermark: updateQueryWatermark,
         previousCompletionWatermark: completionQueryWatermark
@@ -3143,7 +3402,7 @@ window.showDriverTaskSummary = async function () {
     return;
   }
 
-  const cached = await readTaskCache(DATE_FROM, DATE_TO);
+  const cached = await readAdminTaskCache(DATE_FROM, DATE_TO);
   if (cached && Array.isArray(cached.tasks)) {
     const tasks = excludeDeletedTasks(cached.tasks).map(normalizeAdminCachedTask);
     window.__FIRESTORE_TASKS__ = tasks;
@@ -4279,6 +4538,7 @@ function setLoaderText(txt) {
 (async function init() {
   showLoader("Loading drivers…");
   try {
+    await readSavedAdminBAScope();
     await loadDriverSnapshot();
 
     // 🔥 ADD THIS
@@ -4290,8 +4550,16 @@ function setLoaderText(txt) {
     // showLoader("Loading dashboard…");
     // await refreshDashboard();
 
-    showLoader("Loading tasks…");
-    await loadCachedTasks("SUMMARY");
+    if (!ADMIN_SELECTED_BAS.length) {
+      taskList.innerHTML = `
+        <div class="card" style="color:#666">
+          Select at least one BA in <b>Admin BA Scope</b> before loading tasks.
+        </div>`;
+      await window.openAdminBAScope();
+    } else {
+      showLoader("Loading tasks…");
+      await loadCachedTasks("SUMMARY");
+    }
   } catch (e) {
     alert("Dashboard failed to load. Please refresh.");
   } finally {
@@ -4309,7 +4577,7 @@ function setLoaderText(txt) {
     }
 
     updateDataSourceStatus("☁ Firestore");
-    startAdminTaskChangeChecks();
+    if (ADMIN_SELECTED_BAS.length) startAdminTaskChangeChecks();
     renderAdminNotificationState();
     
     hideLoader();

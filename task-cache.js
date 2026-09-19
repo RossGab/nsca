@@ -29,8 +29,11 @@ function requestResult(request) {
   });
 }
 
-function cacheKey(from, to) {
-  return `${from}::${to}`;
+function cacheKey(from, to, scope = "") {
+  const normalizedScope = String(scope || "").trim();
+  return normalizedScope
+    ? `${normalizedScope}::${from}::${to}`
+    : `${from}::${to}`;
 }
 
 function toStorable(value) {
@@ -74,14 +77,14 @@ export function taskCompletionWatermark(tasks, fallback = 0) {
   );
 }
 
-export async function readTaskCache(from, to) {
+export async function readTaskCache(from, to, scope = "") {
   if (typeof indexedDB === "undefined") return null;
   let database;
   try {
     database = await openCacheDatabase();
     const transaction = database.transaction(STORE_NAME, "readonly");
     return await requestResult(
-      transaction.objectStore(STORE_NAME).get(cacheKey(from, to))
+      transaction.objectStore(STORE_NAME).get(cacheKey(from, to, scope))
     );
   } catch (error) {
     console.warn("Task cache read unavailable:", error);
@@ -98,7 +101,7 @@ export async function writeTaskCache(from, to, tasks, options = {}) {
     database = await openCacheDatabase();
     const transaction = database.transaction(STORE_NAME, "readwrite");
     const entry = {
-      key: cacheKey(from, to),
+      key: cacheKey(from, to, options.scope),
       schemaVersion: CACHE_SCHEMA_VERSION,
       from,
       to,
