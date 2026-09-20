@@ -129,7 +129,7 @@ select, input[type="date"] {
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Manage Tasks <span class="app-version">V.R.0.1.2</span></h1>
+      <h1 class="app-title">Manage Tasks <span class="app-version">V.R.0.1.3</span></h1>
     </div>
   </div>
   <div class="app-header-actions">
@@ -321,6 +321,13 @@ import {
 "https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js";
 
 import {
+  getDatabase,
+  ref,
+  get,
+  update
+} from "https://www.gstatic.com/firebasejs/12.9.0/firebase-database.js";
+
+import {
   TASK_CACHE_OVERLAP_MS,
   excludeDeletedTasks,
   mergeTaskUpdates,
@@ -349,6 +356,7 @@ const db = initializeFirestore(
   {},
   "drver-task"
 );
+const rtdb = getDatabase(app);
 
 console.log("Firestore database initialized:", db);
 
@@ -1678,6 +1686,60 @@ function finishUploadAttempt(btn) {
   btn.innerText = "Upload CSV";
 }
 
+function normalizeUploadedBA(value) {
+  return String(value || "").trim().toUpperCase();
+}
+
+async function registerMissingUploadedBAs(rows) {
+  const blankRows = [];
+  const uploadedBAs = new Set();
+
+  rows.forEach((row, index) => {
+    const ba = normalizeUploadedBA(row.BA);
+    if (!ba) blankRows.push(index + 2);
+    else uploadedBAs.add(ba);
+  });
+
+  if (blankRows.length) {
+    const preview = blankRows.slice(0, 10).join(", ");
+    const remainder = blankRows.length > 10
+      ? ` and ${blankRows.length - 10} more`
+      : "";
+    throw new Error(`BA is blank on CSV row(s): ${preview}${remainder}.`);
+  }
+
+  const invalidBAs = [...uploadedBAs].filter(ba => /[.#$\[\]\/]/.test(ba));
+  if (invalidBAs.length) {
+    throw new Error(
+      `BA contains a character that cannot be registered: ${invalidBAs.join(", ")}.`
+    );
+  }
+
+  const snapshot = await get(ref(rtdb, "config/baList"));
+  const registeredBAs = new Set(
+    Object.keys(snapshot.val() || {}).map(normalizeUploadedBA)
+  );
+  const missingBAs = [...uploadedBAs]
+    .filter(ba => !registeredBAs.has(ba))
+    .sort();
+
+  if (!missingBAs.length) return true;
+
+  const confirmed = await nscaConfirm(
+    `The CSV contains ${missingBAs.length} unregistered BA(s):\n\n` +
+    `${missingBAs.join("\n")}\n\n` +
+    "Register these BAs and continue uploading?"
+  );
+  if (!confirmed) return false;
+
+  const additions = {};
+  missingBAs.forEach(ba => {
+    additions[`config/baList/${ba}`] = true;
+  });
+  await update(ref(rtdb), additions);
+  return true;
+}
+
 window.uploadCSV = async function(btn){
   const file = csvFileInput.files[0];
 
@@ -1725,6 +1787,18 @@ window.uploadCSV = async function(btn){
           finishUploadAttempt(btn);
           return;
         }
+
+        updateUploadProgress(0, "Checking BA registration...");
+        const canContinue = await registerMissingUploadedBAs(rows);
+        if (!canContinue) {
+          updateUploadProgress(0, "Upload cancelled: new BAs were not registered.", "#dc3545");
+          finishUploadAttempt(btn);
+          return;
+        }
+
+        rows.forEach(row => {
+          row.BA = normalizeUploadedBA(row.BA);
+        });
 
         /* ===== BUILD UPDATES ===== */
 
