@@ -97,10 +97,10 @@ h2 { text-align:center; }
 .driver-heatmap-controls button.active { background:#0877d1; color:#fff; }
 .driver-heatmap-controls button:disabled { opacity:.45; cursor:not-allowed; }
 .driver-heatmap-period { min-width:190px; text-align:center; font-weight:700; }
-.driver-heatmap-table { border-collapse:separate; border-spacing:3px; min-width:max-content; }
-.driver-heatmap-table th,.driver-heatmap-table td { min-width:62px; padding:8px 7px; border:0; border-radius:5px; text-align:center; font-size:12px; }
+.driver-heatmap-table { width:100%; min-width:900px; table-layout:fixed; border-collapse:separate; border-spacing:3px; }
+.driver-heatmap-table th,.driver-heatmap-table td { min-width:72px; padding:10px 8px; border:0; border-radius:5px; text-align:center; font-size:12px; }
 .driver-heatmap-table th { background:#edf3f8; color:#334155; }
-.driver-heatmap-table .driver-heatmap-name { position:sticky; left:0; z-index:2; min-width:180px; max-width:240px; background:#fff; text-align:left; font-weight:700; box-shadow:4px 0 5px rgba(15,23,42,.06); }
+.driver-heatmap-table .driver-heatmap-name { position:sticky; left:0; z-index:2; width:220px; min-width:220px; background:#fff; text-align:left; font-weight:700; box-shadow:4px 0 5px rgba(15,23,42,.06); }
 .driver-heatmap-table thead .driver-heatmap-name { z-index:3; background:#edf3f8; }
 .driver-heatmap-cell { color:#172033; font-weight:700; cursor:default; }
 .driver-heatmap-cell.none { background:#e5e7eb; color:#64748b; }
@@ -184,6 +184,9 @@ button {
   font-size: 14px;
   color: #555;
 }
+.loader-progress { display:none; width:min(280px,70vw); height:10px; margin:12px auto 0; overflow:hidden; border-radius:999px; background:#dce4ec; }
+.loader-progress.visible { display:block; }
+.loader-progress-fill { width:0; height:100%; border-radius:inherit; background:#2878df; transition:width .45s ease; }
 
 @keyframes spin {
   to { transform: rotate(360deg); }
@@ -410,7 +413,7 @@ button {
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.34</span></h1>
+      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.36</span></h1>
     </div>
   </div>
 
@@ -468,6 +471,9 @@ button {
   <div class="loader-box">
     <div class="spinner"></div>
     <div class="loader-text">Loading dashboard…</div>
+    <div id="loaderProgress" class="loader-progress" role="progressbar" aria-label="Heatmap loading progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+      <div id="loaderProgressFill" class="loader-progress-fill"></div>
+    </div>
   </div>
 </div>
   
@@ -1106,6 +1112,7 @@ let DRIVER_SUMMARY_VIEW = "graphs";
 let DRIVER_HEATMAP_ANCHOR = "";
 let DRIVER_HEATMAP_RESULT = null;
 let DRIVER_HEATMAP_REQUEST_KEY = "";
+let DRIVER_HEATMAP_PROGRESS_TIMER = null;
 let SEARCH_TERM = "";
 let MAP_VISIBLE = false;
 let SHOW_ONLINE_ONLY = false;
@@ -3431,7 +3438,7 @@ function renderDriverSummaryHeatmap() {
         </table>
       </div>
       <div class="driver-heatmap-legend"><span><i style="background:#e5e7eb"></i>No tasks</span><span><i style="background:#f8a6a6"></i>Below 50%</span><span><i style="background:#f9dc79"></i>50–79%</span><span><i style="background:#9bd69b"></i>80–99%</span><span><i style="background:#3a963a"></i>100%</span></div>
-      <p class="summary-chart-note">Older dates use report snapshots; today and yesterday are checked live. Each cell shows completed ÷ total tasks created on that date.</p>
+      <p class="summary-chart-note">Older dates use report snapshots; yesterday is checked live. Each cell shows completed ÷ total tasks created on that date.</p>
     ` : `<section class="summary-chart-card"><h3>Preparing driver heatmap…</h3><p class="summary-chart-note">Reading shared snapshots and recent live data. Please wait.</p></section>`}`;
 
   taskList.querySelectorAll("[data-heatmap-driver]").forEach((cell, index) => {
@@ -3442,12 +3449,52 @@ function renderDriverSummaryHeatmap() {
   if (!result) loadDriverSummaryHeatmap();
 }
 
+function updateDriverHeatmapProgress(percent, elapsedSeconds) {
+  const progress = document.getElementById("loaderProgress");
+  const fill = document.getElementById("loaderProgressFill");
+  if (!progress || !fill) return;
+  const safePercent = Math.max(0, Math.min(100, Math.round(percent)));
+  progress.classList.add("visible");
+  progress.setAttribute("aria-valuenow", String(safePercent));
+  fill.style.width = `${safePercent}%`;
+  setLoaderText(`Preparing driver heatmap… about ${safePercent}% • ${elapsedSeconds}s elapsed`);
+}
+
+function startDriverHeatmapProgress() {
+  if (DRIVER_HEATMAP_PROGRESS_TIMER) clearInterval(DRIVER_HEATMAP_PROGRESS_TIMER);
+  const startedAt = Date.now();
+  const update = () => {
+    const elapsedSeconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+    const estimatedPercent = elapsedSeconds <= 30
+      ? 5 + elapsedSeconds * 2
+      : Math.min(95, 65 + (elapsedSeconds - 30) * .5);
+    updateDriverHeatmapProgress(estimatedPercent, elapsedSeconds);
+  };
+  update();
+  DRIVER_HEATMAP_PROGRESS_TIMER = setInterval(update, 1000);
+  return startedAt;
+}
+
+function stopDriverHeatmapProgress() {
+  if (DRIVER_HEATMAP_PROGRESS_TIMER) clearInterval(DRIVER_HEATMAP_PROGRESS_TIMER);
+  DRIVER_HEATMAP_PROGRESS_TIMER = null;
+  const progress = document.getElementById("loaderProgress");
+  const fill = document.getElementById("loaderProgressFill");
+  if (progress) {
+    progress.classList.remove("visible");
+    progress.setAttribute("aria-valuenow", "0");
+  }
+  if (fill) fill.style.width = "0";
+}
+
 window.loadDriverSummaryHeatmap = async function(force = false) {
   const range = driverHeatmapRange();
   const requestKey = driverHeatmapRequestKey(range);
   if (!force && DRIVER_HEATMAP_REQUEST_KEY === requestKey && DRIVER_HEATMAP_RESULT) return;
   const request = JSON.parse(requestKey);
   showLoader("Preparing driver heatmap…");
+  const progressStartedAt = startDriverHeatmapProgress();
+  let completed = false;
   try {
     const response = await fetch(DRIVER_HEATMAP_URL, {
       method: "POST",
@@ -3458,11 +3505,19 @@ window.loadDriverSummaryHeatmap = async function(force = false) {
     if (!response.ok) throw new Error(result.error || `Heatmap request failed (${response.status}).`);
     DRIVER_HEATMAP_REQUEST_KEY = requestKey;
     DRIVER_HEATMAP_RESULT = result;
+    completed = true;
+    updateDriverHeatmapProgress(
+      100,
+      Math.max(1, Math.round((Date.now() - progressStartedAt) / 1000))
+    );
+    await new Promise(resolve => setTimeout(resolve, 300));
     if (CURRENT_STATUS === "SUMMARY" && DRIVER_SUMMARY_VIEW === "heatmap") renderDriverSummaryHeatmap();
   } catch (error) {
     console.error("Driver heatmap failed:", error);
     alert(error.message || "Failed to prepare the driver heatmap.");
   } finally {
+    if (!completed) setLoaderText("Heatmap preparation stopped");
+    stopDriverHeatmapProgress();
     hideLoader();
   }
 };
