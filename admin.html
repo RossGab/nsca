@@ -95,6 +95,7 @@ h2 { text-align:center; }
 .driver-heatmap-controls { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-bottom:10px; padding:10px; background:#fff; border-radius:10px; box-shadow:0 0 4px rgba(0,0,0,.1); }
 .driver-heatmap-controls button { min-width:auto; padding:8px 12px; background:#dfe7ef; color:#263746; }
 .driver-heatmap-controls button.active { background:#0877d1; color:#fff; }
+.driver-heatmap-controls button:disabled { opacity:.45; cursor:not-allowed; }
 .driver-heatmap-period { min-width:190px; text-align:center; font-weight:700; }
 .driver-heatmap-table { border-collapse:separate; border-spacing:3px; min-width:max-content; }
 .driver-heatmap-table th,.driver-heatmap-table td { min-width:62px; padding:8px 7px; border:0; border-radius:5px; text-align:center; font-size:12px; }
@@ -409,7 +410,7 @@ button {
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.33</span></h1>
+      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.34</span></h1>
     </div>
   </div>
 
@@ -1102,7 +1103,6 @@ let FILTER_JOBTYPE = new Set();
 let TASK_FILTER_MODE = "ba";
 let DRIVER_SUMMARY_SORT = { key: "completed", direction: "desc" };
 let DRIVER_SUMMARY_VIEW = "graphs";
-let DRIVER_HEATMAP_PERIOD = "month";
 let DRIVER_HEATMAP_ANCHOR = "";
 let DRIVER_HEATMAP_RESULT = null;
 let DRIVER_HEATMAP_REQUEST_KEY = "";
@@ -3344,19 +3344,12 @@ function heatmapDateKey(date) {
 
 function driverHeatmapRange() {
   const today = heatmapDate(getTodayPH());
-  const requestedAnchor = heatmapDate(DRIVER_HEATMAP_ANCHOR || DATE_TO || getTodayPH());
-  const anchor = requestedAnchor > today ? today : requestedAnchor;
-  let start;
-  let end;
-  if (DRIVER_HEATMAP_PERIOD === "week") {
-    end = new Date(anchor);
-    start = new Date(anchor);
-    start.setUTCDate(start.getUTCDate() - 6);
-  } else {
-    start = new Date(Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth(), 1));
-    end = new Date(Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth() + 1, 0));
-    if (end > today) end = today;
-  }
+  const yesterday = new Date(today);
+  yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+  const requestedAnchor = heatmapDate(DRIVER_HEATMAP_ANCHOR || heatmapDateKey(yesterday));
+  const end = requestedAnchor > yesterday ? yesterday : requestedAnchor;
+  const start = new Date(end);
+  start.setUTCDate(start.getUTCDate() - 6);
   return { from: heatmapDateKey(start), to: heatmapDateKey(end) };
 }
 
@@ -3385,10 +3378,10 @@ function renderDriverSummaryHeatmap() {
   const requestKey = driverHeatmapRequestKey(range);
   const result = DRIVER_HEATMAP_REQUEST_KEY === requestKey ? DRIVER_HEATMAP_RESULT : null;
   const dates = driverHeatmapDates(range.from, range.to);
-  const dateLabel = DRIVER_HEATMAP_PERIOD === "week"
-    ? `${range.from} to ${range.to}`
-    : new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric", timeZone: "UTC" })
-      .format(heatmapDate(range.from));
+  const dateLabel = `${range.from} to ${range.to}`;
+  const yesterday = heatmapDate(getTodayPH());
+  yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+  const atLatestPeriod = range.to >= heatmapDateKey(yesterday);
 
   const byDriver = new Map();
   (result?.driverHeatmap || []).forEach(item => {
@@ -3408,11 +3401,9 @@ function renderDriverSummaryHeatmap() {
   taskList.innerHTML = `
     ${driverSummaryViewSwitcher()}
     <div class="driver-heatmap-controls">
-      <button type="button" class="${DRIVER_HEATMAP_PERIOD === "week" ? "active" : ""}" onclick="setDriverHeatmapPeriod('week')">Weekly</button>
-      <button type="button" class="${DRIVER_HEATMAP_PERIOD === "month" ? "active" : ""}" onclick="setDriverHeatmapPeriod('month')">Monthly</button>
       <button type="button" onclick="shiftDriverHeatmapPeriod(-1)" aria-label="Previous period">←</button>
-      <span class="driver-heatmap-period">${dateLabel}</span>
-      <button type="button" onclick="shiftDriverHeatmapPeriod(1)" aria-label="Next period">→</button>
+      <span class="driver-heatmap-period">7 days: ${dateLabel}</span>
+      <button type="button" onclick="shiftDriverHeatmapPeriod(1)" aria-label="Next period" ${atLatestPeriod ? "disabled" : ""}>→</button>
       <button type="button" onclick="loadDriverSummaryHeatmap(true)">Refresh</button>
     </div>
     ${result ? `
@@ -3476,19 +3467,14 @@ window.loadDriverSummaryHeatmap = async function(force = false) {
   }
 };
 
-window.setDriverHeatmapPeriod = function(period) {
-  if (period !== "week" && period !== "month") return;
-  DRIVER_HEATMAP_PERIOD = period;
-  DRIVER_HEATMAP_ANCHOR = DRIVER_HEATMAP_ANCHOR || DATE_TO || getTodayPH();
-  renderDriverSummaryHeatmap();
-};
-
 window.shiftDriverHeatmapPeriod = function(direction) {
-  const anchor = heatmapDate(DRIVER_HEATMAP_ANCHOR || DATE_TO || getTodayPH());
-  if (DRIVER_HEATMAP_PERIOD === "week") anchor.setUTCDate(anchor.getUTCDate() + Number(direction) * 7);
-  else anchor.setUTCMonth(anchor.getUTCMonth() + Number(direction));
+  const range = driverHeatmapRange();
+  const anchor = heatmapDate(range.to);
+  anchor.setUTCDate(anchor.getUTCDate() + Number(direction) * 7);
   const today = heatmapDate(getTodayPH());
-  DRIVER_HEATMAP_ANCHOR = heatmapDateKey(anchor > today ? today : anchor);
+  const yesterday = new Date(today);
+  yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+  DRIVER_HEATMAP_ANCHOR = heatmapDateKey(anchor > yesterday ? yesterday : anchor);
   renderDriverSummaryHeatmap();
 };
 
@@ -3563,7 +3549,9 @@ window.setDriverSummaryView = function (view) {
   if (view !== "list" && view !== "graphs" && view !== "heatmap") return;
   DRIVER_SUMMARY_VIEW = view;
   if (view === "heatmap" && !DRIVER_HEATMAP_ANCHOR) {
-    DRIVER_HEATMAP_ANCHOR = DATE_TO || getTodayPH();
+    const yesterday = heatmapDate(getTodayPH());
+    yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+    DRIVER_HEATMAP_ANCHOR = heatmapDateKey(yesterday);
   }
   renderDriverTaskSummary(window.__FIRESTORE_TASKS__ || []);
 };
