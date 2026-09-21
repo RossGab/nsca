@@ -92,6 +92,23 @@ h2 { text-align:center; }
 .driver-summary-switcher { display:flex; gap:8px; margin:0 0 10px; }
 .driver-summary-switcher button { flex:0 0 auto; min-width:100px; padding:9px 14px; background:#dfe7ef; color:#263746; }
 .driver-summary-switcher button.active { background:#0877d1; color:#fff; }
+.driver-heatmap-controls { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-bottom:10px; padding:10px; background:#fff; border-radius:10px; box-shadow:0 0 4px rgba(0,0,0,.1); }
+.driver-heatmap-controls button { min-width:auto; padding:8px 12px; background:#dfe7ef; color:#263746; }
+.driver-heatmap-controls button.active { background:#0877d1; color:#fff; }
+.driver-heatmap-period { min-width:190px; text-align:center; font-weight:700; }
+.driver-heatmap-table { border-collapse:separate; border-spacing:3px; min-width:max-content; }
+.driver-heatmap-table th,.driver-heatmap-table td { min-width:62px; padding:8px 7px; border:0; border-radius:5px; text-align:center; font-size:12px; }
+.driver-heatmap-table th { background:#edf3f8; color:#334155; }
+.driver-heatmap-table .driver-heatmap-name { position:sticky; left:0; z-index:2; min-width:180px; max-width:240px; background:#fff; text-align:left; font-weight:700; box-shadow:4px 0 5px rgba(15,23,42,.06); }
+.driver-heatmap-table thead .driver-heatmap-name { z-index:3; background:#edf3f8; }
+.driver-heatmap-cell { color:#172033; font-weight:700; cursor:default; }
+.driver-heatmap-cell.none { background:#e5e7eb; color:#64748b; }
+.driver-heatmap-cell.low { background:#f8a6a6; }
+.driver-heatmap-cell.medium { background:#f9dc79; }
+.driver-heatmap-cell.high { background:#9bd69b; }
+.driver-heatmap-cell.complete { background:#3a963a; color:#fff; }
+.driver-heatmap-legend { display:flex; flex-wrap:wrap; gap:14px; margin:10px 3px 2px; color:#566; font-size:12px; }
+.driver-heatmap-legend i { display:inline-block; width:12px; height:12px; margin-right:4px; border-radius:3px; vertical-align:-2px; }
 .summary-chart-card { background:#fff; border-radius:10px; padding:14px; margin-bottom:12px; box-shadow:0 0 4px rgba(0,0,0,.1); }
 .summary-chart-card h3 { margin:0 0 5px; font-size:16px; }
 .summary-chart-note { margin:0 0 14px; color:#667; font-size:12px; }
@@ -382,7 +399,7 @@ button {
 }
 </style>
 <link rel="stylesheet" href="./admin-theme.css">
-<script src="./admin-dialog.js?v=4"></script>
+<script src="./admin-dialog.js?v=5"></script>
 </head>
 
 <body>
@@ -392,7 +409,7 @@ button {
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.32</span></h1>
+      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.33</span></h1>
     </div>
   </div>
 
@@ -1085,6 +1102,10 @@ let FILTER_JOBTYPE = new Set();
 let TASK_FILTER_MODE = "ba";
 let DRIVER_SUMMARY_SORT = { key: "completed", direction: "desc" };
 let DRIVER_SUMMARY_VIEW = "graphs";
+let DRIVER_HEATMAP_PERIOD = "month";
+let DRIVER_HEATMAP_ANCHOR = "";
+let DRIVER_HEATMAP_RESULT = null;
+let DRIVER_HEATMAP_REQUEST_KEY = "";
 let SEARCH_TERM = "";
 let MAP_VISIBLE = false;
 let SHOW_ONLINE_ONLY = false;
@@ -3263,6 +3284,10 @@ function renderDriverTaskSummary(tasks) {
     renderDriverSummaryGraphs(filteredTasks, rows);
     return;
   }
+  if (DRIVER_SUMMARY_VIEW === "heatmap") {
+    renderDriverSummaryHeatmap();
+    return;
+  }
 
   taskList.innerHTML = `
     ${driverSummaryViewSwitcher()}
@@ -3300,8 +3325,172 @@ function driverSummaryViewSwitcher() {
     <div class="driver-summary-switcher">
       <button type="button" class="${DRIVER_SUMMARY_VIEW === "list" ? "active" : ""}" onclick="setDriverSummaryView('list')">📋 List</button>
       <button type="button" class="${DRIVER_SUMMARY_VIEW === "graphs" ? "active" : ""}" onclick="setDriverSummaryView('graphs')">📊 Graphs</button>
+      <button type="button" class="${DRIVER_SUMMARY_VIEW === "heatmap" ? "active" : ""}" onclick="setDriverSummaryView('heatmap')">🟩 Heatmap</button>
     </div>`;
 }
+
+const DRIVER_HEATMAP_URL =
+  "https://asia-southeast1-driva-pwa.cloudfunctions.net/prepareTaskReport";
+
+function heatmapDate(value) {
+  const parts = String(value || "").split("-").map(Number);
+  if (parts.length !== 3 || parts.some(part => !Number.isFinite(part))) return new Date();
+  return new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
+}
+
+function heatmapDateKey(date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function driverHeatmapRange() {
+  const today = heatmapDate(getTodayPH());
+  const requestedAnchor = heatmapDate(DRIVER_HEATMAP_ANCHOR || DATE_TO || getTodayPH());
+  const anchor = requestedAnchor > today ? today : requestedAnchor;
+  let start;
+  let end;
+  if (DRIVER_HEATMAP_PERIOD === "week") {
+    end = new Date(anchor);
+    start = new Date(anchor);
+    start.setUTCDate(start.getUTCDate() - 6);
+  } else {
+    start = new Date(Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth(), 1));
+    end = new Date(Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth() + 1, 0));
+    if (end > today) end = today;
+  }
+  return { from: heatmapDateKey(start), to: heatmapDateKey(end) };
+}
+
+function driverHeatmapDates(from, to) {
+  const dates = [];
+  const cursor = heatmapDate(from);
+  const finish = heatmapDate(to);
+  while (cursor <= finish) {
+    dates.push(heatmapDateKey(cursor));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return dates;
+}
+
+function driverHeatmapRequestKey(range) {
+  const bas = FILTER_BA.size ? [...FILTER_BA].sort() : [...ADMIN_SELECTED_BAS].sort();
+  return JSON.stringify({
+    ...range,
+    bas,
+    jobTypes: [...FILTER_JOBTYPE].sort()
+  });
+}
+
+function renderDriverSummaryHeatmap() {
+  const range = driverHeatmapRange();
+  const requestKey = driverHeatmapRequestKey(range);
+  const result = DRIVER_HEATMAP_REQUEST_KEY === requestKey ? DRIVER_HEATMAP_RESULT : null;
+  const dates = driverHeatmapDates(range.from, range.to);
+  const dateLabel = DRIVER_HEATMAP_PERIOD === "week"
+    ? `${range.from} to ${range.to}`
+    : new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric", timeZone: "UTC" })
+      .format(heatmapDate(range.from));
+
+  const byDriver = new Map();
+  (result?.driverHeatmap || []).forEach(item => {
+    if (!byDriver.has(item.driver)) byDriver.set(item.driver, new Map());
+    byDriver.get(item.driver).set(item.date, item);
+  });
+  const rows = [...byDriver.entries()].sort((a, b) => {
+    const aCompleted = [...a[1].values()].reduce((sum, item) => sum + Number(item.completed || 0), 0);
+    const bCompleted = [...b[1].values()].reduce((sum, item) => sum + Number(item.completed || 0), 0);
+    return bCompleted - aCompleted || a[0].localeCompare(b[0], undefined, { numeric: true, sensitivity: "base" });
+  });
+  const cellClass = percentage => percentage === null ? "none"
+    : percentage === 100 ? "complete"
+    : percentage >= 80 ? "high"
+    : percentage >= 50 ? "medium" : "low";
+
+  taskList.innerHTML = `
+    ${driverSummaryViewSwitcher()}
+    <div class="driver-heatmap-controls">
+      <button type="button" class="${DRIVER_HEATMAP_PERIOD === "week" ? "active" : ""}" onclick="setDriverHeatmapPeriod('week')">Weekly</button>
+      <button type="button" class="${DRIVER_HEATMAP_PERIOD === "month" ? "active" : ""}" onclick="setDriverHeatmapPeriod('month')">Monthly</button>
+      <button type="button" onclick="shiftDriverHeatmapPeriod(-1)" aria-label="Previous period">←</button>
+      <span class="driver-heatmap-period">${dateLabel}</span>
+      <button type="button" onclick="shiftDriverHeatmapPeriod(1)" aria-label="Next period">→</button>
+      <button type="button" onclick="loadDriverSummaryHeatmap(true)">Refresh</button>
+    </div>
+    ${result ? `
+      <div class="driver-summary-wrap">
+        <table class="driver-heatmap-table">
+          <thead><tr><th class="driver-heatmap-name">Driver</th>${dates.map(date => `<th>${date.slice(8)}<br><small>${new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: "UTC" }).format(heatmapDate(date))}</small></th>`).join("")}<th>Total</th></tr></thead>
+          <tbody>${rows.length ? rows.map(([driver, values], rowIndex) => {
+            let rowTotal = 0;
+            let rowCompleted = 0;
+            const cells = dates.map(date => {
+              const item = values.get(date);
+              const total = Number(item?.total || 0);
+              const completed = Number(item?.completed || 0);
+              rowTotal += total;
+              rowCompleted += completed;
+              const percentage = total ? Math.round(completed / total * 100) : null;
+              const title = total
+                ? `${date}: ${completed} completed, ${Number(item.pending || 0)} pending, ${Number(item.fordownload || 0)} for download, ${total} total`
+                : `${date}: no assigned tasks`;
+              return `<td class="driver-heatmap-cell ${cellClass(percentage)}" title="${title}">${percentage === null ? "—" : `${percentage}%`}</td>`;
+            }).join("");
+            const totalPercentage = rowTotal ? Math.round(rowCompleted / rowTotal * 100) : 0;
+            return `<tr><td class="driver-heatmap-name" data-heatmap-driver="${rowIndex}"></td>${cells}<td><b>${totalPercentage}%</b><br><small>${rowCompleted.toLocaleString()}/${rowTotal.toLocaleString()}</small></td></tr>`;
+          }).join("") : `<tr><td colspan="${dates.length + 2}" style="text-align:center;color:#777">No tasks found for this period and filters</td></tr>`}</tbody>
+        </table>
+      </div>
+      <div class="driver-heatmap-legend"><span><i style="background:#e5e7eb"></i>No tasks</span><span><i style="background:#f8a6a6"></i>Below 50%</span><span><i style="background:#f9dc79"></i>50–79%</span><span><i style="background:#9bd69b"></i>80–99%</span><span><i style="background:#3a963a"></i>100%</span></div>
+      <p class="summary-chart-note">Older dates use report snapshots; today and yesterday are checked live. Each cell shows completed ÷ total tasks created on that date.</p>
+    ` : `<section class="summary-chart-card"><h3>Preparing driver heatmap…</h3><p class="summary-chart-note">Reading shared snapshots and recent live data. Please wait.</p></section>`}`;
+
+  taskList.querySelectorAll("[data-heatmap-driver]").forEach((cell, index) => {
+    cell.textContent = rows[index][0];
+    cell.title = rows[index][0];
+  });
+  document.getElementById("adminPagination").innerHTML = "";
+  if (!result) loadDriverSummaryHeatmap();
+}
+
+window.loadDriverSummaryHeatmap = async function(force = false) {
+  const range = driverHeatmapRange();
+  const requestKey = driverHeatmapRequestKey(range);
+  if (!force && DRIVER_HEATMAP_REQUEST_KEY === requestKey && DRIVER_HEATMAP_RESULT) return;
+  const request = JSON.parse(requestKey);
+  showLoader("Preparing driver heatmap…");
+  try {
+    const response = await fetch(DRIVER_HEATMAP_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...request, includeDriverHeatmap: true })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || `Heatmap request failed (${response.status}).`);
+    DRIVER_HEATMAP_REQUEST_KEY = requestKey;
+    DRIVER_HEATMAP_RESULT = result;
+    if (CURRENT_STATUS === "SUMMARY" && DRIVER_SUMMARY_VIEW === "heatmap") renderDriverSummaryHeatmap();
+  } catch (error) {
+    console.error("Driver heatmap failed:", error);
+    alert(error.message || "Failed to prepare the driver heatmap.");
+  } finally {
+    hideLoader();
+  }
+};
+
+window.setDriverHeatmapPeriod = function(period) {
+  if (period !== "week" && period !== "month") return;
+  DRIVER_HEATMAP_PERIOD = period;
+  DRIVER_HEATMAP_ANCHOR = DRIVER_HEATMAP_ANCHOR || DATE_TO || getTodayPH();
+  renderDriverSummaryHeatmap();
+};
+
+window.shiftDriverHeatmapPeriod = function(direction) {
+  const anchor = heatmapDate(DRIVER_HEATMAP_ANCHOR || DATE_TO || getTodayPH());
+  if (DRIVER_HEATMAP_PERIOD === "week") anchor.setUTCDate(anchor.getUTCDate() + Number(direction) * 7);
+  else anchor.setUTCMonth(anchor.getUTCMonth() + Number(direction));
+  const today = heatmapDate(getTodayPH());
+  DRIVER_HEATMAP_ANCHOR = heatmapDateKey(anchor > today ? today : anchor);
+  renderDriverSummaryHeatmap();
+};
 
 function renderDriverSummaryGraphs(filteredTasks, rows) {
   const displayedRows = rows;
@@ -3371,8 +3560,11 @@ function renderDriverSummaryGraphs(filteredTasks, rows) {
 }
 
 window.setDriverSummaryView = function (view) {
-  if (view !== "list" && view !== "graphs") return;
+  if (view !== "list" && view !== "graphs" && view !== "heatmap") return;
   DRIVER_SUMMARY_VIEW = view;
+  if (view === "heatmap" && !DRIVER_HEATMAP_ANCHOR) {
+    DRIVER_HEATMAP_ANCHOR = DATE_TO || getTodayPH();
+  }
   renderDriverTaskSummary(window.__FIRESTORE_TASKS__ || []);
 };
 
@@ -3417,8 +3609,9 @@ window.showDriverTaskSummary = async function () {
   }
 
   taskList.innerHTML = `
+    ${driverSummaryViewSwitcher()}
     <div class="card" style="color:#666">
-      No cached tasks are available for this date range. Click the Firestore button to load them.
+      No locally cached tasks are available for the List and Graphs views. The Heatmap can still use shared report snapshots.
     </div>`;
   document.getElementById("adminPagination").innerHTML = "";
 };

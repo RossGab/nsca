@@ -671,6 +671,14 @@ exports.prepareTaskReport = onRequest({
     const jobTypeValues = new Set();
     const baValues = new Set();
     const dmzValues = new Set();
+    const includeDriverHeatmap = req.body?.includeDriverHeatmap === true;
+    const requestedBAs = new Set(
+      (Array.isArray(req.body?.bas) ? req.body.bas : []).map(value => String(value).trim()).filter(Boolean)
+    );
+    const requestedJobTypes = new Set(
+      (Array.isArray(req.body?.jobTypes) ? req.body.jobTypes : []).map(value => String(value).trim()).filter(Boolean)
+    );
+    const driverHeatmap = new Map();
     let taskCount = 0;
     await forEachHybridReportDate(
       db,
@@ -700,6 +708,21 @@ exports.prepareTaskReport = onRequest({
           if (task.JOBTYPE) jobTypeValues.add(String(task.JOBTYPE));
           if (task.BA) baValues.add(String(task.BA));
           if (task.DMZ) dmzValues.add(String(task.DMZ));
+          if (includeDriverHeatmap &&
+              (!requestedBAs.size || requestedBAs.has(String(task.BA))) &&
+              (!requestedJobTypes.size || requestedJobTypes.has(String(task.JOBTYPE)))) {
+            const driver = String(task.driverId || "Unassigned").trim() || "Unassigned";
+            const key = `${driver}\u0000${info.date}`;
+            const counts = driverHeatmap.get(key) || {
+              driver, date: info.date, total: 0, completed: 0, pending: 0, fordownload: 0
+            };
+            counts.total++;
+            const workStatus = String(task.workStatus || "").trim().toUpperCase();
+            if (task.status === "COMPLETED" || workStatus === "COMPLETED") counts.completed++;
+            else if (workStatus === "FORDOWNLOAD") counts.fordownload++;
+            else counts.pending++;
+            driverHeatmap.set(key, counts);
+          }
         });
       }
     );
@@ -719,6 +742,7 @@ exports.prepareTaskReport = onRequest({
       bas: values(baValues),
       dmzs: values(dmzValues),
       dateStats,
+      driverHeatmap: includeDriverHeatmap ? [...driverHeatmap.values()] : undefined,
       preparationToken: createReportPreparationToken(from, to, historicalDates),
       ...sourceStats
     });
