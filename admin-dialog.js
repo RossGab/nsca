@@ -104,6 +104,9 @@
   function closeCurrentMessage(accepted) {
     if (!elements) return;
     const finishedRequest = currentRequest;
+    if (elements.overlay.contains(document.activeElement)) {
+      document.activeElement.blur();
+    }
     elements.overlay.classList.remove("visible");
     elements.overlay.setAttribute("aria-hidden", "true");
     dialogVisible = false;

@@ -68,6 +68,9 @@ const REPORT_MAX_DAYS = 62;
 const EXCEL_CELL_LIMIT = 32767;
 const REPORT_SNAPSHOT_SCHEMA_VERSION = 2;
 const REPORT_LOCK_SCHEMA_VERSION = 3;
+const REPORT_LOCK_DURATION_MS = 10 * 60 * 1000;
+const REPORT_LOCK_WAIT_LIMIT_MS = 11 * 60 * 1000;
+const REPORT_LOCK_POLL_MS = 5000;
 
 function setReportCors(req, res) {
   const origin = String(req.get("origin") || "");
@@ -328,25 +331,42 @@ function taskCreatedDate(raw) {
   }).format(date);
 }
 
+function wait(milliseconds) {
+  return new Promise(resolve => setTimeout(resolve, milliseconds));
+}
+
+async function acquireSnapshotLock(db, manifestRef, token) {
+  const waitDeadline = Date.now() + REPORT_LOCK_WAIT_LIMIT_MS;
+  while (true) {
+    let lockedUntil = 0;
+    const acquired = await db.runTransaction(async transaction => {
+      const manifest = await transaction.get(manifestRef);
+      const manifestData = manifest.data() || {};
+      lockedUntil = Number(manifestData.lockedUntil || 0);
+      const compatibleActiveLock = lockedUntil > Date.now() &&
+        Number(manifestData.lockSchemaVersion || 0) === REPORT_LOCK_SCHEMA_VERSION;
+      if (compatibleActiveLock) return false;
+      transaction.set(manifestRef, {
+        lockToken: token,
+        lockSchemaVersion: REPORT_LOCK_SCHEMA_VERSION,
+        lockedUntil: Date.now() + REPORT_LOCK_DURATION_MS
+      }, { merge: true });
+      return true;
+    });
+    if (acquired) return;
+    if (Date.now() >= waitDeadline) throw new Error("SNAPSHOT_BUSY");
+    const remainingLockTime = Math.max(250, lockedUntil - Date.now());
+    await wait(Math.min(REPORT_LOCK_POLL_MS, remainingLockTime));
+  }
+}
+
 async function refreshSnapshotForDate(db, date) {
   const manifestRef = db.collection("reportSnapshotManifests").doc(date);
   const file = admin.storage().bucket().file(`task-report-snapshots/${date}.json.gz`);
   const token = crypto.randomUUID();
-  const checkStartedMillis = Date.now();
   try {
-    await db.runTransaction(async transaction => {
-      const manifest = await transaction.get(manifestRef);
-      const manifestData = manifest.data() || {};
-      if (
-        Number(manifestData.lockedUntil || 0) > Date.now() &&
-        Number(manifestData.lockSchemaVersion || 0) === REPORT_LOCK_SCHEMA_VERSION
-      ) throw new Error("SNAPSHOT_BUSY");
-      transaction.set(manifestRef, {
-        lockToken: token,
-        lockSchemaVersion: REPORT_LOCK_SCHEMA_VERSION,
-        lockedUntil: Date.now() + 10 * 60 * 1000
-      }, { merge: true });
-    });
+    await acquireSnapshotLock(db, manifestRef, token);
+    const checkStartedMillis = Date.now();
     const manifest = (await manifestRef.get()).data() || {};
     let tasksById = new Map();
     let watermarkMillis = Number(manifest.watermarkMillis || 0);
