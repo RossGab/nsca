@@ -354,10 +354,11 @@ async function refreshSnapshotForDate(db, date) {
       Number(manifest.schemaVersion || 0) !== REPORT_SNAPSHOT_SCHEMA_VERSION;
     if (!fullBuild) {
       try {
-        const [compressed] = await file.download();
+        const [compressed] = await file.download({ decompress: false });
         const saved = JSON.parse(zlib.gunzipSync(compressed).toString("utf8"));
         tasksById = new Map((saved.tasks || []).map(task => [task._key, task]));
-      } catch {
+      } catch (error) {
+        console.warn(`Snapshot ${date} could not be reopened; rebuilding it.`, error);
         fullBuild = true; tasksById = new Map(); watermarkMillis = 0;
       }
     }
@@ -489,10 +490,11 @@ exports.refreshHistoricalTaskSnapshot = onRequest({
 
     if (!fullBuild) {
       try {
-        const [compressed] = await file.download();
+        const [compressed] = await file.download({ decompress: false });
         const saved = JSON.parse(zlib.gunzipSync(compressed).toString("utf8"));
         tasksById = new Map((saved.tasks || []).map(task => [task._key, task]));
-      } catch {
+      } catch (error) {
+        console.warn(`Snapshot ${date} could not be reopened; rebuilding it.`, error);
         fullBuild = true;
         tasksById = new Map();
         watermarkMillis = 0;
