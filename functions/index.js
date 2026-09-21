@@ -61,6 +61,7 @@ const REPORT_DATABASE_ID = "drver-task";
 const REPORT_COLLECTION = "TASK";
 const REPORT_MAX_DAYS = 62;
 const EXCEL_CELL_LIMIT = 32767;
+const REPORT_SNAPSHOT_SCHEMA_VERSION = 2;
 
 function setReportCors(req, res) {
   const origin = String(req.get("origin") || "");
@@ -300,6 +301,27 @@ function reportDateStrings(from, to) {
   return dates;
 }
 
+function reportDateTimestamps(date) {
+  const bounds = reportBounds(date, date);
+  if (!bounds) throw new Error(`Invalid report date: ${date}`);
+  return {
+    start: Timestamp.fromMillis(bounds.startMillis),
+    end: Timestamp.fromMillis(bounds.endMillis)
+  };
+}
+
+function taskCreatedDate(raw) {
+  const value = raw?.createdAt;
+  const date = value?.toDate?.() ||
+    (Number.isFinite(value?._seconds) ? new Date(value._seconds * 1000) : null) ||
+    (Number.isFinite(value?.seconds) ? new Date(value.seconds * 1000) : null) ||
+    (value ? new Date(value) : null);
+  if (!date || Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit"
+  }).format(date);
+}
+
 async function refreshSnapshotForDate(db, date) {
   const manifestRef = db.collection("reportSnapshotManifests").doc(date);
   const file = admin.storage().bucket().file(`task-report-snapshots/${date}.json.gz`);
@@ -314,7 +336,8 @@ async function refreshSnapshotForDate(db, date) {
     const manifest = (await manifestRef.get()).data() || {};
     let tasksById = new Map();
     let watermarkMillis = Number(manifest.watermarkMillis || 0);
-    let fullBuild = !manifest.snapshotExists;
+    let fullBuild = !manifest.snapshotExists ||
+      Number(manifest.schemaVersion || 0) !== REPORT_SNAPSHOT_SCHEMA_VERSION;
     if (!fullBuild) {
       try {
         const [compressed] = await file.download();
@@ -324,14 +347,19 @@ async function refreshSnapshotForDate(db, date) {
         fullBuild = true; tasksById = new Map(); watermarkMillis = 0;
       }
     }
-    let taskQuery = db.collection(REPORT_COLLECTION).where("assignedDate", "==", date);
+    const dateBounds = reportDateTimestamps(date);
+    let taskQuery = db.collection(REPORT_COLLECTION)
+      .where("createdAt", ">=", dateBounds.start)
+      .where("createdAt", "<=", dateBounds.end);
     if (!fullBuild && watermarkMillis) {
-      taskQuery = taskQuery.where("updatedAt", ">", Timestamp.fromMillis(watermarkMillis));
+      taskQuery = taskQuery
+        .where("updatedAt", ">", Timestamp.fromMillis(watermarkMillis))
+        .where("updatedAt", "<=", Timestamp.fromMillis(checkStartedMillis));
     }
     const changes = await taskQuery.get();
     changes.forEach(document => {
       const raw = document.data() || {};
-      if (raw.deleted === true || String(raw.assignedDate || "") !== date) tasksById.delete(document.id);
+      if (raw.deleted === true || taskCreatedDate(raw) !== date) tasksById.delete(document.id);
       else tasksById.set(document.id, { _key: document.id, ...raw });
     });
     const payload = { date, generatedAt: new Date().toISOString(), watermarkMillis: checkStartedMillis, tasks: [...tasksById.values()] };
@@ -340,7 +368,8 @@ async function refreshSnapshotForDate(db, date) {
       metadata: { contentType: "application/json", contentEncoding: "gzip" }
     });
     await manifestRef.set({
-      date, snapshotExists: true, taskCount: tasksById.size,
+      date, snapshotExists: true, schemaVersion: REPORT_SNAPSHOT_SCHEMA_VERSION,
+      taskCount: tasksById.size,
       watermarkMillis: checkStartedMillis, generatedAt: Timestamp.now(),
       changedTasks: changes.size, lockedUntil: 0, lockToken: null
     }, { merge: true });
@@ -366,12 +395,16 @@ async function loadHybridReportTasks(db, from, to, onDate) {
       dailyTasks = result.tasks;
       if (onDate) onDate({ ...result, index, totalDates: dates.length, source: "snapshot" });
     } else {
-      const live = await db.collection(REPORT_COLLECTION).where("assignedDate", "==", date).get();
+      const dateBounds = reportDateTimestamps(date);
+      const live = await db.collection(REPORT_COLLECTION)
+        .where("createdAt", ">=", dateBounds.start)
+        .where("createdAt", "<=", dateBounds.end)
+        .get();
       dailyTasks = live.docs.map(document => ({ _key: document.id, ...document.data() }));
       if (onDate) onDate({ date, changedTasks: live.size, taskCount: live.size, index, totalDates: dates.length, source: "live" });
     }
     for (const task of dailyTasks) {
-      if (task.deleted !== true && String(task.assignedDate || "") === date) rows.push(task);
+      if (task.deleted !== true && taskCreatedDate(task) === date) rows.push(task);
     }
   }
   return rows;
@@ -424,7 +457,8 @@ exports.refreshHistoricalTaskSnapshot = onRequest({
     const manifest = (await manifestRef.get()).data() || {};
     let tasksById = new Map();
     let watermarkMillis = Number(manifest.watermarkMillis || 0);
-    let fullBuild = !manifest.snapshotExists;
+    let fullBuild = !manifest.snapshotExists ||
+      Number(manifest.schemaVersion || 0) !== REPORT_SNAPSHOT_SCHEMA_VERSION;
 
     if (!fullBuild) {
       try {
@@ -438,9 +472,14 @@ exports.refreshHistoricalTaskSnapshot = onRequest({
       }
     }
 
-    let query = db.collection(REPORT_COLLECTION).where("assignedDate", "==", date);
+    const dateBounds = reportDateTimestamps(date);
+    let query = db.collection(REPORT_COLLECTION)
+      .where("createdAt", ">=", dateBounds.start)
+      .where("createdAt", "<=", dateBounds.end);
     if (!fullBuild && watermarkMillis) {
-      query = query.where("updatedAt", ">", Timestamp.fromMillis(watermarkMillis));
+      query = query
+        .where("updatedAt", ">", Timestamp.fromMillis(watermarkMillis))
+        .where("updatedAt", "<=", Timestamp.fromMillis(checkStartedMillis));
     }
     const snapshot = await query.get();
     let latestWatermark = checkStartedMillis;
@@ -448,7 +487,7 @@ exports.refreshHistoricalTaskSnapshot = onRequest({
       const raw = document.data() || {};
       const updatedMillis = raw.updatedAt?.toMillis?.() || 0;
       latestWatermark = Math.max(latestWatermark, updatedMillis);
-      if (raw.deleted === true || String(raw.assignedDate || "") !== date) {
+      if (raw.deleted === true || taskCreatedDate(raw) !== date) {
         tasksById.delete(document.id);
       } else {
         tasksById.set(document.id, { _key: document.id, ...raw });
@@ -469,6 +508,7 @@ exports.refreshHistoricalTaskSnapshot = onRequest({
     await manifestRef.set({
       date,
       snapshotExists: true,
+      schemaVersion: REPORT_SNAPSHOT_SCHEMA_VERSION,
       taskCount: tasksById.size,
       watermarkMillis: latestWatermark,
       generatedAt: Timestamp.now(),
@@ -558,6 +598,100 @@ exports.prepareTaskReport = onRequest({
       res.status(409).json({ error: "A historical snapshot is already being refreshed. Please retry shortly." });
     } else {
       res.status(500).json({ error: error.message || "Report preparation failed." });
+    }
+  }
+});
+
+function csvReportValue(value) {
+  const normalized = cellValue(value);
+  let text = normalized instanceof Date ? normalized.toISOString() : String(normalized ?? "");
+  if (/^[=+\-@]/.test(text)) text = `'${text}`;
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+exports.generateTaskCsvReport = onRequest({
+  region: "asia-southeast1",
+  timeoutSeconds: 1800,
+  memory: "2GiB",
+  cpu: 2,
+  maxInstances: 2,
+  concurrency: 1,
+  cors: false
+}, async (req, res) => {
+  const originAllowed = setReportCors(req, res);
+  if (req.method === "OPTIONS") {
+    res.status(originAllowed ? 204 : 403).end();
+    return;
+  }
+  if (req.method !== "POST" || !originAllowed) {
+    res.status(403).json({ error: "Report request is not allowed." });
+    return;
+  }
+  if (!reportBounds(req.body?.from, req.body?.to)) {
+    res.status(400).json({ error: `Select a valid range of ${REPORT_MAX_DAYS} days or less.` });
+    return;
+  }
+
+  const selected = key => new Set(
+    Array.isArray(req.body?.[key]) ? req.body[key].map(value => String(value)) : []
+  );
+  const statuses = selected("statuses");
+  const jobTypes = selected("jobTypes");
+  const bas = selected("bas");
+  const dmzs = selected("dmzs");
+
+  try {
+    const db = getFirestore(REPORT_DATABASE_ID);
+    const sourceTasks = await loadHybridReportTasks(
+      db,
+      String(req.body.from),
+      String(req.body.to)
+    );
+    const rows = [];
+    const headerSet = new Set(["TASK_ID"]);
+    sourceTasks.forEach(sourceTask => {
+      if (sourceTask?.deleted === true) return;
+      const row = normalizedTask(sourceTask._key, sourceTask);
+      if (statuses.size && !statuses.has(String(row.status))) return;
+      if (jobTypes.size && !jobTypes.has(String(row.JOBTYPE))) return;
+      if (bas.size && !bas.has(String(row.BA))) return;
+      if (dmzs.size && !dmzs.has(String(row.DMZ))) return;
+      Object.keys(row).forEach(key => headerSet.add(key));
+      rows.push(row);
+    });
+
+    if (!rows.length) {
+      res.status(404).json({ error: "No tasks matched the selected report filters." });
+      return;
+    }
+
+    const headers = [...headerSet]
+      .filter(header => header !== "TASK_ID")
+      .sort();
+    headers.unshift("TASK_ID");
+    const filename = `Task_Report_${req.body.from}_to_${req.body.to}.csv`;
+    res.status(200);
+    res.set("Content-Type", "text/csv; charset=utf-8");
+    res.set("Content-Disposition", `attachment; filename="${filename}"`);
+    res.set("X-Task-Count", String(rows.length));
+    res.flushHeaders();
+    res.write("\uFEFF");
+    res.write(`${headers.map(csvReportValue).join(",")}\r\n`);
+    for (const row of rows) {
+      res.write(`${headers.map(header => csvReportValue(row[header])).join(",")}\r\n`);
+    }
+    res.end();
+  } catch (error) {
+    console.error("Task CSV report failed", error);
+    if (!res.headersSent) {
+      const status = error.message === "SNAPSHOT_BUSY" ? 409 : 500;
+      res.status(status).json({
+        error: error.message === "SNAPSHOT_BUSY"
+          ? "A historical snapshot is already being refreshed. Please retry shortly."
+          : error.message || "CSV report generation failed."
+      });
+    } else {
+      res.destroy(error);
     }
   }
 });
