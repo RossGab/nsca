@@ -46,7 +46,7 @@ button:disabled{background:#999;cursor:not-allowed}
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Task Report <span class="app-version">V.R.0.0.13</span></h1>
+      <h1 class="app-title">Task Report <span class="app-version">V.R.0.0.14</span></h1>
     </div>
   </div>
   <div class="app-header-actions">
@@ -821,6 +821,7 @@ const PREPARE_REPORT_URL=
 const CLOUD_CSV_REPORT_URL=
   "https://asia-southeast1-driva-pwa.cloudfunctions.net/generateTaskCsvReport";
 let REPORT_TASK_COUNT=0;
+let REPORT_PREPARATION_TOKEN="";
 
 function fillCheckboxValues(id,values,label){
   const container=document.getElementById(id);
@@ -958,6 +959,7 @@ window.loadTasksForSelectedDates=async function(){
     const result=await response.json().catch(()=>({}));
     if(!response.ok)throw new Error(result.error||`Report preparation failed (${response.status}).`);
     REPORT_TASK_COUNT=Number(result.taskCount||0);
+    REPORT_PREPARATION_TOKEN=String(result.preparationToken||"");
     fillCheckboxValues("jobTypeFilter",result.jobTypes,"Job Types");
     fillCheckboxValues("baFilter",result.bas,"BA");
     fillSelectValues("dmzFilter",result.dmzs,"DMZ");
@@ -977,6 +979,7 @@ window.loadTasksForSelectedDates=async function(){
   }catch(error){
     console.error("Snapshot report preparation failed:",error);
     REPORT_TASK_COUNT=0;
+    REPORT_PREPARATION_TOKEN="";
     renderDateReadSummary([]);
     exportButton.disabled=true;
     dataStatus.innerHTML=`<span class="error">❌ Report preparation failed: ${escapeHtml(error.message||String(error))}</span>`;
@@ -1026,7 +1029,8 @@ window.generateReport=async function(){
         statuses:status?[status]:[],
         jobTypes:[...getCheckedValues("jobTypeFilter")],
         bas:[...getCheckedValues("baFilter")],
-        dmzs:dmz?[dmz]:[]
+        dmzs:dmz?[dmz]:[],
+        preparationToken:REPORT_PREPARATION_TOKEN
       })
     });
     clearInterval(timer);
@@ -1103,6 +1107,7 @@ document.addEventListener("click",event=>{
 function markReportDateRangeChanged(){
   ALL_TASKS=[];
   REPORT_TASK_COUNT=0;
+  REPORT_PREPARATION_TOKEN="";
   buildFilterOptions();
   exportButton.disabled=true;
   dataStatus.textContent="Select a date range, then click Prepare Report Data.";

@@ -399,12 +399,62 @@ async function refreshSnapshotForDate(db, date) {
   }
 }
 
-async function forEachHybridReportDate(db, from, to, onDate) {
+async function loadSnapshotTasks(date) {
+  const file = admin.storage().bucket().file(`task-report-snapshots/${date}.json.gz`);
+  const [compressed] = await file.download({ decompress: false });
+  const saved = JSON.parse(zlib.gunzipSync(compressed).toString("utf8"));
+  return Array.isArray(saved.tasks) ? saved.tasks : [];
+}
+
+function createReportPreparationToken(from, to, historicalDates) {
+  return Buffer.from(JSON.stringify({
+    version: 1,
+    from,
+    to,
+    preparedAt: Date.now(),
+    historicalDates
+  })).toString("base64url");
+}
+
+function readReportPreparationToken(token, from, to) {
+  try {
+    const parsed = JSON.parse(Buffer.from(String(token || ""), "base64url").toString("utf8"));
+    const age = Date.now() - Number(parsed.preparedAt || 0);
+    if (
+      parsed.version !== 1 || parsed.from !== from || parsed.to !== to ||
+      age < 0 || age > 15 * 60 * 1000 || !Array.isArray(parsed.historicalDates)
+    ) return new Set();
+    return new Set(parsed.historicalDates.filter(snapshotDateIsEligible));
+  } catch {
+    return new Set();
+  }
+}
+
+async function forEachHybridReportDate(db, from, to, onDate, options = {}) {
   const dates = reportDateStrings(from, to);
+  const preparedDates = options.preparedHistoricalDates || new Set();
   for (let index = 0; index < dates.length; index++) {
     const date = dates[index];
     let dailyTasks;
     if (snapshotDateIsEligible(date)) {
+      if (preparedDates.has(date)) {
+        try {
+          dailyTasks = await loadSnapshotTasks(date);
+          if (onDate) await onDate({
+            date,
+            fullBuild: false,
+            preparedReuse: true,
+            changedTasks: 0,
+            taskCount: dailyTasks.length,
+            index,
+            totalDates: dates.length,
+            source: "snapshot"
+          }, dailyTasks);
+          continue;
+        } catch (error) {
+          console.warn(`Prepared snapshot ${date} could not be reused; checking it normally.`, error);
+        }
+      }
       const result = await refreshSnapshotForDate(db, date);
       dailyTasks = result.tasks;
       if (onDate) await onDate(
@@ -637,6 +687,11 @@ exports.prepareTaskReport = onRequest({
       numeric: true,
       sensitivity: "base"
     }));
+    const from = String(req.body.from);
+    const to = String(req.body.to);
+    const historicalDates = dateStats
+      .filter(item => item.source === "snapshot")
+      .map(item => item.date);
     res.json({
       taskCount,
       statuses: values(statusValues),
@@ -644,6 +699,7 @@ exports.prepareTaskReport = onRequest({
       bas: values(baValues),
       dmzs: values(dmzValues),
       dateStats,
+      preparationToken: createReportPreparationToken(from, to, historicalDates),
       ...sourceStats
     });
   } catch (error) {
@@ -693,6 +749,11 @@ exports.generateTaskCsvReport = onRequest({
   const jobTypes = selected("jobTypes");
   const bas = selected("bas");
   const dmzs = selected("dmzs");
+  const preparedHistoricalDates = readReportPreparationToken(
+    req.body?.preparationToken,
+    String(req.body.from),
+    String(req.body.to)
+  );
   const temporaryPath = path.join(os.tmpdir(), `task-report-${crypto.randomUUID()}.jsonl`);
 
   try {
@@ -716,7 +777,8 @@ exports.generateTaskCsvReport = onRequest({
           rowCount++;
           if (!spool.write(`${JSON.stringify(row)}\n`)) await once(spool, "drain");
         }
-      }
+      },
+      { preparedHistoricalDates }
     );
     spool.end();
     await once(spool, "finish");
