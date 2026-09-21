@@ -30,6 +30,11 @@ button:disabled{background:#999;cursor:not-allowed}
 @keyframes reportProgress{0%{transform:translateX(-110%)}100%{transform:translateX(290%)}}
 #dataStatus{text-align:center;font-size:12px;color:#555;margin:8px}
 .error{color:#b00020;font-weight:bold}
+#readSummary{display:none;background:#fff;padding:12px;margin-bottom:10px;border-radius:6px;overflow:auto}
+.read-summary-table{width:100%;border-collapse:collapse;min-width:620px}
+.read-summary-table th,.read-summary-table td{padding:8px 10px;border-bottom:1px solid #e5e7eb;text-align:left;font-size:12px}
+.read-summary-table th{background:#edf3f8;color:#334155;text-transform:uppercase;font-size:11px}
+.read-summary-total{font-weight:bold;background:#f8fafc}
 </style>
 <link rel="stylesheet" href="./admin-theme.css">
 <script src="./admin-dialog.js?v=4"></script>
@@ -41,7 +46,7 @@ button:disabled{background:#999;cursor:not-allowed}
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Task Report <span class="app-version">V.R.0.0.12</span></h1>
+      <h1 class="app-title">Task Report <span class="app-version">V.R.0.0.13</span></h1>
     </div>
   </div>
   <div class="app-header-actions">
@@ -76,6 +81,7 @@ button:disabled{background:#999;cursor:not-allowed}
 <p class="note">Date range is based on <b>Created Date</b> using Philippine time.</p>
 <div id="dataStatus">☁ Hybrid snapshots and live Firestore</div>
 <div id="progressBox"></div>
+<div id="readSummary" aria-live="polite"></div>
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-app.js";
@@ -118,6 +124,7 @@ const loadButton=document.getElementById("loadButton");
 const exportButton=document.getElementById("exportButton");
 const progressBox=document.getElementById("progressBox");
 const dataStatus=document.getElementById("dataStatus");
+const readSummary=document.getElementById("readSummary");
 
 function getTodayPH(){
   return new Date().toLocaleDateString("en-CA",{timeZone:"Asia/Manila"});
@@ -853,6 +860,69 @@ function fillSelectValues(id,values,label){
   if((values||[]).includes(previous))select.value=previous;
 }
 
+function renderDateReadSummary(dateStats){
+  readSummary.replaceChildren();
+  const stats=Array.isArray(dateStats)?dateStats:[];
+  if(!stats.length){
+    readSummary.style.display="none";
+    return;
+  }
+
+  const title=document.createElement("div");
+  title.style.cssText="font-weight:700;margin-bottom:8px";
+  title.textContent="Task document reads by date";
+  const note=document.createElement("div");
+  note.style.cssText="font-size:11px;color:#64748b;margin-bottom:9px";
+  note.textContent="Estimated reads include task-query and snapshot manifest document reads. Firestore index-entry charges and Storage downloads are separate.";
+  const table=document.createElement("table");
+  table.className="read-summary-table";
+  const head=document.createElement("thead");
+  const headRow=document.createElement("tr");
+  ["Date","Source","Mode","Task documents returned","Estimated document reads","Tasks available"].forEach(label=>{
+    const cell=document.createElement("th");
+    cell.textContent=label;
+    headRow.appendChild(cell);
+  });
+  head.appendChild(headRow);
+  const body=document.createElement("tbody");
+  let totalReads=0;
+  let totalEstimatedReads=0;
+  let totalTasks=0;
+  stats.forEach(item=>{
+    const row=document.createElement("tr");
+    const reads=Number(item.taskReads||0);
+    const estimatedReads=Number(item.estimatedDocumentReads||reads);
+    const tasks=Number(item.taskCount||0);
+    totalReads+=reads;
+    totalEstimatedReads+=estimatedReads;
+    totalTasks+=tasks;
+    [
+      item.date||"—",
+      item.source==="snapshot"?"Snapshot":"Live Firestore",
+      item.mode||"—",
+      reads.toLocaleString(),
+      estimatedReads.toLocaleString(),
+      tasks.toLocaleString()
+    ].forEach(value=>{
+      const cell=document.createElement("td");
+      cell.textContent=value;
+      row.appendChild(cell);
+    });
+    body.appendChild(row);
+  });
+  const totalRow=document.createElement("tr");
+  totalRow.className="read-summary-total";
+  ["Total","","",totalReads.toLocaleString(),totalEstimatedReads.toLocaleString(),totalTasks.toLocaleString()].forEach(value=>{
+    const cell=document.createElement("td");
+    cell.textContent=value;
+    totalRow.appendChild(cell);
+  });
+  body.appendChild(totalRow);
+  table.append(head,body);
+  readSummary.append(title,note,table);
+  readSummary.style.display="block";
+}
+
 window.loadTasksForSelectedDates=async function(){
   const from=dateFrom.value;
   const to=dateTo.value;
@@ -891,6 +961,7 @@ window.loadTasksForSelectedDates=async function(){
     fillCheckboxValues("jobTypeFilter",result.jobTypes,"Job Types");
     fillCheckboxValues("baFilter",result.bas,"BA");
     fillSelectValues("dmzFilter",result.dmzs,"DMZ");
+    renderDateReadSummary(result.dateStats);
     exportButton.disabled=REPORT_TASK_COUNT===0;
     dataStatus.textContent=
       `☁ ${REPORT_TASK_COUNT.toLocaleString()} task(s) ready • `+
@@ -906,6 +977,7 @@ window.loadTasksForSelectedDates=async function(){
   }catch(error){
     console.error("Snapshot report preparation failed:",error);
     REPORT_TASK_COUNT=0;
+    renderDateReadSummary([]);
     exportButton.disabled=true;
     dataStatus.innerHTML=`<span class="error">❌ Report preparation failed: ${escapeHtml(error.message||String(error))}</span>`;
     showReportProgress("Preparation failed",error.message||String(error),0);
@@ -1035,6 +1107,7 @@ function markReportDateRangeChanged(){
   exportButton.disabled=true;
   dataStatus.textContent="Select a date range, then click Prepare Report Data.";
   progressBox.style.display="none";
+  renderDateReadSummary([]);
 }
 
 dateFrom.addEventListener("change",markReportDateRangeChanged);

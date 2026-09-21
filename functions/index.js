@@ -594,6 +594,7 @@ exports.prepareTaskReport = onRequest({
   try {
     const db = getFirestore(REPORT_DATABASE_ID);
     const sourceStats = { snapshotDates: 0, liveDates: 0, changedTasks: 0 };
+    const dateStats = [];
     const statusValues = new Set();
     const jobTypeValues = new Set();
     const baValues = new Set();
@@ -607,6 +608,18 @@ exports.prepareTaskReport = onRequest({
         if (info.source === "snapshot") sourceStats.snapshotDates++;
         else sourceStats.liveDates++;
         sourceStats.changedTasks += Number(info.changedTasks || 0);
+        dateStats.push({
+          date: info.date,
+          source: info.source,
+          mode: info.source === "live"
+            ? "Live"
+            : info.fullBuild ? "New snapshot" : "Snapshot update",
+          taskReads: Number(info.changedTasks || 0),
+          taskCount: Number(info.taskCount || 0),
+          estimatedDocumentReads: info.source === "snapshot"
+            ? Math.max(1, Number(info.changedTasks || 0)) + 3
+            : Math.max(1, Number(info.changedTasks || 0))
+        });
         dailyTasks.forEach(raw => {
           if (raw?.deleted === true || taskCreatedDate(raw) !== info.date) return;
           const task = normalizedTask(raw._key, raw);
@@ -628,6 +641,7 @@ exports.prepareTaskReport = onRequest({
       jobTypes: values(jobTypeValues),
       bas: values(baValues),
       dmzs: values(dmzValues),
+      dateStats,
       ...sourceStats
     });
   } catch (error) {
