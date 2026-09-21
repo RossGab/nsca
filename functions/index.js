@@ -67,6 +67,7 @@ const REPORT_COLLECTION = "TASK";
 const REPORT_MAX_DAYS = 62;
 const EXCEL_CELL_LIMIT = 32767;
 const REPORT_SNAPSHOT_SCHEMA_VERSION = 2;
+const REPORT_LOCK_SCHEMA_VERSION = 3;
 
 function setReportCors(req, res) {
   const origin = String(req.get("origin") || "");
@@ -338,11 +339,11 @@ async function refreshSnapshotForDate(db, date) {
       const manifestData = manifest.data() || {};
       if (
         Number(manifestData.lockedUntil || 0) > Date.now() &&
-        Number(manifestData.lockSchemaVersion || 0) === REPORT_SNAPSHOT_SCHEMA_VERSION
+        Number(manifestData.lockSchemaVersion || 0) === REPORT_LOCK_SCHEMA_VERSION
       ) throw new Error("SNAPSHOT_BUSY");
       transaction.set(manifestRef, {
         lockToken: token,
-        lockSchemaVersion: REPORT_SNAPSHOT_SCHEMA_VERSION,
+        lockSchemaVersion: REPORT_LOCK_SCHEMA_VERSION,
         lockedUntil: Date.now() + 10 * 60 * 1000
       }, { merge: true });
     });
@@ -475,7 +476,7 @@ exports.refreshHistoricalTaskSnapshot = onRequest({
       transaction.set(manifestRef, {
         ...(manifest.data() || {}),
         lockToken: token,
-        lockSchemaVersion: REPORT_SNAPSHOT_SCHEMA_VERSION,
+        lockSchemaVersion: REPORT_LOCK_SCHEMA_VERSION,
         lockedUntil: Date.now() + 10 * 60 * 1000
       }, { merge: true });
     });
@@ -571,7 +572,7 @@ exports.refreshHistoricalTaskSnapshot = onRequest({
 exports.prepareTaskReport = onRequest({
   region: "asia-southeast1",
   timeoutSeconds: 1800,
-  memory: "2GiB",
+  memory: "4GiB",
   cpu: 2,
   maxInstances: 2,
   concurrency: 1,
@@ -649,7 +650,7 @@ function csvReportValue(value) {
 exports.generateTaskCsvReport = onRequest({
   region: "asia-southeast1",
   timeoutSeconds: 1800,
-  memory: "2GiB",
+  memory: "4GiB",
   cpu: 2,
   maxInstances: 2,
   concurrency: 1,
