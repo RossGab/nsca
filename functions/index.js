@@ -51,6 +51,11 @@ const { getFirestore, Timestamp } = require("firebase-admin/firestore");
 const ExcelJS = require("exceljs");
 const crypto = require("node:crypto");
 const zlib = require("node:zlib");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const readline = require("node:readline");
+const { once } = require("node:events");
 
 const REPORT_ORIGINS = new Set([
   "https://rossgab.github.io",
@@ -330,8 +335,16 @@ async function refreshSnapshotForDate(db, date) {
   try {
     await db.runTransaction(async transaction => {
       const manifest = await transaction.get(manifestRef);
-      if (Number(manifest.data()?.lockedUntil || 0) > Date.now()) throw new Error("SNAPSHOT_BUSY");
-      transaction.set(manifestRef, { lockToken: token, lockedUntil: Date.now() + 10 * 60 * 1000 }, { merge: true });
+      const manifestData = manifest.data() || {};
+      if (
+        Number(manifestData.lockedUntil || 0) > Date.now() &&
+        Number(manifestData.lockSchemaVersion || 0) === REPORT_SNAPSHOT_SCHEMA_VERSION
+      ) throw new Error("SNAPSHOT_BUSY");
+      transaction.set(manifestRef, {
+        lockToken: token,
+        lockSchemaVersion: REPORT_SNAPSHOT_SCHEMA_VERSION,
+        lockedUntil: Date.now() + 10 * 60 * 1000
+      }, { merge: true });
     });
     const manifest = (await manifestRef.get()).data() || {};
     let tasksById = new Map();
@@ -384,8 +397,7 @@ async function refreshSnapshotForDate(db, date) {
   }
 }
 
-async function loadHybridReportTasks(db, from, to, onDate) {
-  const rows = [];
+async function forEachHybridReportDate(db, from, to, onDate) {
   const dates = reportDateStrings(from, to);
   for (let index = 0; index < dates.length; index++) {
     const date = dates[index];
@@ -393,7 +405,10 @@ async function loadHybridReportTasks(db, from, to, onDate) {
     if (snapshotDateIsEligible(date)) {
       const result = await refreshSnapshotForDate(db, date);
       dailyTasks = result.tasks;
-      if (onDate) onDate({ ...result, index, totalDates: dates.length, source: "snapshot" });
+      if (onDate) await onDate(
+        { ...result, tasks: undefined, index, totalDates: dates.length, source: "snapshot" },
+        dailyTasks
+      );
     } else {
       const dateBounds = reportDateTimestamps(date);
       const live = await db.collection(REPORT_COLLECTION)
@@ -401,12 +416,22 @@ async function loadHybridReportTasks(db, from, to, onDate) {
         .where("createdAt", "<=", dateBounds.end)
         .get();
       dailyTasks = live.docs.map(document => ({ _key: document.id, ...document.data() }));
-      if (onDate) onDate({ date, changedTasks: live.size, taskCount: live.size, index, totalDates: dates.length, source: "live" });
-    }
-    for (const task of dailyTasks) {
-      if (task.deleted !== true && taskCreatedDate(task) === date) rows.push(task);
+      if (onDate) await onDate(
+        { date, changedTasks: live.size, taskCount: live.size, index, totalDates: dates.length, source: "live" },
+        dailyTasks
+      );
     }
   }
+}
+
+async function loadHybridReportTasks(db, from, to, onDate) {
+  const rows = [];
+  await forEachHybridReportDate(db, from, to, async (info, dailyTasks) => {
+    if (onDate) await onDate(info);
+    for (const task of dailyTasks) {
+      if (task.deleted !== true && taskCreatedDate(task) === info.date) rows.push(task);
+    }
+  });
   return rows;
 }
 
@@ -450,6 +475,7 @@ exports.refreshHistoricalTaskSnapshot = onRequest({
       transaction.set(manifestRef, {
         ...(manifest.data() || {}),
         lockToken: token,
+        lockSchemaVersion: REPORT_SNAPSHOT_SCHEMA_VERSION,
         lockedUntil: Date.now() + 10 * 60 * 1000
       }, { merge: true });
     });
@@ -567,29 +593,40 @@ exports.prepareTaskReport = onRequest({
   try {
     const db = getFirestore(REPORT_DATABASE_ID);
     const sourceStats = { snapshotDates: 0, liveDates: 0, changedTasks: 0 };
-    const tasks = await loadHybridReportTasks(
+    const statusValues = new Set();
+    const jobTypeValues = new Set();
+    const baValues = new Set();
+    const dmzValues = new Set();
+    let taskCount = 0;
+    await forEachHybridReportDate(
       db,
       String(req.body.from),
       String(req.body.to),
-      info => {
+      (info, dailyTasks) => {
         if (info.source === "snapshot") sourceStats.snapshotDates++;
         else sourceStats.liveDates++;
         sourceStats.changedTasks += Number(info.changedTasks || 0);
+        dailyTasks.forEach(raw => {
+          if (raw?.deleted === true || taskCreatedDate(raw) !== info.date) return;
+          const task = normalizedTask(raw._key, raw);
+          taskCount++;
+          if (task.status) statusValues.add(String(task.status));
+          if (task.JOBTYPE) jobTypeValues.add(String(task.JOBTYPE));
+          if (task.BA) baValues.add(String(task.BA));
+          if (task.DMZ) dmzValues.add(String(task.DMZ));
+        });
       }
     );
-    const normalized = tasks.map(raw => normalizedTask(raw._key, raw));
-    const values = field => [...new Set(
-      normalized.map(task => String(task[field] || "")).filter(Boolean)
-    )].sort((a, b) => a.localeCompare(b, undefined, {
+    const values = set => [...set].sort((a, b) => a.localeCompare(b, undefined, {
       numeric: true,
       sensitivity: "base"
     }));
     res.json({
-      taskCount: normalized.length,
-      statuses: values("status"),
-      jobTypes: values("JOBTYPE"),
-      bas: values("BA"),
-      dmzs: values("DMZ"),
+      taskCount,
+      statuses: values(statusValues),
+      jobTypes: values(jobTypeValues),
+      bas: values(baValues),
+      dmzs: values(dmzValues),
       ...sourceStats
     });
   } catch (error) {
@@ -639,28 +676,35 @@ exports.generateTaskCsvReport = onRequest({
   const jobTypes = selected("jobTypes");
   const bas = selected("bas");
   const dmzs = selected("dmzs");
+  const temporaryPath = path.join(os.tmpdir(), `task-report-${crypto.randomUUID()}.jsonl`);
 
   try {
     const db = getFirestore(REPORT_DATABASE_ID);
-    const sourceTasks = await loadHybridReportTasks(
+    const headerSet = new Set(["TASK_ID"]);
+    const spool = fs.createWriteStream(temporaryPath, { encoding: "utf8" });
+    let rowCount = 0;
+    await forEachHybridReportDate(
       db,
       String(req.body.from),
-      String(req.body.to)
+      String(req.body.to),
+      async (info, dailyTasks) => {
+        for (const sourceTask of dailyTasks) {
+          if (sourceTask?.deleted === true || taskCreatedDate(sourceTask) !== info.date) continue;
+          const row = normalizedTask(sourceTask._key, sourceTask);
+          if (statuses.size && !statuses.has(String(row.status))) continue;
+          if (jobTypes.size && !jobTypes.has(String(row.JOBTYPE))) continue;
+          if (bas.size && !bas.has(String(row.BA))) continue;
+          if (dmzs.size && !dmzs.has(String(row.DMZ))) continue;
+          Object.keys(row).forEach(key => headerSet.add(key));
+          rowCount++;
+          if (!spool.write(`${JSON.stringify(row)}\n`)) await once(spool, "drain");
+        }
+      }
     );
-    const rows = [];
-    const headerSet = new Set(["TASK_ID"]);
-    sourceTasks.forEach(sourceTask => {
-      if (sourceTask?.deleted === true) return;
-      const row = normalizedTask(sourceTask._key, sourceTask);
-      if (statuses.size && !statuses.has(String(row.status))) return;
-      if (jobTypes.size && !jobTypes.has(String(row.JOBTYPE))) return;
-      if (bas.size && !bas.has(String(row.BA))) return;
-      if (dmzs.size && !dmzs.has(String(row.DMZ))) return;
-      Object.keys(row).forEach(key => headerSet.add(key));
-      rows.push(row);
-    });
+    spool.end();
+    await once(spool, "finish");
 
-    if (!rows.length) {
+    if (!rowCount) {
       res.status(404).json({ error: "No tasks matched the selected report filters." });
       return;
     }
@@ -673,12 +717,19 @@ exports.generateTaskCsvReport = onRequest({
     res.status(200);
     res.set("Content-Type", "text/csv; charset=utf-8");
     res.set("Content-Disposition", `attachment; filename="${filename}"`);
-    res.set("X-Task-Count", String(rows.length));
+    res.set("X-Task-Count", String(rowCount));
     res.flushHeaders();
     res.write("\uFEFF");
     res.write(`${headers.map(csvReportValue).join(",")}\r\n`);
-    for (const row of rows) {
-      res.write(`${headers.map(header => csvReportValue(row[header])).join(",")}\r\n`);
+    const lines = readline.createInterface({
+      input: fs.createReadStream(temporaryPath, { encoding: "utf8" }),
+      crlfDelay: Infinity
+    });
+    for await (const line of lines) {
+      if (!line) continue;
+      const row = JSON.parse(line);
+      const csvLine = `${headers.map(header => csvReportValue(row[header])).join(",")}\r\n`;
+      if (!res.write(csvLine)) await once(res, "drain");
     }
     res.end();
   } catch (error) {
@@ -692,6 +743,11 @@ exports.generateTaskCsvReport = onRequest({
       });
     } else {
       res.destroy(error);
+    }
+  } finally {
+    try { await fs.promises.unlink(temporaryPath); }
+    catch (error) {
+      if (error.code !== "ENOENT") console.error("Unable to remove temporary CSV spool", error);
     }
   }
 });
