@@ -1146,7 +1146,7 @@ exports.prepareAdminAssignedTasks = onRequest({
   try {
     const db = getFirestore(REPORT_DATABASE_ID);
     const date = from;
-    const pageSize = Math.max(100, Math.min(1000, Number(req.body?.pageSize || 1000)));
+    const pageSize = Math.max(100, Math.min(5000, Number(req.body?.pageSize || 5000)));
     const eligibleForSnapshot = snapshotDateIsEligible(date);
     let result;
     let pageTasks;

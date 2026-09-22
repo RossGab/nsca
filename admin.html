@@ -420,7 +420,7 @@ button {
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.43</span></h1>
+      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.44</span></h1>
     </div>
   </div>
 
@@ -3128,7 +3128,7 @@ async function fetchFullTaskRange(dateKeys) {
           from: date,
           to: date,
           bas: ADMIN_SELECTED_BAS,
-          pageSize: 1000,
+          pageSize: 5000,
           offset,
           cursor,
           reuseSnapshot: batchIndex > 0
