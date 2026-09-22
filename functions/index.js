@@ -60,7 +60,9 @@ exports.createTaskViewerUser = functions.https.onCall(async (data, context) => {
 });
 
 const { onRequest } = require("firebase-functions/v2/https");
+const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { getFirestore, Timestamp } = require("firebase-admin/firestore");
+const sharp = require("sharp");
 const ExcelJS = require("exceljs");
 const crypto = require("node:crypto");
 const zlib = require("node:zlib");
@@ -93,7 +95,7 @@ function setReportCors(req, res) {
   if (allowed) res.set("Access-Control-Allow-Origin", origin);
   res.set("Vary", "Origin");
   res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.set("Access-Control-Allow-Headers", "Content-Type");
+  res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
   res.set("Access-Control-Expose-Headers", "X-Task-Count, Content-Disposition");
   return allowed;
 }
@@ -525,6 +527,224 @@ async function loadHybridReportTasks(db, from, to, onDate) {
   });
   return rows;
 }
+
+function storageObjectPathFromUrl(value, bucketName) {
+  try {
+    const url = new URL(String(value || ""));
+    const firebaseMatch = url.pathname.match(/^\/v0\/b\/([^/]+)\/o\/(.+)$/);
+    if (firebaseMatch && decodeURIComponent(firebaseMatch[1]) === bucketName) {
+      return decodeURIComponent(firebaseMatch[2]);
+    }
+    const storagePrefix = `/${bucketName}/`;
+    if (url.hostname === "storage.googleapis.com" && url.pathname.startsWith(storagePrefix)) {
+      return decodeURIComponent(url.pathname.slice(storagePrefix.length));
+    }
+  } catch {
+    return "";
+  }
+  return "";
+}
+
+function svgText(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function photoTimestampLabels(date) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Manila",
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+    hourCycle: "h23"
+  }).formatToParts(date).map(part => [part.type, part.value]));
+  return {
+    long: `${parts.day}/${parts.month}/${parts.year}, ${parts.hour}:${parts.minute}:${parts.second} PH`,
+    short: `${parts.day}/${parts.month}/${parts.year} ${parts.hour}:${parts.minute}`
+  };
+}
+
+async function redrawPhotoTimestamp(source, correctedAt) {
+  const autoRotated = await sharp(source).rotate().toBuffer({ resolveWithObject: true });
+  const { width, height, format } = autoRotated.info;
+  if (!width || !height) throw new Error("Photo dimensions could not be read.");
+  const labels = photoTimestampLabels(correctedAt);
+  const fontSize = Math.max(14, Math.min(34, Math.round(width * 0.018)));
+  const lineHeight = Math.max(28, Math.round(fontSize * 1.65));
+  const bottom = Math.max(5, Math.round(width * 0.006));
+  const y = Math.max(0, height - lineHeight - bottom);
+  const leftWidth = Math.min(width, Math.round(width * 0.43));
+  const rightX = Math.round(width * 0.69);
+  const rightWidth = width - rightX;
+  const badgeWidth = Math.max(150, Math.round(width * 0.21));
+  const badgeHeight = Math.max(25, Math.round(fontSize * 1.45));
+  const overlay = Buffer.from(`<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+    <rect x="0" y="${y}" width="${leftWidth}" height="${lineHeight}" fill="rgba(0,0,0,.88)"/>
+    <text x="${Math.max(7, Math.round(width * .009))}" y="${y + Math.round(lineHeight * .72)}" fill="white" font-family="Arial,sans-serif" font-size="${fontSize}" font-weight="700">${svgText(labels.long)}</text>
+    <rect x="${rightX}" y="${y}" width="${rightWidth}" height="${lineHeight}" fill="rgba(0,0,0,.72)"/>
+    <text x="${rightX + Math.max(7, Math.round(width * .009))}" y="${y + Math.round(lineHeight * .72)}" fill="white" font-family="Arial,sans-serif" font-size="${fontSize}">${svgText(labels.short)}</text>
+    <rect x="${width - badgeWidth}" y="0" width="${badgeWidth}" height="${badgeHeight}" fill="rgba(166,35,44,.9)"/>
+    <text x="${width - badgeWidth + 8}" y="${Math.round(badgeHeight * .7)}" fill="white" font-family="Arial,sans-serif" font-size="${Math.max(12, Math.round(fontSize * .72))}" font-weight="700">ADMIN CORRECTED</text>
+  </svg>`);
+  let image = sharp(autoRotated.data).composite([{ input: overlay, top: 0, left: 0 }]);
+  let contentType = "image/jpeg";
+  if (format === "png") {
+    image = image.png({ compressionLevel: 8 });
+    contentType = "image/png";
+  } else if (format === "webp") {
+    image = image.webp({ quality: 90 });
+    contentType = "image/webp";
+  } else {
+    image = image.jpeg({ quality: 90, mozjpeg: true });
+  }
+  return { buffer: await image.toBuffer(), contentType };
+}
+
+async function authenticatedRequestUser(req) {
+  const match = String(req.get("authorization") || "").match(/^Bearer\s+(.+)$/i);
+  if (!match) throw new Error("AUTH_REQUIRED");
+  return admin.auth().verifyIdToken(match[1]);
+}
+
+exports.correctBulkPhotoTimestamps = onRequest({
+  region: "asia-southeast1",
+  timeoutSeconds: 540,
+  memory: "2GiB",
+  cpu: 2,
+  maxInstances: 2,
+  concurrency: 1,
+  cors: false
+}, async (req, res) => {
+  const originAllowed = setReportCors(req, res);
+  if (req.method === "OPTIONS") return res.status(originAllowed ? 204 : 403).end();
+  if (req.method !== "POST" || !originAllowed) {
+    res.status(403).json({ error: "Photo correction request is not allowed." });
+    return;
+  }
+  try {
+    const user = await authenticatedRequestUser(req);
+    const corrections = Array.isArray(req.body?.corrections) ? req.body.corrections : [];
+    const reason = String(req.body?.reason || "").trim();
+    if (!corrections.length || corrections.length > 10 || !reason) {
+      res.status(400).json({ error: "Provide 1 to 10 task corrections and a reason." });
+      return;
+    }
+    const db = getFirestore(REPORT_DATABASE_ID);
+    const bucket = admin.storage().bucket();
+    const results = [];
+    for (const correction of corrections) {
+      const taskId = String(correction?.taskId || "").trim();
+      const correctedAt = new Date(String(correction?.correctedAt || ""));
+      if (!taskId || Number.isNaN(correctedAt.getTime())) {
+        results.push({ taskId, success: false, error: "Invalid task or correction time." });
+        continue;
+      }
+      try {
+        const taskRef = db.collection(REPORT_COLLECTION).doc(taskId);
+        const snapshot = await taskRef.get();
+        if (!snapshot.exists) throw new Error("Task no longer exists.");
+        const task = snapshot.data() || {};
+        if (String(task.status || task.workStatus || "").toUpperCase() !== "COMPLETED") {
+          throw new Error("Task is no longer completed.");
+        }
+        const photoFields = Object.keys(task)
+          .filter(key => /^photo\d+Url$/i.test(key) && task[key])
+          .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+        const auditPaths = [];
+        const failures = [];
+        const refreshedPhotoUrls = {};
+        for (const field of photoFields) {
+          const objectPath = storageObjectPathFromUrl(task[field], bucket.name);
+          if (!objectPath) {
+            failures.push(`${field}: unsupported Storage URL`);
+            continue;
+          }
+          try {
+            const file = bucket.file(objectPath);
+            const [[source], [metadata]] = await Promise.all([
+              file.download({ decompress: false }),
+              file.getMetadata()
+            ]);
+            const auditPath = `audit-originals/${taskId}/${Date.now()}-${crypto.randomUUID()}/${path.basename(objectPath)}`;
+            await file.copy(bucket.file(auditPath));
+            await bucket.file(auditPath).setMetadata({ metadata: {
+              sourceTaskId: taskId,
+              sourceObjectPath: objectPath,
+              auditRetentionUntil: new Date(Date.now() + 90 * 86400000).toISOString()
+            }});
+            const correctedImage = await redrawPhotoTimestamp(source, correctedAt);
+            await file.save(correctedImage.buffer, {
+              resumable: false,
+              metadata: {
+                contentType: correctedImage.contentType,
+                cacheControl: "private,max-age=0,no-cache",
+                metadata: metadata.metadata || {}
+              }
+            });
+            const refreshedUrl = new URL(String(task[field]));
+            refreshedUrl.searchParams.set("adminCorrected", String(Date.now()));
+            refreshedPhotoUrls[field] = refreshedUrl.toString();
+            auditPaths.push(auditPath);
+          } catch (error) {
+            failures.push(`${field}: ${error.message || error}`);
+          }
+        }
+        const taskUpdate = {
+          ...refreshedPhotoUrls,
+          photoTimestampCorrectedAt: Timestamp.now(),
+          photoTimestampCorrectedBy: user.email || user.uid,
+          photoTimestampCorrectionReason: reason,
+          photoTimestampCorrectionValue: Timestamp.fromDate(correctedAt),
+          photoTimestampCorrectionFailures: failures,
+          updatedAt: Timestamp.now()
+        };
+        if (auditPaths.length) {
+          taskUpdate.photoTimestampAuditPaths = admin.firestore.FieldValue.arrayUnion(...auditPaths);
+        }
+        await taskRef.set(taskUpdate, { merge: true });
+        results.push({ taskId, success: failures.length === 0, correctedPhotos: auditPaths.length, failures });
+      } catch (error) {
+        results.push({ taskId, success: false, error: error.message || String(error) });
+      }
+    }
+    res.json({ results });
+  } catch (error) {
+    const authError = error.message === "AUTH_REQUIRED" || String(error.code || "").startsWith("auth/");
+    res.status(authError ? 401 : 500).json({ error: authError ? "Administrator login is required." : error.message || "Photo correction failed." });
+  }
+});
+
+exports.cleanupPhotoCorrectionAudits = onSchedule({
+  region: "asia-southeast1",
+  schedule: "every day 03:15",
+  timeZone: "Asia/Manila",
+  memory: "512MiB",
+  timeoutSeconds: 540
+}, async () => {
+  const bucket = admin.storage().bucket();
+  let pageToken;
+  let deleted = 0;
+  do {
+    const [files, nextQuery] = await bucket.getFiles({
+      prefix: "audit-originals/",
+      maxResults: 500,
+      pageToken,
+      autoPaginate: false
+    });
+    for (const file of files) {
+      const [metadata] = await file.getMetadata();
+      const expiry = Date.parse(metadata.metadata?.auditRetentionUntil || "");
+      if (Number.isFinite(expiry) && expiry <= Date.now()) {
+        await file.delete({ ignoreNotFound: true });
+        deleted++;
+      }
+    }
+    pageToken = nextQuery?.pageToken;
+  } while (pageToken);
+  console.log(`Photo correction audit cleanup deleted ${deleted} expired object(s).`);
+});
 
 exports.refreshHistoricalTaskSnapshot = onRequest({
   region: "asia-southeast1",

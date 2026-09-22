@@ -12,8 +12,8 @@
 </head>
 <body>
 <main class="page">
-  <header class="header"><div class="brand"><img src="./logo.jpg" alt="NSCA logo"><div><div class="eyebrow">NSCA TASK ADMINISTRATION</div><h1>Bulk Completion Date Correction <small>V.R.1.0.0</small></h1></div></div><button class="secondary" id="closeBtn">Close</button></header>
-  <section class="card notice"><b>The original completion time is preserved.</b> Reports use the corrected time when present. Every change records the administrator, reason, original value, and correction time.</section>
+  <header class="header"><div class="brand"><img src="./logo.jpg" alt="NSCA logo"><div><div class="eyebrow">NSCA TASK ADMINISTRATION</div><h1>Bulk Completion Date Correction <small>V.R.1.0.1</small></h1></div></div><button class="secondary" id="closeBtn">Close</button></header>
+  <section class="card notice"><b>The original completion time and original photos are preserved for audit.</b> The visible timestamps on every supported task photo are corrected automatically, active files are overwritten to avoid duplication, and audit originals expire after 90 days.</section>
   <section class="card">
     <h2>Select completed tasks</h2>
     <div class="filters"><div class="field"><label for="search">Search</label><input id="search" placeholder="Task ID, customer, account or driver"></div><div class="field"><label for="driverFilter">Driver</label><select id="driverFilter"><option value="">All drivers</option></select></div><div class="field"><label for="baFilter">BA</label><select id="baFilter"><option value="">All BA</option></select></div><div class="field"><label for="jobFilter">Job type</label><select id="jobFilter"><option value="">All job types</option></select></div></div>
@@ -54,7 +54,55 @@ function correctedDate(task){const date=$("date").value;if($("mode").value==="ex
 function correctionKey(){return JSON.stringify({ids:[...state.selected].sort(),mode:$("mode").value,date:$("date").value,time:$("time").value,reason:$("reason").value.trim()})}
 function validate(){if(!state.selected.size)return"Select at least one completed task.";if(state.selected.size>200)return"Select no more than 200 tasks per submission.";if(!$("date").value)return"Select the corrected completion date.";if($("mode").value==="exact"&&!$("time").value)return"Select the corrected completion time.";if(!$("reason").value.trim())return"Enter a correction reason.";if(selectedTasks().some(task=>!task.completedAtMillis&&!task.correctedCompletedAtMillis))return"A selected task has no recorded completion time.";return""}
 function preview(){const error=validate();if(error){status.className="status error";status.textContent=error;return}state.previewKey=correctionKey();rows.querySelectorAll("tr[data-id]").forEach(row=>row.classList.toggle("preview",state.selected.has(row.dataset.id)));applyBtn.disabled=false;status.className="status ok";status.textContent=`Preview ready: ${state.selected.size} task(s) will be corrected. Review the selected rows, then apply.`}
-async function applyCorrections(){const error=validate();if(error||state.previewKey!==correctionKey()){status.className="status error";status.textContent=error||"The selection or correction details changed. Preview again.";applyBtn.disabled=true;return}if(!await window.nscaConfirm(`Apply this completion-date correction to ${state.selected.size} task(s)?`))return;applyBtn.disabled=true;$("previewBtn").disabled=true;status.className="status";status.textContent="Checking selected tasks…";try{const chosen=selectedTasks(),fresh=[];for(let index=0;index<chosen.length;index+=20){const group=chosen.slice(index,index+20);const snapshots=await Promise.all(group.map(task=>getDoc(doc(firestore,"TASK",task.id))));snapshots.forEach((snapshot,offset)=>{if(!snapshot.exists())throw new Error(`${group[offset].id} no longer exists.`);const task=snapshot.data()||{},taskStatus=String(task.status||task.workStatus||"").toUpperCase();if(taskStatus!=="COMPLETED")throw new Error(`${snapshot.id} is no longer completed.`);fresh.push({id:snapshot.id,task,summary:group[offset]})});status.textContent=`Checked ${fresh.length} of ${chosen.length} task(s)…`}const batch=writeBatch(firestore),reason=$("reason").value.trim(),correctedBy=state.user?.email||state.user?.uid||"Administrator",auditTime=Timestamp.now();fresh.forEach(item=>{const corrected=Timestamp.fromDate(correctedDate(item.summary)),taskRef=doc(firestore,"TASK",item.id);batch.update(taskRef,{correctedCompletedAt:corrected,completionCorrectionReason:reason,completionCorrectedBy:correctedBy,completionCorrectedAt:serverTimestamp(),updatedAt:serverTimestamp(),completionCorrectionVersion:1,completionCorrectionHistory:arrayUnion({originalCompletedAt:item.task.completedAt||null,previousCorrectedCompletedAt:item.task.correctedCompletedAt||null,correctedCompletedAt:corrected,mode:$("mode").value,reason,correctedBy,correctedAt:auditTime})})});status.textContent="Saving corrections and audit history…";await batch.commit();fresh.forEach(item=>{item.summary.correctedCompletedAtMillis=correctedDate(item.summary).getTime()});status.className="status ok";status.textContent=`Successfully corrected ${fresh.length} completed task(s). Refresh Admin Dashboard to see the changes.`;state.selected.clear();state.previewKey="";render()}catch(error){console.error(error);status.className="status error";status.textContent=`Correction failed: ${error.message||error}`;applyBtn.disabled=false}finally{$("previewBtn").disabled=false}}
+const PHOTO_CORRECTION_URL="https://asia-southeast1-driva-pwa.cloudfunctions.net/correctBulkPhotoTimestamps";
+async function correctSelectedPhotoTimestamps(tasks,reason){const token=await state.user.getIdToken(),allResults=[];for(let index=0;index<tasks.length;index+=10){const group=tasks.slice(index,index+10),corrections=group.map(item=>({taskId:item.id,correctedAt:correctedDate(item.summary).toISOString()})),percent=Math.round(index/tasks.length*100);status.textContent=`Correcting visible photo timestamps… ${percent}% (${index+1}–${Math.min(index+group.length,tasks.length)} of ${tasks.length} tasks)`;const response=await fetch(PHOTO_CORRECTION_URL,{method:"POST",headers:{"Content-Type":"application/json","Authorization":`Bearer ${token}`},body:JSON.stringify({corrections,reason})}),result=await response.json().catch(()=>({}));if(!response.ok)throw new Error(result.error||`Photo correction failed (${response.status}).`);allResults.push(...(result.results||[]))}status.textContent="Correcting visible photo timestamps… 100%";return{corrected:allResults.reduce((sum,item)=>sum+Number(item.correctedPhotos||0),0),failedTasks:allResults.filter(item=>!item.success).length,results:allResults}}
+async function applyCorrections(){
+  const error=validate();
+  if(error||state.previewKey!==correctionKey()){
+    status.className="status error";
+    status.textContent=error||"The selection or correction details changed. Preview again.";
+    applyBtn.disabled=true;
+    return;
+  }
+  if(!await window.nscaConfirm(`Apply this completion-date and visible photo timestamp correction to ${state.selected.size} task(s)?`))return;
+  applyBtn.disabled=true;
+  $("previewBtn").disabled=true;
+  status.className="status";
+  status.textContent="Checking selected tasks…";
+  try{
+    const chosen=selectedTasks(),fresh=[];
+    for(let index=0;index<chosen.length;index+=20){
+      const group=chosen.slice(index,index+20);
+      const snapshots=await Promise.all(group.map(task=>getDoc(doc(firestore,"TASK",task.id))));
+      snapshots.forEach((snapshot,offset)=>{
+        if(!snapshot.exists())throw new Error(`${group[offset].id} no longer exists.`);
+        const task=snapshot.data()||{},taskStatus=String(task.status||task.workStatus||"").toUpperCase();
+        if(taskStatus!=="COMPLETED")throw new Error(`${snapshot.id} is no longer completed.`);
+        fresh.push({id:snapshot.id,task,summary:group[offset]});
+      });
+      status.textContent=`Checked ${fresh.length} of ${chosen.length} task(s)…`;
+    }
+    const batch=writeBatch(firestore),reason=$("reason").value.trim(),correctedBy=state.user?.email||state.user?.uid||"Administrator",auditTime=Timestamp.now();
+    fresh.forEach(item=>{
+      const corrected=Timestamp.fromDate(correctedDate(item.summary)),taskRef=doc(firestore,"TASK",item.id);
+      batch.update(taskRef,{correctedCompletedAt:corrected,completionCorrectionReason:reason,completionCorrectedBy:correctedBy,completionCorrectedAt:serverTimestamp(),updatedAt:serverTimestamp(),completionCorrectionVersion:1,completionCorrectionHistory:arrayUnion({originalCompletedAt:item.task.completedAt||null,previousCorrectedCompletedAt:item.task.correctedCompletedAt||null,correctedCompletedAt:corrected,mode:$("mode").value,reason,correctedBy,correctedAt:auditTime})});
+    });
+    status.textContent="Saving completion-date corrections and audit history…";
+    await batch.commit();
+    const photoSummary=await correctSelectedPhotoTimestamps(fresh,reason);
+    fresh.forEach(item=>{item.summary.correctedCompletedAtMillis=correctedDate(item.summary).getTime()});
+    status.className=photoSummary.failedTasks?"status error":"status ok";
+    status.textContent=photoSummary.failedTasks
+      ?`Dates were corrected for ${fresh.length} task(s), and ${photoSummary.corrected} photo(s) were updated. ${photoSummary.failedTasks} task(s) had photo errors; review the task correction details.`
+      :`Successfully corrected ${fresh.length} completed task(s) and ${photoSummary.corrected} photo timestamp(s). Refresh Admin Dashboard to see the changes.`;
+    if(photoSummary.failedTasks)console.warn("Photo timestamp correction results:",photoSummary.results);
+    state.selected.clear();state.previewKey="";render();
+  }catch(error){
+    console.error(error);status.className="status error";status.textContent=`Correction failed: ${error.message||error}`;applyBtn.disabled=false;
+  }finally{
+    $("previewBtn").disabled=false;
+  }
+}
 async function boot(){if(!sessionId){status.className="status error";status.textContent="Missing correction session. Return to Admin Dashboard and open this tool again.";return}state.user=await new Promise(resolve=>{let unsubscribe=()=>{};unsubscribe=onAuthStateChanged(auth,user=>{unsubscribe();resolve(user)})});if(!state.user){location.href="login.html";return}try{const session=await readSession();if(!session||!Array.isArray(session.tasks))throw new Error("The prepared task list was not found. Return to Admin Dashboard and open it again.");state.tasks=session.tasks;selectOptions("driverFilter",state.tasks.map(task=>task.driver),"All drivers");selectOptions("baFilter",state.tasks.map(task=>task.ba),"All BA");selectOptions("jobFilter",state.tasks.map(task=>task.jobType),"All job types");filterTasks();status.textContent=`Loaded ${state.tasks.length.toLocaleString()} completed task(s) from Admin Dashboard (${session.from} to ${session.to}).`}catch(error){status.className="status error";status.textContent=error.message||String(error)}}
 $("search").addEventListener("input",filterTasks);["driverFilter","baFilter","jobFilter"].forEach(id=>$(id).addEventListener("change",filterTasks));$("mode").addEventListener("change",()=>{$("timeField").hidden=$("mode").value!=="exact";invalidatePreview()});["date","time","reason"].forEach(id=>$(id).addEventListener("input",invalidatePreview));$("selectPageBtn").addEventListener("click",()=>{pageTasks().forEach(task=>state.selected.add(task.id));invalidatePreview();render()});$("pageCheck").addEventListener("change",event=>{pageTasks().forEach(task=>event.target.checked?state.selected.add(task.id):state.selected.delete(task.id));invalidatePreview();render()});$("clearBtn").addEventListener("click",()=>{state.selected.clear();invalidatePreview();render()});$("prevBtn").addEventListener("click",()=>{if(state.page>0){state.page--;render()}});$("nextBtn").addEventListener("click",()=>{if((state.page+1)*state.pageSize<state.filtered.length){state.page++;render()}});$("previewBtn").addEventListener("click",preview);applyBtn.addEventListener("click",applyCorrections);$("closeBtn").addEventListener("click",()=>window.close());boot();
 </script>
