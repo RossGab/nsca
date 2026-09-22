@@ -4,10 +4,22 @@ const admin = require("firebase-admin");
 admin.initializeApp();
 
 exports.createTaskViewerUser = functions.https.onCall(async (data, context) => {
+  // Support both classic callable data and the newer wrapped request shape.
+  const wrappedRequest = data && typeof data === "object" &&
+    data.data && typeof data.data === "object" &&
+    !data.email && !data.password && !data.role;
+  const payload = wrappedRequest ? data.data : (data || {});
+  const callableAuth = context?.auth || (wrappedRequest ? data.auth : null);
+  const email = String(payload.email || "").trim().toLowerCase();
+  const password = String(payload.password || "");
+  const role = String(payload.role || "").trim().toLowerCase();
+  const ba = [...new Set(
+    (Array.isArray(payload.ba) ? payload.ba : [])
+      .map(value => String(value).trim())
+      .filter(value => value && value.toLowerCase() !== "select all")
+  )];
 
-  const { email, password, role } = data;
-
-  if (!email || !password || !role) {
+  if (!email || !password || !["admin", "viewer"].includes(role)) {
     throw new functions.https.HttpsError(
       "invalid-argument",
       "Missing email/password/role"
@@ -15,7 +27,7 @@ exports.createTaskViewerUser = functions.https.onCall(async (data, context) => {
   }
 
   // 🔐 Require logged-in user
-  if (!context.auth) {
+  if (!callableAuth) {
     throw new functions.https.HttpsError(
       "unauthenticated",
       "You must be logged in"
@@ -32,6 +44,7 @@ exports.createTaskViewerUser = functions.https.onCall(async (data, context) => {
     // ✅ SAVE TO DATABASE
     await admin.database().ref(`config/taskviewUsers/${role}`).push({
       email,
+      ba,
       active: true,
       createdAt: Date.now()
     });

@@ -143,7 +143,7 @@ button {
 <body>
 
 <div class="top-bar">
-  <h2>Task Viewer Config v1.3.21</h2>
+  <h2>Task Viewer Config v1.3.22</h2>
 
   <div class="top-actions">
     <button class="btn-secondary" onclick="goDashboard()">⬅ Back</button>
@@ -425,9 +425,11 @@ selectAllBtn.onclick = () => {
 
 /* ===== ADD USER ===== */
 window.addUser = async function (event) {
-  const btn = event.target;
+  const btn = event.currentTarget;
   btn.disabled = true;
   btn.innerText = "Creating...";
+
+  try {
 
   const user = auth.currentUser;
   if (!user) {
@@ -438,19 +440,22 @@ window.addUser = async function (event) {
   await user.getIdToken(); // ✅ FIXED
 
   const email = document.getElementById("email").value.trim().toLowerCase();
-  const password = document.getElementById("password").value.trim();
+  const password = document.getElementById("password").value;
   const role = document.getElementById("role").value;
 
   const ba = Array.from(
-  document.querySelectorAll(".ba-chip.active")
-).map(el => el.innerText);
+  document.querySelectorAll("#baList .ba-chip.active")
+).map(el => el.innerText.trim()).filter(Boolean);
 
-  if (!email || !password) {
-    alert("Missing fields");
+  if (!email || !password || !role) {
+    alert("Complete the email, password, and role fields.");
+    return;
+  }
+  if (password.length < 6) {
+    alert("Password must contain at least 6 characters.");
     return;
   }
 
-  try {
     await createUserFn({ email, password, role, ba });
 
     alert("✅ User created");
@@ -472,11 +477,11 @@ window.addUser = async function (event) {
 
   } catch (e) {
     console.error(e);
-    alert("❌ Failed to create user");
+    alert(`❌ Failed to create user: ${e.message || "Unknown error"}`);
+  } finally {
+    btn.disabled = false;
+    btn.innerText = "Create User";
   }
-
-  btn.disabled = false;
-  btn.innerText = "Create User";
 };
 
 /* ===== USERS ===== */
