@@ -86,6 +86,8 @@ const REPORT_LOCK_SCHEMA_VERSION = 3;
 const REPORT_LOCK_DURATION_MS = 10 * 60 * 1000;
 const REPORT_LOCK_WAIT_LIMIT_MS = 11 * 60 * 1000;
 const REPORT_LOCK_POLL_MS = 5000;
+const ADMIN_ASSIGNED_SNAPSHOT_SCHEMA_VERSION = 1;
+const ADMIN_ASSIGNED_MAX_DAYS = 180;
 
 function setReportCors(req, res) {
   const origin = String(req.get("origin") || "");
@@ -337,6 +339,101 @@ function reportDateTimestamps(date) {
   return {
     start: Timestamp.fromMillis(bounds.startMillis),
     end: Timestamp.fromMillis(bounds.endMillis)
+  };
+}
+
+function assignedDateBounds(from, to) {
+  const start = parseDateOnly(from);
+  const end = parseDateOnly(to);
+  if (!start || !end) return null;
+  const startDate = new Date(Date.UTC(start.year, start.month - 1, start.day));
+  const endDate = new Date(Date.UTC(end.year, end.month - 1, end.day));
+  const days = Math.floor((endDate - startDate) / 86400000) + 1;
+  return days >= 1 && days <= ADMIN_ASSIGNED_MAX_DAYS ? { days } : null;
+}
+
+async function refreshAssignedSnapshotForDate(db, date) {
+  const manifestRef = db.collection("adminAssignedSnapshotManifests").doc(date);
+  const file = admin.storage().bucket().file(`admin-assigned-snapshots/${date}.json.gz`);
+  const token = crypto.randomUUID();
+  try {
+    await acquireSnapshotLock(db, manifestRef, token);
+    const checkStartedMillis = Date.now();
+    const manifest = (await manifestRef.get()).data() || {};
+    let tasksById = new Map();
+    let watermarkMillis = Number(manifest.watermarkMillis || 0);
+    let fullBuild = !manifest.snapshotExists ||
+      Number(manifest.schemaVersion || 0) !== ADMIN_ASSIGNED_SNAPSHOT_SCHEMA_VERSION;
+
+    if (!fullBuild) {
+      try {
+        const [compressed] = await file.download({ decompress: false });
+        const saved = JSON.parse(zlib.gunzipSync(compressed).toString("utf8"));
+        tasksById = new Map((saved.tasks || []).map(task => [task._key, task]));
+      } catch (error) {
+        console.warn(`Assigned-date snapshot ${date} could not be reopened; rebuilding.`, error);
+        fullBuild = true;
+        tasksById = new Map();
+        watermarkMillis = 0;
+      }
+    }
+
+    let taskQuery = db.collection(REPORT_COLLECTION).where("assignedDate", "==", date);
+    if (!fullBuild && watermarkMillis) {
+      taskQuery = taskQuery
+        .where("updatedAt", ">", Timestamp.fromMillis(watermarkMillis))
+        .where("updatedAt", "<=", Timestamp.fromMillis(checkStartedMillis));
+    }
+    const changes = await taskQuery.get();
+    changes.forEach(document => {
+      const raw = document.data() || {};
+      if (raw.deleted === true || String(raw.assignedDate || "") !== date) tasksById.delete(document.id);
+      else tasksById.set(document.id, { _key: document.id, ...raw });
+    });
+
+    const tasks = [...tasksById.values()];
+    await file.save(zlib.gzipSync(Buffer.from(JSON.stringify({
+      date,
+      generatedAt: new Date().toISOString(),
+      watermarkMillis: checkStartedMillis,
+      tasks
+    }))), {
+      resumable: false,
+      metadata: { contentType: "application/json", contentEncoding: "gzip" }
+    });
+    await manifestRef.set({
+      date,
+      snapshotExists: true,
+      schemaVersion: ADMIN_ASSIGNED_SNAPSHOT_SCHEMA_VERSION,
+      taskCount: tasks.length,
+      watermarkMillis: checkStartedMillis,
+      generatedAt: Timestamp.now(),
+      changedTasks: changes.size,
+      lockedUntil: 0,
+      lockToken: null
+    }, { merge: true });
+    return { date, source: "snapshot", fullBuild, changedTasks: changes.size, tasks };
+  } finally {
+    try {
+      const current = await manifestRef.get();
+      if (current.data()?.lockToken === token) {
+        await manifestRef.set({ lockedUntil: 0, lockToken: null }, { merge: true });
+      }
+    } catch (error) {
+      console.error("Unable to release assigned-date snapshot lock", date, error);
+    }
+  }
+}
+
+async function loadAssignedAdminDate(db, date) {
+  if (snapshotDateIsEligible(date)) return refreshAssignedSnapshotForDate(db, date);
+  const live = await db.collection(REPORT_COLLECTION).where("assignedDate", "==", date).get();
+  return {
+    date,
+    source: "live",
+    fullBuild: false,
+    changedTasks: live.size,
+    tasks: live.docs.map(document => ({ _key: document.id, ...document.data() }))
   };
 }
 
@@ -987,6 +1084,80 @@ exports.prepareTaskReport = onRequest({
       res.status(409).json({ error: "A historical snapshot is already being refreshed. Please retry shortly." });
     } else {
       res.status(500).json({ error: error.message || "Report preparation failed." });
+    }
+  }
+});
+
+exports.prepareAdminAssignedTasks = onRequest({
+  region: "asia-southeast1",
+  timeoutSeconds: 1800,
+  memory: "4GiB",
+  cpu: 2,
+  maxInstances: 2,
+  concurrency: 1,
+  cors: false
+}, async (req, res) => {
+  const originAllowed = setReportCors(req, res);
+  if (req.method === "OPTIONS") {
+    res.status(originAllowed ? 204 : 403).end();
+    return;
+  }
+  if (req.method !== "POST" || !originAllowed) {
+    res.status(403).json({ error: "Admin task preparation request is not allowed." });
+    return;
+  }
+  const from = String(req.body?.from || "");
+  const to = String(req.body?.to || "");
+  if (!assignedDateBounds(from, to)) {
+    res.status(400).json({ error: `Select a valid assigned-date range of ${ADMIN_ASSIGNED_MAX_DAYS} days or less.` });
+    return;
+  }
+  const requestedBAs = new Set(
+    (Array.isArray(req.body?.bas) ? req.body.bas : [])
+      .map(value => String(value).trim())
+      .filter(Boolean)
+  );
+  if (!requestedBAs.size) {
+    res.status(400).json({ error: "Select at least one BA in Admin BA Scope." });
+    return;
+  }
+
+  try {
+    const db = getFirestore(REPORT_DATABASE_ID);
+    const tasksById = new Map();
+    const dateStats = [];
+    for (const date of reportDateStrings(from, to)) {
+      const result = await loadAssignedAdminDate(db, date);
+      let available = 0;
+      for (const task of result.tasks) {
+        if (task?.deleted === true) continue;
+        const ba = String(task.ba ?? task.BA ?? "").trim();
+        if (!requestedBAs.has(ba)) continue;
+        tasksById.set(task._key, task);
+        available++;
+      }
+      dateStats.push({
+        date,
+        source: result.source,
+        mode: result.source === "live" ? "Live" : result.fullBuild ? "New snapshot" : "Snapshot update",
+        changedTasks: Number(result.changedTasks || 0),
+        taskCount: result.tasks.length,
+        tasksAvailable: available
+      });
+    }
+    res.json({
+      dateBasis: "assignedDate",
+      from,
+      to,
+      tasks: [...tasksById.values()],
+      dateStats
+    });
+  } catch (error) {
+    console.error("Admin assigned-date preparation failed", error);
+    if (error.message === "SNAPSHOT_BUSY") {
+      res.status(409).json({ error: "An assigned-date snapshot is already being refreshed. Please retry shortly." });
+    } else {
+      res.status(500).json({ error: error.message || "Admin task preparation failed." });
     }
   }
 });

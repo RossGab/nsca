@@ -413,7 +413,7 @@ button {
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.39</span></h1>
+      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.40</span></h1>
     </div>
   </div>
 
@@ -651,7 +651,7 @@ import {
   taskTimestampMillis,
   updateTasksInAllCaches,
   writeTaskCache
-} from "./task-cache.js?v=5";
+} from "./task-cache.js?v=6";
 
 import {
   getDatabase,
@@ -1083,6 +1083,8 @@ function adminBAConstraint(values) {
 const TASK_COLLECTION = "TASK";
 const DRIVER_COLLECTION = "drivers";
 const DRIVER_STATUS_COLLECTION = "driverStatus";
+const ADMIN_ASSIGNED_SNAPSHOT_URL =
+  "https://asia-southeast1-driva-pwa.cloudfunctions.net/prepareAdminAssignedTasks";
 
 const EDITABLE_FIELDS = [
   "driverId",
@@ -3031,30 +3033,50 @@ function normalizeAdminCachedTask(task) {
 }
 
 async function fetchFullTaskRange(dateKeys) {
-  const tasks = [];
-  const baChunks = getAdminBAChunks();
-  if (!baChunks.length) {
+  if (!ADMIN_SELECTED_BAS.length) {
     throw new Error("Select at least one BA in Admin BA Scope.");
   }
-  for (let i = 0; i < dateKeys.length; i++) {
-    const dateKey = dateKeys[i];
-    const firestoreDate =
-      `${dateKey.slice(0, 4)}-${dateKey.slice(4, 6)}-${dateKey.slice(6, 8)}`;
-    for (const baValues of baChunks) {
-      const snapshot = await getDocs(query(
-        collection(db, TASK_COLLECTION),
-        where("assignedDate", "==", firestoreDate),
-        adminBAConstraint(baValues),
-        orderBy("createdAt")
-      ));
-      snapshot.forEach(docSnap => {
-        const task = { _key: docSnap.id, ...docSnap.data() };
-        if (task.deleted !== true) tasks.push(task);
-      });
-    }
-    setLoaderText(`Full sync: ${i + 1}/${dateKeys.length} date(s)`);
+  if (!dateKeys.length) return [];
+
+  const keyToDate = key =>
+    `${key.slice(0, 4)}-${key.slice(4, 6)}-${key.slice(6, 8)}`;
+  setLoaderText(`Preparing assigned-date snapshots for ${dateKeys.length} date(s)…`);
+  const response = await fetch(ADMIN_ASSIGNED_SNAPSHOT_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      from: keyToDate(dateKeys[0]),
+      to: keyToDate(dateKeys[dateKeys.length - 1]),
+      bas: ADMIN_SELECTED_BAS
+    })
+  });
+  let result = {};
+  try {
+    result = await response.json();
+  } catch {
+    result = {};
   }
-  return tasks;
+  if (!response.ok) {
+    throw new Error(result.error || `Assigned-date snapshot request failed (${response.status}).`);
+  }
+
+  const stats = Array.isArray(result.dateStats) ? result.dateStats : [];
+  const snapshotDates = stats.filter(item => item.source === "snapshot").length;
+  const liveDates = stats.filter(item => item.source === "live").length;
+  const changedTasks = stats.reduce(
+    (total, item) => total + Number(item.changedTasks || 0),
+    0
+  );
+  updateDataSourceStatus(
+    `Assigned-date load: ${snapshotDates} snapshot date(s), ${liveDates} live date(s), ${changedTasks} changed task(s)`,
+    Date.now()
+  );
+
+  return (Array.isArray(result.tasks) ? result.tasks : []).filter(task => {
+    if (!task || task.deleted === true) return false;
+    const assignedDate = String(task.assignedDate || "");
+    return assignedDate >= DATE_FROM && assignedDate <= DATE_TO;
+  });
 }
 
 async function applyAdminTaskData(rawTasks, status) {

@@ -1,7 +1,7 @@
 const DB_NAME = "nsca-admin-task-cache";
 const DB_VERSION = 1;
 const STORE_NAME = "dateRanges";
-const CACHE_SCHEMA_VERSION = 3;
+const CACHE_SCHEMA_VERSION = 4;
 
 export const TASK_CACHE_FULL_REFRESH_MS = 6 * 60 * 60 * 1000;
 export const TASK_CACHE_OVERLAP_MS = 5 * 60 * 1000;
