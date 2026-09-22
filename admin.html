@@ -413,7 +413,7 @@ button {
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.37</span></h1>
+      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.38</span></h1>
     </div>
   </div>
 
@@ -1890,8 +1890,7 @@ function renderTaskCompletionTimes(task) {
   const rows = [];
 
   if (correctedCompletedAt) {
-    rows.push(`<div class="small" style="color:#18733c;font-weight:600;">Effective completion: ${escapeAdminHtml(correctedCompletedAt)} <span title="Administratively corrected">🕒</span></div>`);
-    if (completedAt) rows.push(`<div class="small" style="color:#7a5b22;">Originally recorded: ${escapeAdminHtml(completedAt)}</div>`);
+    rows.push(`<div class="small" style="color:#18733c;font-weight:600;">Completed: ${escapeAdminHtml(correctedCompletedAt)}</div>`);
   } else if (completedAt) {
     rows.push(`<div class="small" style="color:#18733c;font-weight:600;">Completed: ${escapeAdminHtml(completedAt)}</div>`);
   }
@@ -2330,6 +2329,7 @@ function renderDynamicCompletedFields(t) {
       class="full"
       value="${escapeHtml(
         formatFirestoreDate(
+          t.correctedCompletedAt ||
           t.completedAt
         )
       )}"

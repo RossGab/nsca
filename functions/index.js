@@ -578,15 +578,11 @@ async function redrawPhotoTimestamp(source, correctedAt) {
   const leftWidth = Math.min(width, Math.round(width * 0.43));
   const rightX = Math.round(width * 0.69);
   const rightWidth = width - rightX;
-  const badgeWidth = Math.max(150, Math.round(width * 0.21));
-  const badgeHeight = Math.max(25, Math.round(fontSize * 1.45));
   const overlay = Buffer.from(`<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
     <rect x="0" y="${y}" width="${leftWidth}" height="${lineHeight}" fill="rgba(0,0,0,.88)"/>
     <text x="${Math.max(7, Math.round(width * .009))}" y="${y + Math.round(lineHeight * .72)}" fill="white" font-family="Arial,sans-serif" font-size="${fontSize}" font-weight="700">${svgText(labels.long)}</text>
     <rect x="${rightX}" y="${y}" width="${rightWidth}" height="${lineHeight}" fill="rgba(0,0,0,.72)"/>
     <text x="${rightX + Math.max(7, Math.round(width * .009))}" y="${y + Math.round(lineHeight * .72)}" fill="white" font-family="Arial,sans-serif" font-size="${fontSize}">${svgText(labels.short)}</text>
-    <rect x="${width - badgeWidth}" y="0" width="${badgeWidth}" height="${badgeHeight}" fill="rgba(166,35,44,.9)"/>
-    <text x="${width - badgeWidth + 8}" y="${Math.round(badgeHeight * .7)}" fill="white" font-family="Arial,sans-serif" font-size="${Math.max(12, Math.round(fontSize * .72))}" font-weight="700">ADMIN CORRECTED</text>
   </svg>`);
   let image = sharp(autoRotated.data).composite([{ input: overlay, top: 0, left: 0 }]);
   let contentType = "image/jpeg";
