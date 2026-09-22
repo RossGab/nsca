@@ -420,7 +420,7 @@ button {
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.44</span></h1>
+      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.45</span></h1>
     </div>
   </div>
 
@@ -663,7 +663,7 @@ import {
   taskTimestampMillis,
   updateTasksInAllCaches,
   writeTaskCache
-} from "./task-cache.js?v=6";
+} from "./task-cache.js?v=7";
 
 import {
   getDatabase,
@@ -3313,17 +3313,27 @@ window.loadTasks = async function (status) {
       );
     } else {
       rawTasks = cached.tasks || [];
+      const recoveredUpdateWatermark = rawTasks.reduce(
+        (latest, task) => Math.max(latest, taskTimestampMillis(task.updatedAt)),
+        0
+      );
+      const recoveredCompletionWatermark = rawTasks.reduce(
+        (latest, task) => Math.max(latest, taskTimestampMillis(task.completedAt)),
+        0
+      );
       // Use Firestore's latest server timestamp as the cursor. Using the
       // browser's local sync time can skip updates when device clocks differ.
       const since = Math.max(
         0,
-        (cached.watermarkMillis || cached.syncedAt || 0) - TASK_CACHE_OVERLAP_MS
+        (cached.watermarkMillis || recoveredUpdateWatermark || cached.syncedAt || 0) -
+          TASK_CACHE_OVERLAP_MS
       );
       setLoaderText(`Checking updates for ${rawTasks.length} cached task(s)…`);
 
       const completionSince = Math.max(
         0,
-        (cached.completionWatermarkMillis || 0) - TASK_CACHE_OVERLAP_MS
+        (cached.completionWatermarkMillis || recoveredCompletionWatermark || 0) -
+          TASK_CACHE_OVERLAP_MS
       );
       const [updatedSnapshot, completedSnapshot] = await Promise.all([
         fetchDateRestrictedChanges(dateKeys, "updatedAt", since),
@@ -3341,8 +3351,9 @@ window.loadTasks = async function (status) {
         mode: "Last update check"
       });
       const updatesById = new Map();
-      let updateQueryWatermark = cached.watermarkMillis || 0;
-      let completionQueryWatermark = cached.completionWatermarkMillis || 0;
+      let updateQueryWatermark = cached.watermarkMillis || recoveredUpdateWatermark || 0;
+      let completionQueryWatermark =
+        cached.completionWatermarkMillis || recoveredCompletionWatermark || 0;
       updatedSnapshot.forEach(docSnap => {
         const task = { _key: docSnap.id, ...docSnap.data() };
         updatesById.set(docSnap.id, task);

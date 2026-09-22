@@ -56,6 +56,9 @@ function toStorable(value) {
 export function taskTimestampMillis(value) {
   if (!value) return 0;
   if (typeof value.toMillis === "function") return value.toMillis();
+  if (typeof value._seconds === "number") {
+    return value._seconds * 1000 + Math.floor((value._nanoseconds || 0) / 1000000);
+  }
   if (typeof value.seconds === "number") {
     return value.seconds * 1000 + Math.floor((value.nanoseconds || 0) / 1000000);
   }
