@@ -420,7 +420,7 @@ button {
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.42</span></h1>
+      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.43</span></h1>
     </div>
   </div>
 
@@ -3097,9 +3097,21 @@ async function fetchFullTaskRange(dateKeys) {
   const tasksById = new Map();
   const stats = [];
   let completedBatches = 0;
+  let reusedDateCaches = 0;
 
   for (let dateIndex = 0; dateIndex < dateKeys.length; dateIndex++) {
     const date = keyToDate(dateKeys[dateIndex]);
+    const dailyCache = await readAdminTaskCache(date, date);
+    if (!taskCacheNeedsFullRefresh(dailyCache)) {
+      (dailyCache.tasks || []).forEach(task => {
+        if (task?._key && task.deleted !== true) tasksById.set(task._key, task);
+      });
+      reusedDateCaches++;
+      setLoaderText(`Using browser cache: ${dateIndex + 1}/${dateKeys.length} date(s)…`);
+      continue;
+    }
+
+    const dailyTasks = [];
     let offset = 0;
     let cursor = "";
     let hasMore = true;
@@ -3132,7 +3144,10 @@ async function fetchFullTaskRange(dateKeys) {
         throw new Error(result.error || `Assigned-date snapshot request failed (${response.status}).`);
       }
       (Array.isArray(result.tasks) ? result.tasks : []).forEach(task => {
-        if (task?._key) tasksById.set(task._key, task);
+        if (task?._key) {
+          tasksById.set(task._key, task);
+          dailyTasks.push(task);
+        }
       });
       stats.push(...(Array.isArray(result.dateStats) ? result.dateStats : []));
       hasMore = result.hasMore === true;
@@ -3142,6 +3157,7 @@ async function fetchFullTaskRange(dateKeys) {
       completedBatches++;
       if (batchIndex > 1000) throw new Error(`Too many task batches returned for ${date}.`);
     }
+    await writeAdminTaskCache(date, date, dailyTasks, { full: true });
   }
 
   const snapshotDates = new Set(
@@ -3165,10 +3181,12 @@ async function fetchFullTaskRange(dateKeys) {
   updateAdminReadIndicator({
     firestoreReads: estimatedDocumentReads,
     snapshotFileReads,
-    mode: "Last full load"
+    mode: reusedDateCaches
+      ? `Date cache reuse (${reusedDateCaches}/${dateKeys.length})`
+      : "Last full load"
   });
   updateDataSourceStatus(
-    `Assigned-date load: ${snapshotDates} snapshot date(s), ${liveDates} live date(s), ${changedTasks} changed task(s), ${completedBatches} batch(es)`,
+    `Assigned-date load: ${reusedDateCaches} cached date(s), ${snapshotDates} snapshot date(s), ${liveDates} live date(s), ${changedTasks} changed task(s), ${completedBatches} batch(es)`,
     Date.now()
   );
 
@@ -3215,6 +3233,18 @@ window.loadCachedTasks = async function (status) {
   try {
     const cached = await readAdminTaskCache(DATE_FROM, DATE_TO);
     if (cached && Array.isArray(cached.tasks)) {
+      for (const dateKey of getDateRangeKeys(DATE_FROM, DATE_TO)) {
+        const date = `${dateKey.slice(0, 4)}-${dateKey.slice(4, 6)}-${dateKey.slice(6, 8)}`;
+        const dailyCache = await readAdminTaskCache(date, date);
+        if (!dailyCache) {
+          await writeAdminTaskCache(
+            date,
+            date,
+            cached.tasks.filter(task => String(task.assignedDate || "") === date),
+            { full: true }
+          );
+        }
+      }
       await applyAdminTaskData(excludeDeletedTasks(cached.tasks), status);
       updateAdminReadIndicator({
         firestoreReads: 0,
@@ -3332,6 +3362,15 @@ window.loadTasks = async function (status) {
       const updates = [...updatesById.values()];
 
       rawTasks = mergeTaskUpdates(rawTasks, updates, DATE_FROM, DATE_TO);
+      for (const dateKey of dateKeys) {
+        const date = `${dateKey.slice(0, 4)}-${dateKey.slice(4, 6)}-${dateKey.slice(6, 8)}`;
+        await writeAdminTaskCache(
+          date,
+          date,
+          rawTasks.filter(task => String(task.assignedDate || "") === date),
+          { full: true }
+        );
+      }
       await writeAdminTaskCache(DATE_FROM, DATE_TO, rawTasks, {
         previousFullSyncedAt: cached.fullSyncedAt,
         previousWatermark: updateQueryWatermark,
