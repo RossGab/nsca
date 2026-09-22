@@ -61,7 +61,7 @@ exports.createTaskViewerUser = functions.https.onCall(async (data, context) => {
 
 const { onRequest } = require("firebase-functions/v2/https");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
-const { getFirestore, Timestamp } = require("firebase-admin/firestore");
+const { getFirestore, Timestamp, FieldPath } = require("firebase-admin/firestore");
 const sharp = require("sharp");
 const ExcelJS = require("exceljs");
 const crypto = require("node:crypto");
@@ -445,6 +445,13 @@ async function loadAssignedAdminDate(db, date) {
     snapshotFileReads: 0,
     tasks: live.docs.map(document => ({ _key: document.id, ...document.data() }))
   };
+}
+
+async function loadAssignedSnapshotTasks(date) {
+  const file = admin.storage().bucket().file(`admin-assigned-snapshots/${date}.json.gz`);
+  const [compressed] = await file.download({ decompress: false });
+  const saved = JSON.parse(zlib.gunzipSync(compressed).toString("utf8"));
+  return Array.isArray(saved.tasks) ? saved.tasks : [];
 }
 
 function taskCreatedDate(raw) {
@@ -1122,6 +1129,10 @@ exports.prepareAdminAssignedTasks = onRequest({
     res.status(400).json({ error: `Select a valid assigned-date range of ${ADMIN_ASSIGNED_MAX_DAYS} days or less.` });
     return;
   }
+  if (from !== to) {
+    res.status(400).json({ error: "Assigned-date task batches must request one date at a time." });
+    return;
+  }
   const requestedBAs = new Set(
     (Array.isArray(req.body?.bas) ? req.body.bas : [])
       .map(value => String(value).trim())
@@ -1134,19 +1145,76 @@ exports.prepareAdminAssignedTasks = onRequest({
 
   try {
     const db = getFirestore(REPORT_DATABASE_ID);
-    const tasksById = new Map();
-    const dateStats = [];
-    for (const date of reportDateStrings(from, to)) {
-      const result = await loadAssignedAdminDate(db, date);
-      let available = 0;
-      for (const task of result.tasks) {
-        if (task?.deleted === true) continue;
-        const ba = String(task.ba ?? task.BA ?? "").trim();
-        if (!requestedBAs.has(ba)) continue;
-        tasksById.set(task._key, task);
-        available++;
+    const date = from;
+    const pageSize = Math.max(100, Math.min(1000, Number(req.body?.pageSize || 1000)));
+    const eligibleForSnapshot = snapshotDateIsEligible(date);
+    let result;
+    let pageTasks;
+    let hasMore;
+    let nextOffset = 0;
+    let nextCursor = "";
+
+    if (eligibleForSnapshot) {
+      const offset = Math.max(0, Number(req.body?.offset || 0));
+      const reuseSnapshot = req.body?.reuseSnapshot === true && offset > 0;
+      if (reuseSnapshot) {
+        const tasks = await loadAssignedSnapshotTasks(date);
+        result = {
+          date,
+          source: "snapshot",
+          fullBuild: false,
+          changedTasks: 0,
+          estimatedDocumentReads: 0,
+          snapshotFileReads: 1,
+          tasks
+        };
+      } else {
+        result = await refreshAssignedSnapshotForDate(db, date);
       }
-      dateStats.push({
+      const matchingTasks = result.tasks.filter(task => {
+        if (task?.deleted === true) return false;
+        const ba = String(task.ba ?? task.BA ?? "").trim();
+        return requestedBAs.has(ba);
+      });
+      pageTasks = matchingTasks.slice(offset, offset + pageSize);
+      nextOffset = offset + pageTasks.length;
+      hasMore = nextOffset < matchingTasks.length;
+    } else {
+      const cursor = String(req.body?.cursor || "");
+      let liveQuery = db.collection(REPORT_COLLECTION)
+        .where("assignedDate", "==", date)
+        .orderBy(FieldPath.documentId())
+        .limit(pageSize);
+      if (cursor) liveQuery = liveQuery.startAfter(cursor);
+      const live = await liveQuery.get();
+      const rawTasks = live.docs.map(document => ({ _key: document.id, ...document.data() }));
+      pageTasks = rawTasks.filter(task => {
+        if (task?.deleted === true) return false;
+        const ba = String(task.ba ?? task.BA ?? "").trim();
+        return requestedBAs.has(ba);
+      });
+      nextCursor = live.docs.at(-1)?.id || "";
+      hasMore = live.size === pageSize && Boolean(nextCursor);
+      result = {
+        date,
+        source: "live",
+        fullBuild: false,
+        changedTasks: live.size,
+        estimatedDocumentReads: Math.max(1, live.size),
+        snapshotFileReads: 0,
+        tasks: rawTasks
+      };
+    }
+
+    res.json({
+      dateBasis: "assignedDate",
+      from,
+      to,
+      tasks: pageTasks,
+      hasMore,
+      nextOffset,
+      nextCursor,
+      dateStats: [{
         date,
         source: result.source,
         mode: result.source === "live" ? "Live" : result.fullBuild ? "New snapshot" : "Snapshot update",
@@ -1154,15 +1222,8 @@ exports.prepareAdminAssignedTasks = onRequest({
         estimatedDocumentReads: Number(result.estimatedDocumentReads || 0),
         snapshotFileReads: Number(result.snapshotFileReads || 0),
         taskCount: result.tasks.length,
-        tasksAvailable: available
-      });
-    }
-    res.json({
-      dateBasis: "assignedDate",
-      from,
-      to,
-      tasks: [...tasksById.values()],
-      dateStats
+        tasksAvailable: pageTasks.length
+      }]
     });
   } catch (error) {
     console.error("Admin assigned-date preparation failed", error);

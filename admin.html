@@ -420,7 +420,7 @@ button {
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.41</span></h1>
+      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.42</span></h1>
     </div>
   </div>
 
@@ -3093,31 +3093,63 @@ async function fetchFullTaskRange(dateKeys) {
   }
   if (!dateKeys.length) return [];
 
-  const keyToDate = key =>
-    `${key.slice(0, 4)}-${key.slice(4, 6)}-${key.slice(6, 8)}`;
-  setLoaderText(`Preparing assigned-date snapshots for ${dateKeys.length} date(s)…`);
-  const response = await fetch(ADMIN_ASSIGNED_SNAPSHOT_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      from: keyToDate(dateKeys[0]),
-      to: keyToDate(dateKeys[dateKeys.length - 1]),
-      bas: ADMIN_SELECTED_BAS
-    })
-  });
-  let result = {};
-  try {
-    result = await response.json();
-  } catch {
-    result = {};
-  }
-  if (!response.ok) {
-    throw new Error(result.error || `Assigned-date snapshot request failed (${response.status}).`);
+  const keyToDate = key => `${key.slice(0, 4)}-${key.slice(4, 6)}-${key.slice(6, 8)}`;
+  const tasksById = new Map();
+  const stats = [];
+  let completedBatches = 0;
+
+  for (let dateIndex = 0; dateIndex < dateKeys.length; dateIndex++) {
+    const date = keyToDate(dateKeys[dateIndex]);
+    let offset = 0;
+    let cursor = "";
+    let hasMore = true;
+    let batchIndex = 0;
+
+    while (hasMore) {
+      setLoaderText(
+        `Preparing assigned-date data: ${dateIndex + 1}/${dateKeys.length} date(s), batch ${batchIndex + 1}…`
+      );
+      const response = await fetch(ADMIN_ASSIGNED_SNAPSHOT_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          from: date,
+          to: date,
+          bas: ADMIN_SELECTED_BAS,
+          pageSize: 1000,
+          offset,
+          cursor,
+          reuseSnapshot: batchIndex > 0
+        })
+      });
+      let result = {};
+      try {
+        result = await response.json();
+      } catch {
+        result = {};
+      }
+      if (!response.ok) {
+        throw new Error(result.error || `Assigned-date snapshot request failed (${response.status}).`);
+      }
+      (Array.isArray(result.tasks) ? result.tasks : []).forEach(task => {
+        if (task?._key) tasksById.set(task._key, task);
+      });
+      stats.push(...(Array.isArray(result.dateStats) ? result.dateStats : []));
+      hasMore = result.hasMore === true;
+      offset = Math.max(offset, Number(result.nextOffset || 0));
+      cursor = String(result.nextCursor || "");
+      batchIndex++;
+      completedBatches++;
+      if (batchIndex > 1000) throw new Error(`Too many task batches returned for ${date}.`);
+    }
   }
 
-  const stats = Array.isArray(result.dateStats) ? result.dateStats : [];
-  const snapshotDates = stats.filter(item => item.source === "snapshot").length;
-  const liveDates = stats.filter(item => item.source === "live").length;
+  const snapshotDates = new Set(
+    stats.filter(item => item.source === "snapshot").map(item => item.date)
+  ).size;
+  const liveDates = new Set(
+    stats.filter(item => item.source === "live").map(item => item.date)
+  ).size;
   const changedTasks = stats.reduce(
     (total, item) => total + Number(item.changedTasks || 0),
     0
@@ -3136,11 +3168,11 @@ async function fetchFullTaskRange(dateKeys) {
     mode: "Last full load"
   });
   updateDataSourceStatus(
-    `Assigned-date load: ${snapshotDates} snapshot date(s), ${liveDates} live date(s), ${changedTasks} changed task(s)`,
+    `Assigned-date load: ${snapshotDates} snapshot date(s), ${liveDates} live date(s), ${changedTasks} changed task(s), ${completedBatches} batch(es)`,
     Date.now()
   );
 
-  return (Array.isArray(result.tasks) ? result.tasks : []).filter(task => {
+  return [...tasksById.values()].filter(task => {
     if (!task || task.deleted === true) return false;
     const assignedDate = String(task.assignedDate || "");
     return assignedDate >= DATE_FROM && assignedDate <= DATE_TO;
@@ -3314,8 +3346,13 @@ window.loadTasks = async function (status) {
     await applyAdminTaskData(rawTasks, status);
   } catch (error) {
     console.error("Task cache sync failed:", error);
-    updateDataSourceStatus("Cache unavailable; using Firestore fallback");
-    await loadTasksFromFirestoreLegacy(status);
+    updateDataSourceStatus("Snapshot load failed; direct Firestore fallback was not started");
+    taskList.innerHTML = `
+      <div class="card" style="color:#b00020">
+        Snapshot data could not be loaded. No expensive direct Firestore fallback was started.<br>
+        <small>${escapeHtml(error.message || "Please retry shortly.")}</small>
+      </div>`;
+    alert(error.message || "Snapshot data could not be loaded. Please retry shortly.");
   } finally {
     hideLoader();
   }
