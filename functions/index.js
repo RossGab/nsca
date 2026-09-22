@@ -412,7 +412,15 @@ async function refreshAssignedSnapshotForDate(db, date) {
       lockedUntil: 0,
       lockToken: null
     }, { merge: true });
-    return { date, source: "snapshot", fullBuild, changedTasks: changes.size, tasks };
+    return {
+      date,
+      source: "snapshot",
+      fullBuild,
+      changedTasks: changes.size,
+      estimatedDocumentReads: Math.max(1, changes.size) + 3,
+      snapshotFileReads: fullBuild ? 0 : 1,
+      tasks
+    };
   } finally {
     try {
       const current = await manifestRef.get();
@@ -433,6 +441,8 @@ async function loadAssignedAdminDate(db, date) {
     source: "live",
     fullBuild: false,
     changedTasks: live.size,
+    estimatedDocumentReads: Math.max(1, live.size),
+    snapshotFileReads: 0,
     tasks: live.docs.map(document => ({ _key: document.id, ...document.data() }))
   };
 }
@@ -1141,6 +1151,8 @@ exports.prepareAdminAssignedTasks = onRequest({
         source: result.source,
         mode: result.source === "live" ? "Live" : result.fullBuild ? "New snapshot" : "Snapshot update",
         changedTasks: Number(result.changedTasks || 0),
+        estimatedDocumentReads: Number(result.estimatedDocumentReads || 0),
+        snapshotFileReads: Number(result.snapshotFileReads || 0),
         taskCount: result.tasks.length,
         tasksAvailable: available
       });

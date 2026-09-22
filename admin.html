@@ -397,6 +397,13 @@ button {
   object-fit: contain;
 }
 
+.admin-date-block { display:flex; flex-direction:column; align-items:flex-end; gap:5px; }
+.admin-read-indicator { color:#5f6f82; font-size:11px; line-height:1.25; text-align:right; }
+@media (max-width:760px) {
+  .admin-date-block { align-items:stretch; width:100%; }
+  .admin-read-indicator { text-align:left; }
+}
+
 #map {
   height:420px;
   border-radius:10px;
@@ -413,15 +420,20 @@ button {
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.40</span></h1>
+      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.41</span></h1>
     </div>
   </div>
 
   <div class="app-header-actions">
-    <div class="app-date-range">
-      <input type="date" id="adminDateFrom">
-      <span>to</span>
-      <input type="date" id="adminDateTo">
+    <div class="admin-date-block">
+      <div class="app-date-range">
+        <input type="date" id="adminDateFrom">
+        <span>to</span>
+        <input type="date" id="adminDateTo">
+      </div>
+      <div id="adminReadIndicator" class="admin-read-indicator" aria-live="polite">
+        Read estimate will appear after synchronization.
+      </div>
     </div>
     <button class="app-danger-button" onclick="logout()">Logout</button>
   </div>
@@ -696,6 +708,41 @@ const dateToInput = document.getElementById("adminDateTo");
 dateFromInput.value = DATE_FROM;
 dateToInput.value = DATE_TO;
 
+function adminReadIndicatorKey(from = DATE_FROM, to = DATE_TO) {
+  return `nsca-admin-read-estimate:${from}:${to}`;
+}
+
+function updateAdminReadIndicator(details, persist = true) {
+  const indicator = document.getElementById("adminReadIndicator");
+  if (!indicator) return;
+  if (!details) {
+    indicator.textContent = "Read estimate will appear after synchronization.";
+    return;
+  }
+  const firestoreReads = Math.max(0, Number(details.firestoreReads || 0));
+  const snapshotFileReads = Math.max(0, Number(details.snapshotFileReads || 0));
+  const mode = String(details.mode || "Last load");
+  indicator.textContent = `${mode}: ~${firestoreReads.toLocaleString()} Firestore document read(s) • ${snapshotFileReads.toLocaleString()} snapshot file read(s)`;
+  if (persist) {
+    localStorage.setItem(adminReadIndicatorKey(), JSON.stringify({
+      firestoreReads,
+      snapshotFileReads,
+      mode
+    }));
+  }
+}
+
+function restoreAdminReadIndicator() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(adminReadIndicatorKey()) || "null");
+    updateAdminReadIndicator(saved, false);
+  } catch {
+    updateAdminReadIndicator(null, false);
+  }
+}
+
+restoreAdminReadIndicator();
+
 async function onDateRangeChange() {
 
   const newFrom = dateFromInput.value;
@@ -719,6 +766,7 @@ async function onDateRangeChange() {
   // ✅ ONLY NOW update state
   DATE_FROM = newFrom;
   DATE_TO = newTo;
+  restoreAdminReadIndicator();
   adminChangeCheckGeneration++;
 
   window.__FIRESTORE_TASKS__ = null;
@@ -2908,6 +2956,7 @@ async function loadTasksFromFirestoreLegacy(status) {
   const keys = getDateRangeKeys(DATE_FROM, DATE_TO);
   const baChunks = getAdminBAChunks();
   let firestoreTasks = [];
+  let estimatedFallbackReads = 0;
 
   try {
     if (!baChunks.length) {
@@ -2927,6 +2976,7 @@ async function loadTasksFromFirestoreLegacy(status) {
         );
 
         const snap = await getDocs(q);
+        estimatedFallbackReads += Math.max(1, snap.size);
 
         snap.forEach(docSnap => {
         const raw = docSnap.data() || {};
@@ -2962,6 +3012,11 @@ async function loadTasksFromFirestoreLegacy(status) {
     }
 
     window.__FIRESTORE_TASKS__ = firestoreTasks;
+    updateAdminReadIndicator({
+      firestoreReads: estimatedFallbackReads,
+      snapshotFileReads: 0,
+      mode: "Firestore fallback"
+    });
 
     ADMIN_TASK_IDS = firestoreTasks.map(t => t._key);
     FILTERED_TASK_IDS = [...ADMIN_TASK_IDS];
@@ -3067,6 +3122,19 @@ async function fetchFullTaskRange(dateKeys) {
     (total, item) => total + Number(item.changedTasks || 0),
     0
   );
+  const estimatedDocumentReads = stats.reduce(
+    (total, item) => total + Number(item.estimatedDocumentReads || 0),
+    0
+  );
+  const snapshotFileReads = stats.reduce(
+    (total, item) => total + Number(item.snapshotFileReads || 0),
+    0
+  );
+  updateAdminReadIndicator({
+    firestoreReads: estimatedDocumentReads,
+    snapshotFileReads,
+    mode: "Last full load"
+  });
   updateDataSourceStatus(
     `Assigned-date load: ${snapshotDates} snapshot date(s), ${liveDates} live date(s), ${changedTasks} changed task(s)`,
     Date.now()
@@ -3116,6 +3184,11 @@ window.loadCachedTasks = async function (status) {
     const cached = await readAdminTaskCache(DATE_FROM, DATE_TO);
     if (cached && Array.isArray(cached.tasks)) {
       await applyAdminTaskData(excludeDeletedTasks(cached.tasks), status);
+      updateAdminReadIndicator({
+        firestoreReads: 0,
+        snapshotFileReads: 0,
+        mode: "Browser cache display"
+      });
       updateDataSourceStatus(
         `Showing ${cached.tasks.length} cached task(s); click to sync changes`
       );
@@ -3196,6 +3269,15 @@ window.loadTasks = async function (status) {
         // completedAt but did not write updatedAt.
         fetchDateRestrictedChanges(dateKeys, "completedAt", completionSince)
       ]);
+      const incrementalQueryCount = dateKeys.length * getAdminBAChunks().length * 2;
+      updateAdminReadIndicator({
+        // Each query has a minimum one-document charge. Adding the returned
+        // documents gives a deliberately conservative visible estimate.
+        firestoreReads:
+          incrementalQueryCount + updatedSnapshot.length + completedSnapshot.length,
+        snapshotFileReads: 0,
+        mode: "Last update check"
+      });
       const updatesById = new Map();
       let updateQueryWatermark = cached.watermarkMillis || 0;
       let completionQueryWatermark = cached.completionWatermarkMillis || 0;
