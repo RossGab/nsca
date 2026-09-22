@@ -130,15 +130,21 @@ function normalizedTask(id, raw) {
   const status = rawStatus === "COMPLETED" || workStatus === "COMPLETED"
     ? "COMPLETED"
     : rawStatus || workStatus || "PENDING";
-  return {
+  const task = {
     TASK_ID: id,
     ...raw,
     driverId: raw.driverId ?? raw.agentId ?? "",
     JOBTYPE: raw.JOBTYPE ?? raw.jobType ?? "",
     BA: raw.BA ?? raw.ba ?? "",
     DMZ: raw.DMZ ?? raw.dmz ?? "",
-    status
+    status,
+    effectiveCompletedAt: raw.correctedCompletedAt ?? raw.completedAt ?? null
   };
+  if (raw.correctedCompletedAt) {
+    task.originalCompletedAt = raw.completedAt ?? null;
+    task.completedAt = raw.correctedCompletedAt;
+  }
+  return task;
 }
 
 function cellValue(value) {

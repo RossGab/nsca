@@ -413,7 +413,7 @@ button {
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.36</span></h1>
+      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.37</span></h1>
     </div>
   </div>
 
@@ -1864,6 +1864,7 @@ function firestoreDateMillis(value) {
 
 function completedTaskMillis(task) {
   return firestoreDateMillis(
+    task.correctedCompletedAt ||
     task.completedAt ||
     task.uploadedAt ||
     task.updatedAt ||
@@ -1884,10 +1885,14 @@ function renderTaskCompletionTimes(task) {
   if (!task || task.status !== "COMPLETED") return "";
 
   const completedAt = formatFirestoreDate(task.completedAt);
+  const correctedCompletedAt = formatFirestoreDate(task.correctedCompletedAt);
   const uploadedAt = formatFirestoreDate(task.uploadedAt);
   const rows = [];
 
-  if (completedAt) {
+  if (correctedCompletedAt) {
+    rows.push(`<div class="small" style="color:#18733c;font-weight:600;">Effective completion: ${escapeAdminHtml(correctedCompletedAt)} <span title="Administratively corrected">🕒</span></div>`);
+    if (completedAt) rows.push(`<div class="small" style="color:#7a5b22;">Originally recorded: ${escapeAdminHtml(completedAt)}</div>`);
+  } else if (completedAt) {
     rows.push(`<div class="small" style="color:#18733c;font-weight:600;">Completed: ${escapeAdminHtml(completedAt)}</div>`);
   }
   if (uploadedAt) {
@@ -3540,7 +3545,7 @@ function renderDriverSummaryGraphs(filteredTasks, rows) {
     const status = String(task.status || "").trim().toUpperCase();
     const workStatus = String(task.workStatus || "").trim().toLowerCase();
     if (status !== "COMPLETED" && workStatus !== "completed") return;
-    const millis = taskTimestampMillis(task.completedAt);
+    const millis = taskTimestampMillis(task.correctedCompletedAt || task.completedAt);
     if (!millis) return;
     const hourText = new Intl.DateTimeFormat("en-US", {
       hour: "2-digit",
@@ -3704,6 +3709,14 @@ function renderAdminTasks(tasks) {
   }
 
   // ✅ THIS MUST BE INSIDE THE FUNCTION
+  if (CURRENT_STATUS === "COMPLETED") {
+    const bulkBar = document.createElement("div");
+    bulkBar.className = "card";
+    bulkBar.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px;border-left:5px solid #6f42c1";
+    bulkBar.innerHTML = `<div><b>Bulk completion-date correction</b><div class="small">Uses tasks matching the current date, BA, job-type, driver, and search filters.</div></div><button class="assign" type="button" onclick="openBulkCompletionCorrection()">🕒 Bulk Correct Dates</button>`;
+    taskList.appendChild(bulkBar);
+  }
+
   tasks.forEach(t => {
     const sla = getSLA(t);
 
@@ -3783,6 +3796,68 @@ window.openCompletedTaskEditor = function (taskId) {
   const url = new URL("completed-task-edit.html", window.location.href);
   url.searchParams.set("taskId", taskId);
   window.open(url.href, "_blank", "noopener");
+};
+
+function openBulkCorrectionDB() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open("nsca-bulk-completion-correction", 1);
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains("sessions")) {
+        request.result.createObjectStore("sessions", { keyPath: "id" });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+window.openBulkCompletionCorrection = async function () {
+  const idSet = new Set(FILTERED_TASK_IDS);
+  const tasks = (window.__FIRESTORE_TASKS__ || [])
+    .filter(task => idSet.has(task._key) && task.status === "COMPLETED")
+    .map(task => ({
+      id: task._key,
+      customer: task.CUSTOMERNAME || task.customerName || "",
+      account: task.ACCOUNTNUMBER || task.accountNumber || "",
+      address: task.ADDRESS || task.address || "",
+      driver: task.driverId || task.agentId || "Unassigned",
+      ba: task.BA || task.ba || "",
+      jobType: task.JOBTYPE || task.jobType || "",
+      completedAtMillis: firestoreDateMillis(task.completedAt),
+      correctedCompletedAtMillis: firestoreDateMillis(task.correctedCompletedAt)
+    }));
+  if (!tasks.length) {
+    alert("No completed tasks match the current filters.");
+    return;
+  }
+
+  showLoader(`Preparing ${tasks.length.toLocaleString()} completed task(s)…`);
+  try {
+    const id = crypto.randomUUID();
+    const database = await openBulkCorrectionDB();
+    await new Promise((resolve, reject) => {
+      const transaction = database.transaction("sessions", "readwrite");
+      transaction.objectStore("sessions").put({
+        id,
+        createdAt: Date.now(),
+        from: DATE_FROM,
+        to: DATE_TO,
+        tasks
+      });
+      transaction.oncomplete = resolve;
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error || new Error("Unable to prepare the bulk correction list."));
+    });
+    database.close();
+    const url = new URL("bulk-completion-correction.html", window.location.href);
+    url.searchParams.set("session", id);
+    window.open(url.href, "_blank", "noopener");
+  } catch (error) {
+    console.error("Bulk correction preparation failed:", error);
+    alert(error.message || "Unable to open bulk completion correction.");
+  } finally {
+    hideLoader();
+  }
 };
   
 window.cancelEdit = function (btn) {

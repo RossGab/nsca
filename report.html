@@ -46,7 +46,7 @@ button:disabled{background:#999;cursor:not-allowed}
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Task Report <span class="app-version">V.R.0.0.15</span></h1>
+      <h1 class="app-title">Task Report <span class="app-version">V.R.0.0.16</span></h1>
     </div>
   </div>
   <div class="app-header-actions">
@@ -504,17 +504,24 @@ function getFilteredTasks(){
 
 function flattenTaskForReport(task){
   const row={TASK_ID:task._key||""};
+  const reportTask={...task};
+  if(task.correctedCompletedAt){
+    reportTask.originalCompletedAt=task.completedAt||null;
+    reportTask.completedAt=task.correctedCompletedAt;
+  }
 
-  for(const key in task){
+  for(const key in reportTask){
     if(key==="_key")continue;
 
-    const value=task[key];
+    const value=reportTask[key];
     const col=key.toUpperCase();
 
     if(
       key==="createdAt"||
       key==="updatedAt"||
       key==="completedAt"||
+      key==="correctedCompletedAt"||
+      key==="effectiveCompletedAt"||
       key==="uploadedAt"||
       key==="reopenedAt"
     ){

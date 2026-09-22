@@ -102,7 +102,7 @@ body {
 
   <div class="admin-header">
   <img src="./logo.jpg" class="admin-logo">
-  <h2>Tasks Viewer V.R.1.1.0.1.9</h2>
+  <h2>Tasks Viewer V.R.1.1.0.2.0</h2>
 
   <div>
     <input type="date" id="from">
@@ -657,7 +657,7 @@ function renderPage(tasks){
         <div class="small">${t.ADDRESS||""}</div>
         <div class="small">Driver: ${t.driverId||"—"}</div>
         <div class="small" style="color:#16a34a;">
-          Completed: ${formatDateTime(t.uploadedAt || t.completedAt || t.updatedAt)}
+          Completed: ${formatDateTime(t.correctedCompletedAt || t.completedAt || t.uploadedAt || t.updatedAt)}
         </div>
       </div>
 
