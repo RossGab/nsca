@@ -420,7 +420,7 @@ button {
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.46</span></h1>
+      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.47</span></h1>
     </div>
   </div>
 
@@ -1907,6 +1907,10 @@ function firestoreDateMillis(value) {
     }
     if (typeof value.toDate === "function") {
       return value.toDate().getTime();
+    }
+    if (typeof value._seconds === "number") {
+      return (value._seconds * 1000) +
+        Math.floor((value._nanoseconds || 0) / 1000000);
     }
     if (typeof value.seconds === "number") {
       return (value.seconds * 1000) +
