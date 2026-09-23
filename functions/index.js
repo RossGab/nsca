@@ -689,25 +689,24 @@ async function redrawPhotoTimestamp(source, correctedAt, locationLabel) {
   const lineHeight = Math.max(25, Math.round(fontSize * 1.45));
   const leftHeight = lineHeight * 2;
   const bottom = Math.max(5, Math.round(width * 0.006));
-  const leftY = Math.max(0, height - leftHeight - bottom);
-  const rightY = Math.max(0, height - lineHeight - bottom);
-  const leftWidth = Math.min(width, Math.round(width * 0.43));
+  const stripHeight = Math.max(leftHeight + bottom, Math.round(height * .085));
+  const stripY = Math.max(0, height - stripHeight);
+  const leftY = stripY + Math.max(0, Math.round((stripHeight - leftHeight) / 2));
+  const rightY = stripY + Math.max(0, Math.round((stripHeight - lineHeight) / 2));
   const rightX = Math.round(width * 0.69);
-  const rightWidth = width - rightX;
   const padding = Math.max(7, Math.round(width * .009));
   const markerSize = Math.max(20, Math.round(fontSize * 1.35));
-  const markerTextX = padding + Math.round(markerSize * .28);
+  const markerTextX = padding + Math.round(markerSize * .34);
   const contentX = padding + markerSize + Math.max(7, Math.round(fontSize * .45));
   const safeLocation = String(locationLabel || "Location unavailable").slice(0, 80);
   const overlay = Buffer.from(`<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
-    <rect x="0" y="${leftY}" width="${leftWidth}" height="${leftHeight}" fill="rgba(0,0,0,.92)"/>
+    <rect x="0" y="${stripY}" width="${width}" height="${stripHeight}" fill="rgba(0,0,0,.94)"/>
     <rect x="${padding}" y="${leftY + Math.round((leftHeight - markerSize) / 2)}" width="${markerSize}" height="${markerSize}" rx="${Math.round(markerSize * .18)}" fill="#ffd54f"/>
-    <text x="${markerTextX}" y="${leftY + Math.round(leftHeight / 2 + fontSize * .36)}" fill="#111" font-family="Arial,sans-serif" font-size="${fontSize}" font-weight="800">M</text>
+    <text x="${markerTextX}" y="${leftY + Math.round(leftHeight / 2 + fontSize * .36)}" fill="#111" font-family="Arial,sans-serif" font-size="${fontSize}" font-weight="800">*</text>
     <text x="${contentX}" y="${leftY + Math.round(lineHeight * .72)}" fill="white" font-family="Arial,sans-serif" font-size="${fontSize}" font-weight="700">${svgText(safeLocation)}</text>
     <text x="${contentX}" y="${leftY + lineHeight + Math.round(lineHeight * .72)}" fill="white" font-family="Arial,sans-serif" font-size="${fontSize}" font-weight="700">${svgText(labels.long)}</text>
-    <rect x="${rightX}" y="${rightY}" width="${rightWidth}" height="${lineHeight}" fill="rgba(0,0,0,.82)"/>
     <rect x="${rightX + padding}" y="${rightY + Math.round((lineHeight - markerSize) / 2)}" width="${markerSize}" height="${markerSize}" rx="${Math.round(markerSize * .18)}" fill="#ffd54f"/>
-    <text x="${rightX + markerTextX}" y="${rightY + Math.round(lineHeight / 2 + fontSize * .36)}" fill="#111" font-family="Arial,sans-serif" font-size="${fontSize}" font-weight="800">M</text>
+    <text x="${rightX + markerTextX}" y="${rightY + Math.round(lineHeight / 2 + fontSize * .36)}" fill="#111" font-family="Arial,sans-serif" font-size="${fontSize}" font-weight="800">*</text>
     <text x="${rightX + contentX}" y="${rightY + Math.round(lineHeight * .72)}" fill="white" font-family="Arial,sans-serif" font-size="${fontSize}">${svgText(labels.short)}</text>
   </svg>`);
   let image = sharp(autoRotated.data).composite([{ input: overlay, top: 0, left: 0 }]);
