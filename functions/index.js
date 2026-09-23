@@ -675,8 +675,7 @@ function photoTimestampLabels(date) {
     hourCycle: "h23"
   }).formatToParts(date).map(part => [part.type, part.value]));
   return {
-    long: `${parts.day}/${parts.month}/${parts.year}, ${parts.hour}:${parts.minute}:${parts.second} PH`,
-    short: `${parts.day}/${parts.month}/${parts.year} ${parts.hour}:${parts.minute}`
+    long: `${parts.day}/${parts.month}/${parts.year}, ${parts.hour}:${parts.minute}:${parts.second} PH`
   };
 }
 
@@ -692,8 +691,6 @@ async function redrawPhotoTimestamp(source, correctedAt, locationLabel) {
   const stripHeight = Math.max(leftHeight + bottom, Math.round(height * .085));
   const stripY = Math.max(0, height - stripHeight);
   const leftY = stripY + Math.max(0, Math.round((stripHeight - leftHeight) / 2));
-  const rightY = stripY + Math.max(0, Math.round((stripHeight - lineHeight) / 2));
-  const rightX = Math.round(width * 0.69);
   const padding = Math.max(7, Math.round(width * .009));
   const markerSize = Math.max(20, Math.round(fontSize * 1.35));
   const markerTextX = padding + Math.round(markerSize * .34);
@@ -705,9 +702,6 @@ async function redrawPhotoTimestamp(source, correctedAt, locationLabel) {
     <text x="${markerTextX}" y="${leftY + Math.round(leftHeight / 2 + fontSize * .36)}" fill="#111" font-family="Arial,sans-serif" font-size="${fontSize}" font-weight="800">*</text>
     <text x="${contentX}" y="${leftY + Math.round(lineHeight * .72)}" fill="white" font-family="Arial,sans-serif" font-size="${fontSize}" font-weight="700">${svgText(safeLocation)}</text>
     <text x="${contentX}" y="${leftY + lineHeight + Math.round(lineHeight * .72)}" fill="white" font-family="Arial,sans-serif" font-size="${fontSize}" font-weight="700">${svgText(labels.long)}</text>
-    <rect x="${rightX + padding}" y="${rightY + Math.round((lineHeight - markerSize) / 2)}" width="${markerSize}" height="${markerSize}" rx="${Math.round(markerSize * .18)}" fill="#ffd54f"/>
-    <text x="${rightX + markerTextX}" y="${rightY + Math.round(lineHeight / 2 + fontSize * .36)}" fill="#111" font-family="Arial,sans-serif" font-size="${fontSize}" font-weight="800">*</text>
-    <text x="${rightX + contentX}" y="${rightY + Math.round(lineHeight * .72)}" fill="white" font-family="Arial,sans-serif" font-size="${fontSize}">${svgText(labels.short)}</text>
   </svg>`);
   let image = sharp(autoRotated.data).composite([{ input: overlay, top: 0, left: 0 }]);
   let contentType = "image/jpeg";
