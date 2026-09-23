@@ -420,7 +420,7 @@ button {
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.45</span></h1>
+      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.46</span></h1>
     </div>
   </div>
 
@@ -1857,6 +1857,16 @@ function formatFirestoreDate(value) {
         });
     }
 
+    // Firestore timestamps restored from JSON snapshots/cache.
+    if (typeof value === "object") {
+      const seconds = Number(value._seconds ?? value.seconds);
+      const nanoseconds = Number(value._nanoseconds ?? value.nanoseconds ?? 0);
+      if (Number.isFinite(seconds)) {
+        return new Date(seconds * 1000 + Math.floor(nanoseconds / 1000000))
+          .toLocaleString("en-PH", { timeZone: "Asia/Manila" });
+      }
+    }
+
     // JS Date
     if (value instanceof Date) {
       return value.toLocaleString(
@@ -1868,8 +1878,9 @@ function formatFirestoreDate(value) {
     }
 
     // ISO/string timestamp
-    return new Date(value)
-      .toLocaleString(
+    const parsedDate = new Date(value);
+    if (Number.isNaN(parsedDate.getTime())) return "";
+    return parsedDate.toLocaleString(
         "en-PH",
         {
           timeZone: "Asia/Manila"
