@@ -697,7 +697,7 @@ async function redrawPhotoTimestamp(source, correctedAt, locationLabel) {
   const contentX = padding + markerSize + Math.max(7, Math.round(fontSize * .45));
   const safeLocation = String(locationLabel || "Location unavailable").slice(0, 80);
   const overlay = Buffer.from(`<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
-    <rect x="0" y="${stripY}" width="${width}" height="${stripHeight}" fill="rgba(0,0,0,.94)"/>
+    <rect x="0" y="${stripY}" width="${width}" height="${stripHeight}" fill="#000000"/>
     <rect x="${padding}" y="${leftY + Math.round((leftHeight - markerSize) / 2)}" width="${markerSize}" height="${markerSize}" rx="${Math.round(markerSize * .18)}" fill="#ffd54f"/>
     <text x="${markerTextX}" y="${leftY + Math.round(leftHeight / 2 + fontSize * .36)}" fill="#111" font-family="Arial,sans-serif" font-size="${fontSize}" font-weight="800">*</text>
     <text x="${contentX}" y="${leftY + Math.round(lineHeight * .72)}" fill="white" font-family="Arial,sans-serif" font-size="${fontSize}" font-weight="700">${svgText(safeLocation)}</text>
