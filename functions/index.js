@@ -717,9 +717,13 @@ async function redrawPhotoTimestamp(source, correctedAt, locationLabel) {
   return { buffer: await image.toBuffer(), contentType };
 }
 
-async function authenticatedRequestUser(req) {
-  const match = String(req.get("authorization") || "").match(/^Bearer\s+(.+)$/i);
-  if (!match) throw new Error("AUTH_REQUIRED");
+async function photoCorrectionRequestUser(req) {
+  // Admin Dashboard supports corrections without an account. Verify any supplied
+  // token so signed-in audit identities still come from Firebase, not the caller.
+  const authorization = String(req.get("authorization") || "");
+  if (!authorization) return { uid: "Admin Dashboard (no login)" };
+  const match = authorization.match(/^Bearer\s+(.+)$/i);
+  if (!match) throw new Error("AUTH_INVALID");
   return admin.auth().verifyIdToken(match[1]);
 }
 
@@ -739,7 +743,7 @@ exports.correctBulkPhotoTimestamps = onRequest({
     return;
   }
   try {
-    const user = await authenticatedRequestUser(req);
+    const user = await photoCorrectionRequestUser(req);
     const corrections = Array.isArray(req.body?.corrections) ? req.body.corrections : [];
     const reason = String(req.body?.reason || "").trim();
     if (!corrections.length || corrections.length > 10 || !reason) {
@@ -834,8 +838,8 @@ exports.correctBulkPhotoTimestamps = onRequest({
     }
     res.json({ results });
   } catch (error) {
-    const authError = error.message === "AUTH_REQUIRED" || String(error.code || "").startsWith("auth/");
-    res.status(authError ? 401 : 500).json({ error: authError ? "Administrator login is required." : error.message || "Photo correction failed." });
+    const authError = error.message === "AUTH_INVALID" || String(error.code || "").startsWith("auth/");
+    res.status(authError ? 401 : 500).json({ error: authError ? "The supplied sign-in token is invalid. Refresh the page and try again." : error.message || "Photo correction failed." });
   }
 });
 
