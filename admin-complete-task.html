@@ -42,9 +42,16 @@ function renderFields(){const method=state.methods[state.method];if(!method){fie
 function renderMethods(){methodsBox.innerHTML=Object.keys(state.methods).map(method=>`<label class="method"><input type="radio" name="method" value="${esc(method)}" ${method===state.method?"checked":""}> <span>${esc(method)}</span></label>`).join("");methodsBox.querySelectorAll('input[name="method"]').forEach(input=>input.addEventListener("change",()=>{syncVisible();state.method=input.value;state.radio="";renderFields()}))}
 
 function owner(task){return String(task.driverId||task.agentId||task.AGENTID||"")}
+// Match the dashboard's getAdminEffectiveStatus, including legacy OPEN records.
+function effectiveStatus(task){
+  const status=String(task.status||"").trim().toUpperCase();
+  const workStatus=String(task.workStatus||"").trim().toUpperCase();
+  if(status==="COMPLETED"||workStatus==="COMPLETED")return "COMPLETED";
+  return status==="OPEN"?"PENDING":status||"PENDING";
+}
 function checkPending(task){
-  if(task.deleted || String(task.status||task.workStatus||"").toUpperCase()!=="PENDING") throw new Error("This task is no longer pending. Refresh Admin Dashboard.");
-  if(["driverId","agentId","AGENTID","JOBTYPE"].some(key=>task[key]!==state.task[key])) throw new Error("The assignment or job type changed. Reopen this task from Admin Dashboard.");
+  if(task.deleted || effectiveStatus(task)!=="PENDING") throw new Error("This task is no longer pending. Refresh Admin Dashboard.");
+  if(["driverId","agentId","AGENTID","JOBTYPE","jobType"].some(key=>task[key]!==state.task[key])) throw new Error("The assignment or job type changed. Reopen this task from Admin Dashboard.");
 }
 function deliveryAnswers(){
   syncVisible();
@@ -108,9 +115,9 @@ async function boot(){try{
   if(!taskId)throw new Error("Open a pending task from Admin Dashboard.");
   const snapshot=await getDoc(doc(firestore,"TASK",taskId));if(!snapshot.exists())throw new Error("Task not found.");
   state.task=snapshot.data();checkPending(state.task);
-  state.methods=(await get(ref(rtdb,`config/driverUI/jobTypes/${state.task.JOBTYPE}/deliveryMethods`))).val()||{};
+  state.methods=(await get(ref(rtdb,`config/driverUI/jobTypes/${state.task.JOBTYPE??state.task.jobType??""}/deliveryMethods`))).val()||{};
   if(!Object.keys(state.methods).length)throw new Error("No driver delivery configuration exists for this job type.");
-  $("summary").innerHTML=Object.entries({"Task ID":taskId,"Assigned driver":owner(state.task),Customer:state.task.CUSTOMERNAME,Address:state.task.ADDRESS,"Account #":state.task.ACCOUNTNUMBER,"Job type":state.task.JOBTYPE,MRU:state.task.MRU,BG:state.task.BG,"Meter #":state.task.METERNUMBER,DMZ:state.task.DMZ,Sequence:state.task.SEQUENCE}).map(([key,value])=>`<div><b>${esc(key)}</b><span>${esc(value||"?")}</span></div>`).join("");
+  $("summary").innerHTML=Object.entries({"Task ID":taskId,"Assigned driver":owner(state.task),Customer:state.task.CUSTOMERNAME,Address:state.task.ADDRESS,"Account #":state.task.ACCOUNTNUMBER,"Job type":state.task.JOBTYPE??state.task.jobType,MRU:state.task.MRU,BG:state.task.BG,"Meter #":state.task.METERNUMBER,DMZ:state.task.DMZ,Sequence:state.task.SEQUENCE}).map(([key,value])=>`<div><b>${esc(key)}</b><span>${esc(value||"?")}</span></div>`).join("");
   $("photos").innerHTML=[1,2,3].map(number=>`<label class="photo-card">Photo ${number}<img hidden alt="Photo ${number} preview"><input type="file" accept="image/*" data-number="${number}"></label>`).join("");
   $("photos").querySelectorAll("input").forEach(input=>input.addEventListener("change",()=>{
     const number=Number(input.dataset.number),file=input.files?.[0],preview=input.previousElementSibling;

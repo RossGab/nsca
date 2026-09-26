@@ -15,6 +15,23 @@ function fixture(latest = {}) {
   return {context,state,elements,writes,deleted,get reads(){return reads}};
 }
 (async()=>{
+  const dashboard=fs.readFileSync('admin.html','utf8');
+  const dashboardStatus=dashboard.slice(dashboard.indexOf('function getAdminEffectiveStatus('),dashboard.indexOf('function normalizeAdminCachedTask('));
+  const statusContext={};vm.createContext(statusContext);vm.runInContext(dashboardStatus,statusContext);
+  for(const status of [undefined,'','OPEN',' open ','PENDING',' pending ','COMPLETED','CANCELLED']){
+    for(const workStatus of [undefined,'fordownload','pending','completed',' COMPLETED ']){
+      const sample={status,workStatus},test=fixture();
+      assert.equal(test.context.effectiveStatus(sample),statusContext.getAdminEffectiveStatus(sample));
+      const candidate={...test.state.task,...sample};
+      if(statusContext.getAdminEffectiveStatus(sample)==='PENDING') assert.doesNotThrow(()=>test.context.checkPending(candidate));
+      else assert.throws(()=>test.context.checkPending(candidate));
+    }
+  }
+  for(const status of ['OPEN',' open ',undefined,' pending ']){
+    const legacy=fixture({status,workStatus:'fordownload'});
+    legacy.state.task.status=status;legacy.state.task.workStatus='fordownload';
+    await legacy.context.submit({preventDefault(){}});assert.equal(legacy.writes.length,1);
+  }
   const ok=fixture();await ok.context.submit({preventDefault(){}});
   assert.equal(ok.writes.length,1);
   const payload=ok.writes[0];
@@ -24,7 +41,7 @@ function fixture(latest = {}) {
   for(const key of ['driverId','agentId','AGENTID']) assert.ok(!(key in payload));
   assert.ok(!('photo1TakenAt' in payload));assert.ok(!('photo1GPS' in payload));
   assert.equal(ok.deleted.length,0);assert.equal(ok.elements.controls.disabled,true);
-  for(const latest of [{status:'COMPLETED'},{driverId:'driver-2'},{agentId:'driver-2'},{JOBTYPE:'OTHER'},{deleted:true}]){
+  for(const latest of [{status:'COMPLETED'},{status:'PENDING',workStatus:'completed'},{driverId:'driver-2'},{agentId:'driver-2'},{JOBTYPE:'OTHER'},{deleted:true}]){
     const conflict=fixture(latest);await conflict.context.submit({preventDefault(){}});
     assert.equal(conflict.writes.length,0);assert.equal(conflict.deleted.length,1);assert.equal(conflict.elements.controls.disabled,false);
   }
