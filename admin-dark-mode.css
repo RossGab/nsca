@@ -82,3 +82,17 @@ html[data-admin-theme="dark"] .method.active { background:#203f5e!important; }
 html[data-admin-theme="dark"] :is(.empty,.driver-label,.delivery-title,.status-option,.submit-preview) { color:var(--nsca-muted)!important; }
 .admin-theme-control { display:inline-flex; align-items:center; gap:8px; margin:0; padding:8px 4px; color:var(--nsca-text); font:600 13px Arial,sans-serif; cursor:pointer; white-space:nowrap; }
 #adminThemeToggle { width:18px; height:18px; margin:0; padding:0; flex:none; accent-color:#2878df; cursor:pointer; }
+/* Report checkbox menus and dynamically populated report feedback. */
+html[data-admin-theme="dark"] :is(.check-filter,.check-options) {
+  background:#131e2c!important;
+  color:var(--nsca-text)!important;
+  border-color:var(--nsca-border)!important;
+}
+html[data-admin-theme="dark"] :is(.check-filter summary,.check-options label) { color:var(--nsca-text)!important; }
+html[data-admin-theme="dark"] .check-options label:hover { background:#25354a; }
+html[data-admin-theme="dark"] .check-filter summary:focus-visible { outline:3px solid var(--nsca-accent); outline-offset:2px; }
+html[data-admin-theme="dark"] :is(#dataStatus,.report-progress-detail) { color:var(--nsca-muted)!important; }
+html[data-admin-theme="dark"] #dataStatus.error { color:#ff929b!important; }
+html[data-admin-theme="dark"] #readSummary { background:var(--nsca-surface)!important; color:var(--nsca-text); }
+html[data-admin-theme="dark"] .read-summary-total { background:#25354a; color:var(--nsca-text); }
+html[data-admin-theme="dark"] .report-progress-track { background:#324157; }
