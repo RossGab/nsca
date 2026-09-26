@@ -9,6 +9,7 @@
     .methods{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:9px;margin:12px 0 16px}.method{display:flex;align-items:center;gap:8px;padding:11px;border:1px solid #b9c9d9;border-radius:9px;cursor:pointer}.method:has(input:checked){border-color:#0875c1;background:#eaf6ff}
     input[type=text],select,textarea{width:100%;border:1px solid #b9c9d9;border-radius:8px;padding:11px;font:inherit;background:#fff}textarea{min-height:85px;resize:vertical}.radio-set{border:1px solid #d3dde6;border-radius:9px;padding:11px}.radio-set label{display:inline-flex;align-items:center;gap:6px;margin:7px 18px 4px 0;color:#17212d;font-size:14px}
     .photos{display:flex;flex-wrap:wrap;gap:12px}.photo-card{width:180px;padding:10px;border:1px solid #ccd7e1;border-radius:10px;background:#f8fafc}.photo-card img{display:block;width:158px;height:120px;object-fit:cover;border-radius:8px;border:1px solid #ccd7e1}.photo-card b{display:block;margin-bottom:7px}.photo-card input{width:100%;margin-top:8px;font-size:12px}.photo-note{margin-top:6px;color:#18733c;font-size:12px;font-weight:700}.actions{display:flex;justify-content:flex-end;gap:10px;margin-top:18px}button{border:0;border-radius:8px;padding:11px 17px;font-weight:700;cursor:pointer}.primary{color:#fff;background:#0875c1}.secondary{background:#dfe7ef;color:#26394b}button:disabled{opacity:.55;cursor:wait}#status{margin-top:12px;font-weight:700}.error{color:#a5222c}.success{color:#18733c}
+    [hidden]{display:none!important}
     @media(max-width:650px){.summary,.fields{grid-template-columns:1fr}.header{padding:14px}}
   </style>
 <script src="./admin-dialog.js?v=5"></script></head><body><main class="page">
@@ -117,11 +118,11 @@ async function boot(){try{
   state.task=snapshot.data();checkPending(state.task);
   state.methods=(await get(ref(rtdb,`config/driverUI/jobTypes/${state.task.JOBTYPE??state.task.jobType??""}/deliveryMethods`))).val()||{};
   if(!Object.keys(state.methods).length)throw new Error("No driver delivery configuration exists for this job type.");
-  $("summary").innerHTML=Object.entries({"Task ID":taskId,"Assigned driver":owner(state.task),Customer:state.task.CUSTOMERNAME,Address:state.task.ADDRESS,"Account #":state.task.ACCOUNTNUMBER,"Job type":state.task.JOBTYPE??state.task.jobType,MRU:state.task.MRU,BG:state.task.BG,"Meter #":state.task.METERNUMBER,DMZ:state.task.DMZ,Sequence:state.task.SEQUENCE}).map(([key,value])=>`<div><b>${esc(key)}</b><span>${esc(value||"?")}</span></div>`).join("");
+  $("summary").innerHTML=Object.entries({"Task ID":taskId,"Assigned driver":owner(state.task),Customer:(state.task.CUSTOMERNAME??state.task.customerName),Address:(state.task.ADDRESS??state.task.address),"Account #":(state.task.ACCOUNTNUMBER??state.task.accountNumber),"Job type":state.task.JOBTYPE??state.task.jobType,MRU:(state.task.MRU??state.task.mru),BG:(state.task.BG??state.task.bg),"Meter #":(state.task.METERNUMBER??state.task.meterNumber),DMZ:(state.task.DMZ??state.task.dmz),Sequence:(state.task.SEQUENCE??state.task.sequence)}).map(([key,value])=>`<div><b>${esc(key)}</b><span>${esc(value===null||value===undefined||value===""?"Not available":value)}</span></div>`).join("");
   $("photos").innerHTML=[1,2,3].map(number=>`<label class="photo-card">Photo ${number}<img hidden alt="Photo ${number} preview"><input type="file" accept="image/*" data-number="${number}"></label>`).join("");
   $("photos").querySelectorAll("input").forEach(input=>input.addEventListener("change",()=>{
     const number=Number(input.dataset.number),file=input.files?.[0],preview=input.previousElementSibling;
-    if(preview.dataset.url)URL.revokeObjectURL(preview.dataset.url);preview.hidden=true;state.photos.delete(number);
+    if(preview.dataset.url)URL.revokeObjectURL(preview.dataset.url);preview.hidden=true;preview.removeAttribute("src");delete preview.dataset.url;state.photos.delete(number);
     if(!file)return;
     if(!file.type.startsWith("image/")||file.size>20*1024*1024){input.value="";statusBox.textContent="Select an image smaller than 20 MB.";return;}
     state.photos.set(number,file);preview.src=URL.createObjectURL(file);preview.dataset.url=preview.src;preview.hidden=false;
