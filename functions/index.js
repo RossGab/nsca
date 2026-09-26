@@ -693,13 +693,20 @@ async function redrawPhotoTimestamp(source, correctedAt, locationLabel) {
   const leftY = stripY + Math.max(0, Math.round((stripHeight - leftHeight) / 2));
   const padding = Math.max(7, Math.round(width * .009));
   const markerSize = Math.max(20, Math.round(fontSize * 1.35));
-  const markerTextX = padding + Math.round(markerSize * .34);
+  const iconY = leftY + Math.round((lineHeight - markerSize) / 2);
+  const iconScale = markerSize / 24;
   const contentX = padding + markerSize + Math.max(7, Math.round(fontSize * .45));
   const safeLocation = String(locationLabel || "Location unavailable").slice(0, 80);
   const overlay = Buffer.from(`<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
     <rect x="0" y="${stripY}" width="${width}" height="${stripHeight}" fill="#000000"/>
-    <rect x="${padding}" y="${leftY + Math.round((leftHeight - markerSize) / 2)}" width="${markerSize}" height="${markerSize}" rx="${Math.round(markerSize * .18)}" fill="#ffd54f"/>
-    <text x="${markerTextX}" y="${leftY + Math.round(leftHeight / 2 + fontSize * .36)}" fill="#111" font-family="Arial,sans-serif" font-size="${fontSize}" font-weight="800">*</text>
+    <g transform="translate(${padding} ${iconY}) scale(${iconScale})" fill="none" stroke="#ffd54f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 1 1 16 0Z"/>
+      <circle cx="12" cy="10" r="3"/>
+    </g>
+    <g transform="translate(${padding} ${iconY + lineHeight}) scale(${iconScale})" fill="none" stroke="#ffd54f" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="9"/>
+      <path d="M12 6v6l4 2"/>
+    </g>
     <text x="${contentX}" y="${leftY + Math.round(lineHeight * .72)}" fill="white" font-family="Arial,sans-serif" font-size="${fontSize}" font-weight="700">${svgText(safeLocation)}</text>
     <text x="${contentX}" y="${leftY + lineHeight + Math.round(lineHeight * .72)}" fill="white" font-family="Arial,sans-serif" font-size="${fontSize}" font-weight="700">${svgText(labels.long)}</text>
   </svg>`);
