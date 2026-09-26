@@ -7,31 +7,15 @@
   function apply(value) {
     theme = value;
     root.dataset.adminTheme = theme;
-    const button = document.getElementById("adminThemeToggle");
-    if (button) {
-      button.textContent = theme === "dark" ? "Light mode" : "Dark mode";
-      button.setAttribute("aria-pressed", String(theme === "dark"));
-      button.setAttribute("aria-label", theme === "dark" ? "Switch to light mode" : "Switch to dark mode");
-    }
+    const checkbox = document.getElementById("adminThemeToggle");
+    if (checkbox) checkbox.checked = theme === "dark";
   }
   apply(theme);
   document.addEventListener("DOMContentLoaded", () => {
-    if (!document.getElementById("adminThemeToggle")) {
-      const button = document.createElement("button");
-      button.id = "adminThemeToggle";
-      button.type = "button";
-      const header = document.querySelector(".app-header-actions") || document.querySelector(".header, header, .admin-header");
-      if (header) header.appendChild(button);
-      else {
-        const toolbar = document.createElement("div");
-        toolbar.className = "admin-theme-toolbar";
-        toolbar.appendChild(button);
-        document.body.prepend(toolbar);
-      }
-    }
     apply(theme);
-    document.getElementById("adminThemeToggle")?.addEventListener("click", () => {
-      apply(theme === "dark" ? "light" : "dark");
+    // Only admin.html supplies the control; other pages inherit the preference.
+    document.getElementById("adminThemeToggle")?.addEventListener("change", event => {
+      apply(event.target.checked ? "dark" : "light");
       try { localStorage.setItem(key, theme); } catch {}
     });
   });
