@@ -96,3 +96,24 @@ html[data-admin-theme="dark"] #dataStatus.error { color:#ff929b!important; }
 html[data-admin-theme="dark"] #readSummary { background:var(--nsca-surface)!important; color:var(--nsca-text); }
 html[data-admin-theme="dark"] .read-summary-total { background:#25354a; color:var(--nsca-text); }
 html[data-admin-theme="dark"] .report-progress-track { background:#324157; }
+/* Driver export upload: summaries, result states, and message guidance. */
+html[data-admin-theme="dark"] .upload-grid :is(.summary-item,.message-list li,.deleted-list) {
+  background:#25354a!important;
+  color:var(--nsca-text)!important;
+  border-color:var(--nsca-border)!important;
+}
+html[data-admin-theme="dark"] .upload-grid .message-list strong { color:var(--nsca-text); }
+html[data-admin-theme="dark"] .upload-grid .summary-value { color:#83c5ff; }
+html[data-admin-theme="dark"] .upload-grid :is(.summary-label,.hint,#progressText,.result-ready) { color:var(--nsca-muted)!important; }
+html[data-admin-theme="dark"] .upload-grid #progressBar { background:#324157; }
+html[data-admin-theme="dark"] .upload-grid #status { background:#203f5e; color:var(--nsca-text); }
+html[data-admin-theme="dark"] .upload-grid :is(.message-reminder,.warn-text) { background:#3b321c!important; color:#ffe1a1!important; }
+html[data-admin-theme="dark"] .upload-grid .error-text { background:#40232e!important; color:#ff929b!important; }
+html[data-admin-theme="dark"] .upload-grid .success-text { background:#193b2d!important; color:#80dba5!important; }
+html[data-admin-theme="dark"] .upload-grid .result-completed { color:#80dba5; }
+html[data-admin-theme="dark"] .upload-grid :is(.result-warning,.deleted-note) { color:#ffe1a1; }
+html[data-admin-theme="dark"] .upload-grid .result-failed { color:#ff929b; }
+html[data-admin-theme="dark"] .upload-grid .result-processing { color:#83c5ff; }
+html[data-admin-theme="dark"] .upload-grid :is(.results-wrap,.deleted-row) { border-color:var(--nsca-border); }
+html[data-admin-theme="dark"] #uploadResultsBody td[colspan] { color:var(--nsca-muted)!important; }
+html[data-admin-theme="dark"] #uploadOverlay .loader { background:var(--nsca-surface); color:var(--nsca-text); }
