@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Admin Dashboard</title>
+<script src="./admin-dark-mode.js"></script>
 <!-- ===== LEAFLET (OPTION 2 MAP) ===== -->
 <link
   rel="stylesheet"
@@ -410,6 +411,7 @@ button {
 }
 </style>
 <link rel="stylesheet" href="./admin-theme.css">
+<link rel="stylesheet" href="./admin-dark-mode.css">
 <script src="./admin-dialog.js?v=5"></script>
 </head>
 
@@ -435,6 +437,7 @@ button {
         Read estimate will appear after synchronization.
       </div>
     </div>
+    <button id="adminThemeToggle" type="button" aria-pressed="false">Dark mode</button>
     <button class="app-danger-button" onclick="logout()">Logout</button>
   </div>
 </header>

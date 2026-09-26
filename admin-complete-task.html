@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Complete Task on Behalf of Driver</title><style>
+<title>Complete Task on Behalf of Driver</title>
+<script src="./admin-dark-mode.js"></script><style>
     *{box-sizing:border-box} body{margin:0;background:#edf3f8;color:#17212d;font-family:Arial,sans-serif}
     .page{width:min(980px,calc(100% - 24px));margin:18px auto 50px}.header,.card{background:#fff;border:1px solid #d8e1ea;border-radius:14px;box-shadow:0 8px 24px rgba(37,61,84,.08)}
     .header{display:flex;align-items:center;gap:15px;padding:18px 22px;border-top:4px solid #1768b2}.header img{width:55px;height:55px;object-fit:contain}.header h1{margin:2px 0;font-size:clamp(22px,4vw,32px)}
@@ -12,7 +13,8 @@
     [hidden]{display:none!important}
     @media(max-width:650px){.summary,.fields{grid-template-columns:1fr}.header{padding:14px}}
   </style>
-<script src="./admin-dialog.js?v=5"></script></head><body><main class="page">
+<script src="./admin-dialog.js?v=5"></script><link rel="stylesheet" href="./admin-dark-mode.css">
+</head><body><main class="page">
 <header class="header"><img src="./logo.jpg" alt="NSCA logo"><h1>Complete Task on Behalf of Driver</h1></header>
 <section class="card notice">The assigned driver remains the task owner. This submission is recorded as Admin (no login), using the submission time. Select at least one photo; uploaded photos are preserved without adding a capture time or GPS location.</section>
 <section class="card" id="loadingCard">Loading task...</section>
