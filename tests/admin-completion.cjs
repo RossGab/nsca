@@ -10,7 +10,7 @@ function fixture(latest = {}) {
   const elements = {controls:{disabled:false}};
   const writes = [], deleted = [];
   let reads = 0;
-  const context = {state,taskId:'task-1',firestore:{},storage:{},syncVisible(){},statusBox:{},$:id=>elements[id],window:{nscaConfirm:async()=>true},crypto:{randomUUID:()=> 'submission-1'},doc:()=>({}),getDoc:async()=>({exists:()=>true,data:()=>task}),storageRef:(_,path)=>path,uploadBytes:async()=>{},getDownloadURL:async()=> 'https://example.com/photo.jpg',deleteObject:async path=>deleted.push(path),serverTimestamp:()=> 'SERVER_TIME',runTransaction:async(_,fn)=>fn({get:async()=>{reads++;return {exists:()=>true,data:()=>({...task,...latest})}},update:(_,payload)=>writes.push(payload)}),console};
+  const context = {requestSubmissionPassword:async()=> 'CompleteTask',state,taskId:'task-1',firestore:{},storage:{},syncVisible(){},statusBox:{},$:id=>elements[id],window:{nscaConfirm:async()=>true},crypto:{randomUUID:()=> 'submission-1'},doc:()=>({}),getDoc:async()=>({exists:()=>true,data:()=>task}),storageRef:(_,path)=>path,uploadBytes:async()=>{},getDownloadURL:async()=> 'https://example.com/photo.jpg',deleteObject:async path=>deleted.push(path),serverTimestamp:()=> 'SERVER_TIME',runTransaction:async(_,fn)=>fn({get:async()=>{reads++;return {exists:()=>true,data:()=>({...task,...latest})}},update:(_,payload)=>writes.push(payload)}),console};
   vm.createContext(context);vm.runInContext(logic,context);
   return {context,state,elements,writes,deleted,get reads(){return reads}};
 }
@@ -31,6 +31,14 @@ function fixture(latest = {}) {
     const legacy=fixture({status,workStatus:'fordownload'});
     legacy.state.task.status=status;legacy.state.task.workStatus='fordownload';
     await legacy.context.submit({preventDefault(){}});assert.equal(legacy.writes.length,1);
+  }
+  for(const password of ['wrong','completetask','',null]){
+    const denied=fixture();denied.context.requestSubmissionPassword=async()=>password;
+    denied.context.getDoc=async()=>{throw new Error('Must not access task before password approval')};
+    await denied.context.submit({preventDefault(){}});
+    assert.equal(denied.writes.length,0);assert.equal(denied.deleted.length,0);assert.equal(denied.reads,0);
+    assert.equal(denied.state.busy,false);
+    if(password!==null)assert.match(denied.context.statusBox.textContent,/Incorrect submission password/);
   }
   const ok=fixture();await ok.context.submit({preventDefault(){}});
   assert.equal(ok.writes.length,1);

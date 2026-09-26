@@ -24,6 +24,13 @@
 <div class="actions"><button class="primary" id="saveBtn" type="submit">Submit Task</button></div>
 </fieldset></form><div id="status" role="status" aria-live="polite"></div>
 <p><a href="./admin.html">Return to Admin Dashboard</a></p></main>
+<dialog id="passwordDialog" aria-labelledby="passwordTitle" style="border:1px solid #b9c9d9;border-radius:12px;padding:24px;max-width:90vw">
+<form method="dialog" id="passwordForm">
+<h2 id="passwordTitle">Confirm task submission</h2>
+<label for="submissionPassword">Submission password</label>
+<input id="submissionPassword" type="password" autocomplete="off" required autofocus style="padding:10px;width:100%;box-sizing:border-box">
+<div class="actions"><button value="cancel" formnovalidate>Cancel</button><button class="primary" value="submit">Submit Task</button></div>
+</form></dialog>
 <script type="module">
 import{initializeApp}from"https://www.gstatic.com/firebasejs/12.9.0/firebase-app.js";
 import{initializeFirestore,doc,getDoc,runTransaction,serverTimestamp}from"https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js";
@@ -42,6 +49,18 @@ function attachEvents(){fieldsBox.querySelectorAll("[data-key]").forEach(el=>el.
 function renderFields(){const method=state.methods[state.method];if(!method){fieldsBox.innerHTML="";return}let html="";const radios=[];for(const key of method._order||[]){const field=method.fields?.[key];if(!field)continue;if(field.type==="radio")radios.push([key,field]);else html+=fieldHtml(key,field)}if(radios.length){if(!radios.some(([key])=>key===state.radio))state.radio=radios[0][0];html+=`<div class="radio-set"><b>Delivery status</b><div>${radios.map(([key,field])=>`<label><input type="radio" data-key="deliverytype_2nd" name="deliveryStatus" value="${esc(key)}" ${key===state.radio?"checked":""}> ${esc(field.label||key)}</label>`).join("")}</div></div>`;const selected=method.fields?.[state.radio];for(const key of selected?.fields?._order||[]){const field=selected.fields.options?.[key];if(field)html+=fieldHtml(key,field)}}else state.radio="";fieldsBox.innerHTML=html;fieldsBox.querySelectorAll("[data-key]").forEach(el=>{if(el.type!=="radio")el.value=state.values[el.dataset.key]??""});attachEvents();fieldsBox.querySelectorAll('input[name="deliveryStatus"]').forEach(radio=>radio.addEventListener("change",()=>{syncVisible();state.radio=radio.value;renderFields()}))}
 function renderMethods(){methodsBox.innerHTML=Object.keys(state.methods).map(method=>`<label class="method"><input type="radio" name="method" value="${esc(method)}" ${method===state.method?"checked":""}> <span>${esc(method)}</span></label>`).join("");methodsBox.querySelectorAll('input[name="method"]').forEach(input=>input.addEventListener("change",()=>{syncVisible();state.method=input.value;state.radio="";renderFields()}))}
 
+function requestSubmissionPassword(){
+  return new Promise(resolve=>{
+    const dialog=$("passwordDialog"),input=$("submissionPassword");
+    input.value="";dialog.returnValue="cancel";
+    dialog.addEventListener("close",()=>{
+      const password=dialog.returnValue==="submit"?input.value:null;
+      input.value="";
+      resolve(password);
+    },{once:true});
+    dialog.showModal();
+  });
+}
 function owner(task){return String(task.driverId||task.agentId||task.AGENTID||"")}
 // Match the dashboard's getAdminEffectiveStatus, including legacy OPEN records.
 function effectiveStatus(task){
@@ -82,6 +101,9 @@ async function submit(event){
     const answers=deliveryAnswers();
     if(!state.photos.size)throw new Error("Please select at least 1 photo.");
     if(!await window.nscaConfirm(`Complete this task on behalf of ${owner(state.task)||"the assigned driver"}?`))return;
+    const password=await requestSubmissionPassword();
+    if(password===null)return;
+    if(password!=="CompleteTask")throw new Error("Incorrect submission password. No changes were saved.");
     state.busy=true;$("controls").disabled=true;statusBox.className="";statusBox.textContent="Checking task...";
     const taskRef=doc(firestore,"TASK",taskId),snapshot=await getDoc(taskRef);
     if(!snapshot.exists())throw new Error("Task no longer exists.");checkPending(snapshot.data());
