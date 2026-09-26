@@ -20,7 +20,7 @@
       const button = document.createElement("button");
       button.id = "adminThemeToggle";
       button.type = "button";
-      const header = document.querySelector(".app-header-actions, .header, header, .admin-header");
+      const header = document.querySelector(".app-header-actions") || document.querySelector(".header, header, .admin-header");
       if (header) header.appendChild(button);
       else {
         const toolbar = document.createElement("div");

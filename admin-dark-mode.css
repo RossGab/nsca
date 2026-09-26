@@ -63,3 +63,24 @@ html[data-admin-theme="dark"] :is(.error,.danger-text) { color:#ff929b; }
 html[data-admin-theme="dark"] :is(.success,.ok) { color:#80dba5; }
 html[data-admin-theme="dark"] :is(th,td) { border-color:var(--nsca-border)!important; }
 html[data-admin-theme="dark"] pre { background:#131e2c; color:var(--nsca-text); }
+
+/* Target dynamic filter containers directly: style updates serialize colors to rgb(). */
+html[data-admin-theme="dark"] :is(#baFilters,#mapBAFilter,#driverList,#adminBAScopePanel,#taskSearchPanel) {
+  background:var(--nsca-surface)!important; color:var(--nsca-text)!important;
+}
+html[data-admin-theme="dark"] #mapBACheckboxes label {
+  background:#25354a!important; color:var(--nsca-text)!important; border-color:var(--nsca-border)!important;
+}
+html[data-admin-theme="dark"] :is(#baFilters,#mapBAFilter) label { color:var(--nsca-text)!important; }
+html[data-admin-theme="dark"] :is(.summary-chart-note,.transfer-count,.transfer-label,.method-meta,.note,.driver-label,.config-save-message) { color:var(--nsca-muted)!important; }
+html[data-admin-theme="dark"] .workload-bar { background:#324157; }
+html[data-admin-theme="dark"] :is(.builder,.field,.field-head,.field-body,.radio-editor,.option,.driver-wrap,.driver-top,.driver-form,.preview-footer,.config-save-loader) {
+  background:var(--nsca-surface)!important; color:var(--nsca-text)!important; border-color:var(--nsca-border)!important;
+}
+html[data-admin-theme="dark"] :is(.builder,.field-head,.radio-editor) { background:#152132!important; }
+html[data-admin-theme="dark"] :is(.driver-top .name,.driver-top .line,.config-save-title,.panel h2) { color:var(--nsca-text)!important; }
+html[data-admin-theme="dark"] :is(.icon,.btn:not(.primary):not(.danger),.photo,.pill) { background:#30445d!important; color:var(--nsca-text)!important; border-color:var(--nsca-border)!important; }
+html[data-admin-theme="dark"] .photo.disabled { color:var(--nsca-muted)!important; }
+html[data-admin-theme="dark"] .method.active { background:#203f5e!important; }
+html[data-admin-theme="dark"] :is(.empty,.driver-label,.delivery-title,.status-option,.submit-preview) { color:var(--nsca-muted)!important; }
+#adminThemeToggle { align-self:center; justify-self:end; }
