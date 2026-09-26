@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Complete Task on Behalf of Driver</title><style>
+    *{box-sizing:border-box} body{margin:0;background:#edf3f8;color:#17212d;font-family:Arial,sans-serif}
+    .page{width:min(980px,calc(100% - 24px));margin:18px auto 50px}.header,.card{background:#fff;border:1px solid #d8e1ea;border-radius:14px;box-shadow:0 8px 24px rgba(37,61,84,.08)}
+    .header{display:flex;align-items:center;gap:15px;padding:18px 22px;border-top:4px solid #1768b2}.header img{width:55px;height:55px;object-fit:contain}.header h1{margin:2px 0;font-size:clamp(22px,4vw,32px)}
+    .eyebrow{color:#1760a8;font-weight:700;font-size:12px;letter-spacing:1.5px}.card{margin-top:14px;padding:18px}.notice{border-left:5px solid #e6aa32;background:#fff7df}
+    .summary,.fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px 20px}.summary b,label{display:block;margin-bottom:5px;font-size:12px;color:#526477}.summary span{overflow-wrap:anywhere}.full,.radio-set{grid-column:1/-1}
+    .methods{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:9px;margin:12px 0 16px}.method{display:flex;align-items:center;gap:8px;padding:11px;border:1px solid #b9c9d9;border-radius:9px;cursor:pointer}.method:has(input:checked){border-color:#0875c1;background:#eaf6ff}
+    input[type=text],select,textarea{width:100%;border:1px solid #b9c9d9;border-radius:8px;padding:11px;font:inherit;background:#fff}textarea{min-height:85px;resize:vertical}.radio-set{border:1px solid #d3dde6;border-radius:9px;padding:11px}.radio-set label{display:inline-flex;align-items:center;gap:6px;margin:7px 18px 4px 0;color:#17212d;font-size:14px}
+    .photos{display:flex;flex-wrap:wrap;gap:12px}.photo-card{width:180px;padding:10px;border:1px solid #ccd7e1;border-radius:10px;background:#f8fafc}.photo-card img{display:block;width:158px;height:120px;object-fit:cover;border-radius:8px;border:1px solid #ccd7e1}.photo-card b{display:block;margin-bottom:7px}.photo-card input{width:100%;margin-top:8px;font-size:12px}.photo-note{margin-top:6px;color:#18733c;font-size:12px;font-weight:700}.actions{display:flex;justify-content:flex-end;gap:10px;margin-top:18px}button{border:0;border-radius:8px;padding:11px 17px;font-weight:700;cursor:pointer}.primary{color:#fff;background:#0875c1}.secondary{background:#dfe7ef;color:#26394b}button:disabled{opacity:.55;cursor:wait}#status{margin-top:12px;font-weight:700}.error{color:#a5222c}.success{color:#18733c}
+    @media(max-width:650px){.summary,.fields{grid-template-columns:1fr}.header{padding:14px}}
+  </style>
+<script src="./admin-dialog.js?v=5"></script></head><body><main class="page">
+<header class="header"><img src="./logo.jpg" alt="NSCA logo"><h1>Complete Task on Behalf of Driver</h1></header>
+<section class="card notice">The assigned driver remains the task owner. This submission is recorded as Admin (no login), using the submission time. Select at least one photo; uploaded photos are preserved without adding a capture time or GPS location.</section>
+<section class="card" id="loadingCard">Loading task...</section>
+<form id="editor" hidden>
+<section class="card"><div class="summary" id="summary"></div></section>
+<fieldset id="controls" class="card"><legend>Complete pending task</legend>
+<h2>Photos</h2><div class="photos" id="photos"></div>
+<h2>Delivery Method</h2><div class="methods" id="methods"></div><div class="fields" id="deliveryFields"></div>
+<div class="actions"><button class="primary" id="saveBtn" type="submit">Submit Task</button></div>
+</fieldset></form><div id="status" role="status" aria-live="polite"></div>
+<p><a href="./admin.html">Return to Admin Dashboard</a></p></main>
+<script type="module">
+import{initializeApp}from"https://www.gstatic.com/firebasejs/12.9.0/firebase-app.js";
+import{initializeFirestore,doc,getDoc,runTransaction,serverTimestamp}from"https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js";
+import{getDatabase,ref,get}from"https://www.gstatic.com/firebasejs/12.9.0/firebase-database.js";
+import{getStorage,ref as storageRef,uploadBytes,getDownloadURL,deleteObject}from"https://www.gstatic.com/firebasejs/12.9.0/firebase-storage.js";
+import{escapeDeliveryHTML as esc,deliveryFieldHTML}from"./delivery-fields.js";
+const firebaseConfig={apiKey:"AIzaSyDFW61pnwLvh6HGKWt10zLYNr860fI8vkg",authDomain:"driva-pwa.firebaseapp.com",databaseURL:"https://driva-pwa-default-rtdb.firebaseio.com",projectId:"driva-pwa",storageBucket:"driva-pwa.firebasestorage.app",messagingSenderId:"299138219722",appId:"1:299138219722:web:623ff6b0a067ea822dfe33"};
+
+const app=initializeApp(firebaseConfig),firestore=initializeFirestore(app,{},"drver-task"),rtdb=getDatabase(app),storage=getStorage(app);
+const taskId=new URLSearchParams(location.search).get("taskId")||"";
+const state={task:null,methods:{},method:"",radio:"",values:{},photos:new Map(),busy:false};
+const $=id=>document.getElementById(id),fieldsBox=$("deliveryFields"),methodsBox=$("methods"),statusBox=$("status");
+function fieldHtml(key,field){return deliveryFieldHTML(key,field)}
+function syncVisible(){fieldsBox.querySelectorAll("[data-key]").forEach(el=>{if(el.type==="radio"){if(el.checked)state.radio=el.value}else state.values[el.dataset.key]=el.value.trim()})}
+function attachEvents(){fieldsBox.querySelectorAll("[data-key]").forEach(el=>el.addEventListener("input",()=>{if(el.hasAttribute("data-numbers-only"))el.value=el.value.replace(/[^0-9]/g,"");if(el.type!=="radio")state.values[el.dataset.key]=el.value}))}
+function renderFields(){const method=state.methods[state.method];if(!method){fieldsBox.innerHTML="";return}let html="";const radios=[];for(const key of method._order||[]){const field=method.fields?.[key];if(!field)continue;if(field.type==="radio")radios.push([key,field]);else html+=fieldHtml(key,field)}if(radios.length){if(!radios.some(([key])=>key===state.radio))state.radio=radios[0][0];html+=`<div class="radio-set"><b>Delivery status</b><div>${radios.map(([key,field])=>`<label><input type="radio" data-key="deliverytype_2nd" name="deliveryStatus" value="${esc(key)}" ${key===state.radio?"checked":""}> ${esc(field.label||key)}</label>`).join("")}</div></div>`;const selected=method.fields?.[state.radio];for(const key of selected?.fields?._order||[]){const field=selected.fields.options?.[key];if(field)html+=fieldHtml(key,field)}}else state.radio="";fieldsBox.innerHTML=html;fieldsBox.querySelectorAll("[data-key]").forEach(el=>{if(el.type!=="radio")el.value=state.values[el.dataset.key]??""});attachEvents();fieldsBox.querySelectorAll('input[name="deliveryStatus"]').forEach(radio=>radio.addEventListener("change",()=>{syncVisible();state.radio=radio.value;renderFields()}))}
+function renderMethods(){methodsBox.innerHTML=Object.keys(state.methods).map(method=>`<label class="method"><input type="radio" name="method" value="${esc(method)}" ${method===state.method?"checked":""}> <span>${esc(method)}</span></label>`).join("");methodsBox.querySelectorAll('input[name="method"]').forEach(input=>input.addEventListener("change",()=>{syncVisible();state.method=input.value;state.radio="";renderFields()}))}
+
+function owner(task){return String(task.driverId||task.agentId||task.AGENTID||"")}
+function checkPending(task){
+  if(task.deleted || String(task.status||task.workStatus||"").toUpperCase()!=="PENDING") throw new Error("This task is no longer pending. Refresh Admin Dashboard.");
+  if(["driverId","agentId","AGENTID","JOBTYPE"].some(key=>task[key]!==state.task[key])) throw new Error("The assignment or job type changed. Reopen this task from Admin Dashboard.");
+}
+function deliveryAnswers(){
+  syncVisible();
+  const method=state.methods[state.method];
+  if(!method) throw new Error("Select a delivery method.");
+  const fields=[];
+  for(const key of method._order||[]){const field=method.fields?.[key];if(field&&field.type!=="radio") fields.push([key,field]);}
+  const radio=method.fields?.[state.radio];
+  for(const key of radio?.fields?._order||[]){const field=radio.fields.options?.[key];if(field) fields.push([key,field]);}
+  const answers={deliveryType:state.method,deliverytype_2nd:state.radio};
+  // Configuration can supply answers, never assignment, lifecycle or audit fields.
+  const reserved=/^(?:__.*|driverId|agentId|AGENTID|status|workStatus|JOBTYPE|deleted|forceReopen|.*At|completedBy|completion.*|photo.*)$/i;
+  for(const [key,field] of fields){
+    if(reserved.test(key)||key.includes(".")||key==="constructor"||key==="prototype") throw new Error(`Unsupported answer field: ${key}`);
+    const value=String(state.values[key]||"").trim();
+    if(field.required&&!value) throw new Error(`${field.label||key} is required.`);
+    if(value&&field.numbersOnly&&!/^\d+$/.test(value)) throw new Error(`${field.label||key} must contain numbers only.`);
+    if(value&&field.type==="dropdown"&&!(field.options||[]).map(String).includes(value)) throw new Error(`Select a valid ${field.label||key}.`);
+    answers[key]=value;
+  }
+  return answers;
+}
+async function submit(event){
+  event.preventDefault();if(state.busy)return;state.busy=true;
+  const uploaded=[];let committed=false;
+  try{
+    const answers=deliveryAnswers();
+    if(!state.photos.size)throw new Error("Please select at least 1 photo.");
+    if(!await window.nscaConfirm(`Complete this task on behalf of ${owner(state.task)||"the assigned driver"}?`))return;
+    state.busy=true;$("controls").disabled=true;statusBox.className="";statusBox.textContent="Checking task...";
+    const taskRef=doc(firestore,"TASK",taskId),snapshot=await getDoc(taskRef);
+    if(!snapshot.exists())throw new Error("Task no longer exists.");checkPending(snapshot.data());
+    const submissionId=crypto.randomUUID(),photoFields={};
+    for(const [number,file] of state.photos){
+      statusBox.textContent=`Uploading photo ${number}...`;
+      const filename=`photo${number}`,fileRef=storageRef(storage,`admin-completions/${encodeURIComponent(taskId)}/${submissionId}/${filename}`);
+      uploaded.push(fileRef);
+      await uploadBytes(fileRef,file,{contentType:file.type});
+      photoFields[`photo${number}Url`]=await getDownloadURL(fileRef);
+      photoFields[`photo${number}Filename`]=filename;
+      photoFields[`photo${number}Source`]="admin-upload";
+    }
+    await runTransaction(firestore,async transaction=>{
+      const fresh=await transaction.get(taskRef);
+      if(!fresh.exists())throw new Error("Task no longer exists.");checkPending(fresh.data());
+      transaction.update(taskRef,{...answers,...photoFields,status:"COMPLETED",workStatus:"completed",forceReopen:false,
+        completedAt:serverTimestamp(),updatedAt:serverTimestamp(),uploadedAt:serverTimestamp(),
+        completedBy:"Admin",completionSource:"admin",completionActor:"Admin (no login)",
+        completionOnBehalfOf:owner(fresh.data()),adminCompletionId:submissionId});
+    });
+    committed=true;statusBox.className="success";statusBox.textContent="Task completed by Admin. The assigned driver is unchanged. Refresh Admin Dashboard to see the update.";
+  }catch(error){
+    if(!committed){
+      const cleanup=await Promise.allSettled(uploaded.map(fileRef=>deleteObject(fileRef)));
+      if(cleanup.some(result=>result.status==="rejected"))console.warn("Some unused uploaded photos could not be removed.");
+    }
+    statusBox.className="error";statusBox.textContent=error.message||String(error);
+  }finally{state.busy=false;if(!committed)$("controls").disabled=false;}
+}
+async function boot(){try{
+  if(!taskId)throw new Error("Open a pending task from Admin Dashboard.");
+  const snapshot=await getDoc(doc(firestore,"TASK",taskId));if(!snapshot.exists())throw new Error("Task not found.");
+  state.task=snapshot.data();checkPending(state.task);
+  state.methods=(await get(ref(rtdb,`config/driverUI/jobTypes/${state.task.JOBTYPE}/deliveryMethods`))).val()||{};
+  if(!Object.keys(state.methods).length)throw new Error("No driver delivery configuration exists for this job type.");
+  $("summary").innerHTML=Object.entries({"Task ID":taskId,"Assigned driver":owner(state.task),Customer:state.task.CUSTOMERNAME,Address:state.task.ADDRESS,"Account #":state.task.ACCOUNTNUMBER,"Job type":state.task.JOBTYPE,MRU:state.task.MRU,BG:state.task.BG,"Meter #":state.task.METERNUMBER,DMZ:state.task.DMZ,Sequence:state.task.SEQUENCE}).map(([key,value])=>`<div><b>${esc(key)}</b><span>${esc(value||"?")}</span></div>`).join("");
+  $("photos").innerHTML=[1,2,3].map(number=>`<label class="photo-card">Photo ${number}<img hidden alt="Photo ${number} preview"><input type="file" accept="image/*" data-number="${number}"></label>`).join("");
+  $("photos").querySelectorAll("input").forEach(input=>input.addEventListener("change",()=>{
+    const number=Number(input.dataset.number),file=input.files?.[0],preview=input.previousElementSibling;
+    if(preview.dataset.url)URL.revokeObjectURL(preview.dataset.url);preview.hidden=true;state.photos.delete(number);
+    if(!file)return;
+    if(!file.type.startsWith("image/")||file.size>20*1024*1024){input.value="";statusBox.textContent="Select an image smaller than 20 MB.";return;}
+    state.photos.set(number,file);preview.src=URL.createObjectURL(file);preview.dataset.url=preview.src;preview.hidden=false;
+  }));
+  renderMethods();renderFields();$("loadingCard").hidden=true;$("editor").hidden=false;
+}catch(error){$("loadingCard").textContent=error.message||String(error);$("loadingCard").className="card error";}}
+$("editor").addEventListener("submit",submit);boot();
+</script></body></html>

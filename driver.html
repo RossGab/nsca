@@ -618,6 +618,7 @@ img { width:100%;margin-top:8px;border-radius:6px; }
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 
 <script type="module">
+import { escapeDeliveryHTML, deliveryFieldHTML } from "./delivery-fields.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
 import { getDatabase, ref, get, update, query, orderByChild, equalTo } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 import {
@@ -631,6 +632,7 @@ import {
   doc as fsDoc,
   getDoc,
   updateDoc,
+  runTransaction,
   writeBatch,
   serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
@@ -3938,6 +3940,11 @@ async function uploadNow(
 
   const task = taskSnap.data();
 
+  if (task.status === "COMPLETED" && task.completionSource === "admin") {
+    alert("Admin has already completed this task. Refresh tasks before continuing. Your local photos have not been uploaded.");
+    return false;
+  }
+
   if (task.deleted === true) {
     await archiveDeletedLocalTask(taskKey);
     LAST_UPLOAD_BLOCK_REASON = "DELETED_ARCHIVED";
@@ -4138,10 +4145,17 @@ async function uploadNow(
 
   try {
 
-    await updateDoc(
-      taskRef,
-      updatePayload
-    );
+    await runTransaction(firestore, async transaction => {
+      const latest = await transaction.get(taskRef);
+      if (!latest.exists()) throw new Error("Task no longer exists.");
+      const current = latest.data();
+      if (current.status === "COMPLETED" && current.completionSource === "admin") {
+        throw new Error("Admin has already completed this task. Refresh tasks before continuing.");
+      }
+      const owner = String(current.agentId || current.driverId || "").trim().toUpperCase();
+      if (owner && owner !== String(DRIVER_ID || "").trim().toUpperCase()) throw new Error("Task assignment changed. Refresh tasks before continuing.");
+      transaction.update(taskRef, updatePayload);
+    });
 
   } catch (err) {
 
@@ -7871,33 +7885,6 @@ window.handleRadioTriggerLegacy = async function(taskKey, jobType, method, radio
     [taskKey]: BILLING_CACHE[taskKey]
   });
 };
-
-function escapeDeliveryHTML(value) {
-  return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;");
-}
-
-function deliveryFieldHTML(key, field, radioName = "") {
-  const safeKey = escapeDeliveryHTML(key);
-  const label = escapeDeliveryHTML(field.label || key);
-  const required = field.required ? " *" : "";
-  const numeric = field.numbersOnly ? ' inputmode="numeric" pattern="[0-9]*" data-numbers-only' : "";
-
-  if (field.type === "radio") {
-    return `<label><input type="radio" name="${escapeDeliveryHTML(radioName)}" data-key="${safeKey}" value="${safeKey}"> ${label}${required}</label>`;
-  }
-  if (field.type === "textarea") {
-    return `<div class="delivery-fields"><label>${label}${required}</label><textarea data-key="${safeKey}"${numeric}></textarea></div>`;
-  }
-  if (field.type === "dropdown") {
-    const options = (field.options || []).map(value => {
-      const safeValue = escapeDeliveryHTML(value);
-      return `<option value="${safeValue}">${safeValue}</option>`;
-    }).join("");
-    return `<div class="delivery-fields"><label>${label}${required}</label><select data-key="${safeKey}"><option value="">-- Select --</option>${options}</select></div>`;
-  }
-  return `<div class="delivery-fields"><label>${label}${required}</label><input type="text" data-key="${safeKey}"${numeric}></div>`;
-}
 
 function hydrateDeliveryFields(box, taskKey) {
   const saved = BILLING_CACHE[taskKey] || {};

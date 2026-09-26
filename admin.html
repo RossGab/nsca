@@ -1953,6 +1953,7 @@ function renderTaskCompletionTimes(task) {
   const correctedCompletedAt = formatFirestoreDate(task.correctedCompletedAt);
   const uploadedAt = formatFirestoreDate(task.uploadedAt);
   const rows = [];
+  if (task.completionSource === "admin") rows.push('<div class="small">Completed by Admin on behalf of the assigned driver</div>');
 
   if (correctedCompletedAt) {
     if (completedAt) rows.push(`<div class="small" style="color:#7a5b22;">Original completed: ${escapeAdminHtml(completedAt)}</div>`);
@@ -3965,6 +3966,7 @@ function renderAdminTasks(tasks) {
 
       <div class="task-details" data-task-id="${t._key}" style="display:none">
         ${renderTaskDetails(t)}
+        ${t.status === "PENDING" ? `<button type="button" data-complete-pending>Complete Task on Behalf of Driver</button>` : ""}
         ${t.status === "COMPLETED" ? renderDynamicCompletedFields(t) : ""}
         <button onclick="loadTaskPhotos('${t._key}', this)">
           📸 Load Photos
@@ -3985,6 +3987,11 @@ function renderAdminTasks(tasks) {
       </div>
     `;
 
+    div.querySelector("[data-complete-pending]")?.addEventListener("click", () => {
+      const url = new URL("admin-complete-task.html", location.href);
+      url.searchParams.set("taskId", t._key);
+      window.open(url.href, "_blank", "noopener");
+    });
     const header = div.querySelector(".task-header");
     const details = div.querySelector(".task-details");
 
