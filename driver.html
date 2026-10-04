@@ -856,7 +856,7 @@ let FORCE_REDOWNLOAD = false;
 
 function openDB() {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    const req = storageDiagnostic.observeOpen(indexedDB.open(DB_NAME, DB_VERSION), "driver");
 
     req.onupgradeneeded = e => {
       const db = e.target.result;

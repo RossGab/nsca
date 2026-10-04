@@ -161,7 +161,7 @@
     const diagnostic = window.DriverStorageDiagnostics;
     function renderDiagnostics() {
       document.getElementById("diagnostics").textContent = JSON.stringify({
-        result: checkResult, website: location.origin + location.pathname,
+        result: checkResult, connectionState: diagnostic.snapshot(), website: location.origin + location.pathname,
         browser: navigator.userAgent, online: navigator.onLine,
         database: DB_NAME, storage: storageDetails, steps,
         recentEvents: diagnostic.events()
@@ -200,7 +200,7 @@
 
     function openExistingDatabase() {
       return new Promise((resolve, reject) => {
-        const request = indexedDB.open(DB_NAME);
+        const request = diagnostic.observeOpen(indexedDB.open(DB_NAME), "storage_viewer");
         let expired = false;
         const timer = setTimeout(() => { expired = true; reject(new Error("Opening IndexedDB timed out")); }, 14000);
         request.onsuccess = () => {
@@ -373,7 +373,7 @@
 
       const report = {
         reportType: "DRIVER_DEVICE_STORAGE_DIAGNOSTIC",
-        checkResult, steps, recentEvents: diagnostic.events(),
+        checkResult, steps, connectionState: diagnostic.snapshot(), recentEvents: diagnostic.events(),
         browser: navigator.userAgent, pageUrl: location.origin + location.pathname,
         online: navigator.onLine,
         exportedAt: new Date().toISOString(),
