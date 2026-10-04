@@ -640,7 +640,7 @@ import {
 import { getStorage, ref as sRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js";
 import { increment } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
   
-const VERSION = "V.R.0.0.16.1.4.18";
+const VERSION = "V.R.0.0.16.1.4.19";
 const BILLING_CACHE = {};
 window.BILLING_CACHE = BILLING_CACHE;
 const DRIVER_UI_CACHE = {};
@@ -897,20 +897,25 @@ function openDB() {
   });
 }
 
-async function savePhotoToDB(record) {
+async function photoOperation(mode, action) {
   const db = await openDB();
-  const tx = db.transaction(STORE, "readwrite");
-  tx.objectStore(STORE).put(record);
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, mode);
+      let result;
+      const timer = setTimeout(() => {
+        try { tx.abort(); } catch (_) {}
+        reject(new Error("Photo storage timed out"));
+      }, 15000);
+      tx.oncomplete = () => { clearTimeout(timer); resolve(result); };
+      tx.onabort = tx.onerror = () => { clearTimeout(timer); reject(tx.error || new Error("Photo storage failed")); };
+      try { const req = action(tx.objectStore(STORE)); req.onsuccess = () => { result = req.result; }; }
+      catch (error) { clearTimeout(timer); try { tx.abort(); } catch (_) {} reject(error); }
+    });
+  } finally { db.close(); }
 }
-
-async function getAllPhotosFromDB() {
-  const db = await openDB();
-  return new Promise(resolve => {
-    const tx = db.transaction(STORE, "readonly");
-    const req = tx.objectStore(STORE).getAll();
-    req.onsuccess = () => resolve(req.result || []);
-  });
-}
+async function savePhotoToDB(record) { await photoOperation("readwrite", store => store.put(record)); }
+async function getAllPhotosFromDB() { return (await photoOperation("readonly", store => store.getAll())) || []; }
 
 async function saveTasksToIndexedDB(tasks) {
   const db = await openDB();
@@ -1552,11 +1557,7 @@ async function getWithRetry(dbRef, retries = 1, delay = 400) {
   return getWithRetry(dbRef, retries - 1, delay);
 }
 
-async function deletePhotoFromDB(id) {
-  const db = await openDB();
-  const tx = db.transaction(STORE, "readwrite");
-  tx.objectStore(STORE).delete(id);
-}
+async function deletePhotoFromDB(id) { await photoOperation("readwrite", store => store.delete(id)); }
 
 async function deleteTaskFromIndexedDB(taskKey, reason = "unspecified") {
   const db = await openDB();
@@ -2883,240 +2884,36 @@ function toggleJobTypeFilter(show) {
 }
 
 async function pruneOldTasks() {
-
   const db = await openDB();
-
-  const tx =
-    db.transaction(
-      TASK_STORE,
-      "readwrite"
-    );
-
-  const store =
-    tx.objectStore(TASK_STORE);
-
-  const req =
-    store.getAll();
-
-  req.onsuccess = () => {
-
-    const tasks =
-      req.result || [];
-
-    const now =
-      new Date();
-
-    const nowPH =
-      new Date(
-        now.toLocaleString(
-          "en-US",
-          {
-            timeZone: "Asia/Manila"
-          }
-        )
-      );
-
-    // ==========================================
-    // 30 DAYS
-    // ==========================================
-
-    const MAX_PENDING_AGE_DAYS = 30;
-
-    tasks.forEach(t => {
-
-      const status =
-        resolveStatus(t);
-
-      // ========================================
-      // 1️⃣ INVALID TASK — NO DATE
-      // ========================================
-
-      if (!t.dateKey) {
-
-        console.log(
-          "🧹 Deleting invalid local task with no dateKey:",
-          t._key
-        );
-
-        const deletion = store.delete(t._key);
-        deletion.onsuccess = () => storageDiagnostic.record("cleanup_task_deleted", { taskId: t._key, reason: "missing_dateKey", startupCount: tasks.length });
-        deletion.onerror = () => storageDiagnostic.record("cleanup_delete_failed", { taskId: t._key, error: String(deletion.error) });
-
-        return;
-      }
-
-      // ========================================
-      // 2️⃣ ONLY AGE PENDING TASKS
-      // ========================================
-
-      if (
-        status !== "PENDING"
-      ) {
-        return;
-      }
-
-      // ========================================
-      // 3️⃣ USE assignedDate
-      // ========================================
-
-      let assignedDate =
-        t.assignedDate;
-
-      // Fallback for older IndexedDB records
-      if (!assignedDate) {
-
-        if (
-          t.dateKey &&
-          String(t.dateKey).length === 8
-        ) {
-
-          const d =
-            String(t.dateKey);
-
-          assignedDate =
-            `${d.substring(0, 4)}-${d.substring(4, 6)}-${d.substring(6, 8)}`;
+  try {
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction([TASK_STORE, STORE], "readwrite");
+      const store = tx.objectStore(TASK_STORE);
+      const tasks = store.getAll(), photos = tx.objectStore(STORE).getAll();
+      const deleted = [];
+      const timer = setTimeout(() => { try { tx.abort(); } catch (_) {} reject(new Error("Cleanup timed out")); }, 15000);
+      tx.oncomplete = () => {
+        clearTimeout(timer);
+        deleted.forEach(taskId => storageDiagnostic.record("cleanup_task_deleted", { taskId, reason: "aged_pending_without_photos" }));
+        resolve();
+      };
+      tx.onabort = tx.onerror = () => { clearTimeout(timer); reject(tx.error || new Error("Cleanup failed")); };
+      const prune = () => {
+        if (tasks.readyState !== "done" || photos.readyState !== "done") return;
+        const photoKeys = new Set((photos.result || []).map(p => p.taskKey));
+        for (const task of tasks.result || []) {
+          if (resolveStatus(task) !== "PENDING" || photoKeys.has(task._key)) continue;
+          const key = String(task.dateKey || "");
+          const date = task.assignedDate || (/^\d{8}$/.test(key) ? key.slice(0,4) + "-" + key.slice(4,6) + "-" + key.slice(6,8) : "");
+          const assigned = Date.parse(date + "T00:00:00+08:00");
+          // Preserve records whose date cannot be established.
+          if (!Number.isFinite(assigned) || Date.now() - assigned < 30 * 86400000) continue;
+          store.delete(task._key); deleted.push(task._key);
         }
-      }
-
-      if (!assignedDate) {
-
-        console.warn(
-          "⚠️ Cannot determine assigned date:",
-          t._key
-        );
-
-        return;
-      }
-
-      // ========================================
-      // 4️⃣ PARSE ASSIGNED DATE
-      // ========================================
-
-      const assigned =
-        new Date(
-          `${assignedDate}T00:00:00`
-        );
-
-      if (
-        isNaN(
-          assigned.getTime()
-        )
-      ) {
-
-        console.warn(
-          "⚠️ Invalid assignedDate:",
-          {
-            taskKey: t._key,
-            assignedDate
-          }
-        );
-
-        return;
-      }
-
-      const assignedPH =
-        new Date(
-          assigned.toLocaleString(
-            "en-US",
-            {
-              timeZone:
-                "Asia/Manila"
-            }
-          )
-        );
-
-      const ageDays =
-        (
-          nowPH -
-          assignedPH
-        ) /
-        (
-          1000 *
-          60 *
-          60 *
-          24
-        );
-
-      // ========================================
-      // 5️⃣ DO NOT DELETE BEFORE 30 DAYS
-      // ========================================
-
-      if (
-        ageDays <
-        MAX_PENDING_AGE_DAYS
-      ) {
-
-        return;
-      }
-
-      // ========================================
-      // 6️⃣ CHECK FOR LOCAL PHOTOS
-      // ========================================
-
-      // We intentionally do NOT delete a
-      // pending task if it has local photos.
-      //
-      // This protects work that may not have
-      // been synchronized yet.
-
-      getAllPhotosFromDB()
-        .then(photos => {
-
-          const relatedPhotos =
-            photos.filter(
-              p =>
-                p.taskKey ===
-                t._key
-            );
-
-          if (
-            relatedPhotos.length > 0
-          ) {
-
-            console.warn(
-              "⚠️ Keeping aged PENDING task because local photos exist:",
-              {
-                taskKey: t._key,
-                ageDays:
-                  Math.floor(ageDays),
-                photos:
-                  relatedPhotos.length
-              }
-            );
-
-            return;
-          }
-
-          // ====================================
-          // 7️⃣ DELETE OLD PENDING TASK
-          // ====================================
-
-          console.log(
-            "🧹 Deleting aged PENDING task:",
-            {
-              taskKey: t._key,
-              assignedDate,
-              ageDays:
-                Math.floor(ageDays)
-            }
-          );
-
-          const deletion = store.delete(t._key);
-          deletion.onsuccess = () => storageDiagnostic.record("cleanup_task_deleted", { taskId: t._key, reason: "aged_pending_without_photos", ageDays, startupCount: tasks.length });
-
-        })
-        .catch(err => {
-
-          console.warn(
-            "⚠️ Could not check task photos; keeping task:",
-            t._key,
-            err
-          );
-
-        });
-
+      };
+      tasks.onsuccess = photos.onsuccess = prune;
     });
-  };
+  } finally { db.close(); }
 }
 
 function syncDynamicFields(taskKey) {
@@ -3739,7 +3536,14 @@ updateTaskMapMarkerAfterLocalSubmit(
   taskKey
 );
     
-  const cached = await getTasksFromIndexedDB();
+  let cached;
+    try { cached = await getTasksFromIndexedDB(); }
+    catch (error) {
+      storageDiagnostic.record("task_read_retry", { error: String(error) });
+      showMessage("Storage unavailable. Retrying saved tasks...");
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      cached = await getTasksFromIndexedDB();
+    }
   UPLOAD_QUEUE_COUNT = cached.filter(t =>
     t.status === "LOCAL_COMPLETED" &&
     !t.exported &&
@@ -5176,7 +4980,14 @@ async function loadTasks() {
     // ===============================
     // 1️⃣ ALWAYS READ INDEXEDDB FIRST
     // ===============================
-    const cached = await getTasksFromIndexedDB();
+    let cached;
+    try { cached = await getTasksFromIndexedDB(); }
+    catch (error) {
+      storageDiagnostic.record("task_read_retry", { error: String(error) });
+      showMessage("Storage unavailable. Retrying saved tasks...");
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      cached = await getTasksFromIndexedDB();
+    }
     // 🔥 Calculate upload queue once
     UPLOAD_QUEUE_COUNT = cached.filter(t =>
       String(t.driverId || "").trim().toUpperCase() ===
@@ -7724,48 +7535,19 @@ setTimeout(() => {
   }
 }, 20000);
 
-// 🧹 BOOT CLEANUP — REMOVE COMPLETED TASKS + ORPHAN PHOTOS
+// Sequence startup maintenance before task loading.
 (async () => {
   try {
-    // ✅ REMOVE completed tasks
+    await migrateIndexedDBTasks();
     const tasks = await getTasksFromIndexedDB();
     for (const t of tasks) {
-      if (t.status === "COMPLETED") {
-        await deleteTaskFromIndexedDB(t._key, "completed_boot_cleanup");
-      }
+      if (t.status === "COMPLETED") await deleteTaskFromIndexedDB(t._key, "completed_boot_cleanup");
     }
-
-    // ✅ 🆕 REMOVE orphan photos
+    await pruneOldTasks();
     await cleanOrphanPhotos();
-
-  } catch (e) {
-    console.warn("Boot cleanup failed", e);
-  }
-})();
-
-// 🧹 PRUNE OLD / INVALID TASKS
-await pruneOldTasks();
-
-// 🚀 INITIAL BOOT LOAD
-(async () => {
-
-  try {
-
-    await migrateIndexedDBTasks();
-
-  } catch (err) {
-
-    console.error(
-      "❌ IndexedDB migration failed:",
-      err
-    );
-
-  }
-
+  } catch (error) { console.warn("Startup maintenance failed; keeping remaining records", error); }
   await loadTasks();
-
 })();
-
 
 function markTaskCompletedInCache(taskKey) {
   const t = TASKS_CACHE.find(x => x._key === taskKey);

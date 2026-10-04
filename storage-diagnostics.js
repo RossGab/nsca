@@ -11,18 +11,27 @@
   function snapshot() {
     return { sessionId, activeConnections: [...connections.values()], activeTransactions: [...transactions.values()] };
   }
-  function events() {
+  function readSavedEvents() {
     try {
       const saved = JSON.parse(localStorage.getItem(key) || "[]");
       return Array.isArray(saved) ? saved : memory;
     }
     catch (_) { return memory; }
   }
+  memory = readSavedEvents().slice(-200);
+  let flushTimer;
+  function flush() {
+    clearTimeout(flushTimer); flushTimer = undefined;
+    try { localStorage.setItem(key, JSON.stringify(memory)); } catch (_) {}
+  }
+  function events() { return memory.slice(); }
+  function counts() { return { sessionId, activeConnectionCount: connections.size, activeTransactionCount: transactions.size }; }
+  window.addEventListener("pagehide", flush);
   function record(event, details = {}) {
-    const entries = events();
+    const entries = memory;
     entries.push({ at: new Date().toISOString(), sessionId, event, details });
     memory = entries.slice(-200);
-    try { localStorage.setItem(key, JSON.stringify(memory)); } catch (_) {}
+    if (!flushTimer) flushTimer = setTimeout(flush, 250);
   }
   function timed(label, operation, milliseconds = 15000) {
     const started = Date.now();
@@ -31,7 +40,7 @@
       const timer = setTimeout(() => {
         const error = new Error(`${label} timed out after ${milliseconds / 1000} seconds`);
         error.name = "TimeoutError";
-        record("operation_timeout", { label, elapsedMs: Date.now() - started, ...snapshot() });
+        record("operation_timeout", { label, elapsedMs: Date.now() - started, ...counts() });
         reject(error);
       }, milliseconds);
       Promise.resolve().then(operation).then(value => {
@@ -46,9 +55,9 @@
   function observeOpen(request, source) {
     const id = `${sessionId}-open-${++sequence}`;
     const started = Date.now();
-    record("connection_open_started", { id, source, ...snapshot() });
-    const timer = setTimeout(() => record("connection_open_stalled", { id, source, elapsedMs: Date.now() - started, ...snapshot() }), 15000);
-    request.addEventListener("blocked", event => record("connection_blocked", { id, source, oldVersion: event.oldVersion, newVersion: event.newVersion, ...snapshot() }));
+    record("connection_open_started", { id, source, ...counts() });
+    const timer = setTimeout(() => record("connection_open_stalled", { id, source, elapsedMs: Date.now() - started, ...counts() }), 15000);
+    request.addEventListener("blocked", event => record("connection_blocked", { id, source, oldVersion: event.oldVersion, newVersion: event.newVersion, ...counts() }));
     request.addEventListener("upgradeneeded", event => record("database_upgrade", { id, source, oldVersion: event.oldVersion, newVersion: event.newVersion }));
     request.addEventListener("error", () => {
       clearTimeout(timer);
@@ -93,7 +102,7 @@
     return request;
   }
   function lifecycle(event) {
-    record("page_" + event.type, { visibility: document.visibilityState, persisted: event.persisted, online: navigator.onLine, ...snapshot() });
+    record("page_" + event.type, { visibility: document.visibilityState, persisted: event.persisted, online: navigator.onLine, ...counts() });
   }
   document.addEventListener("visibilitychange", lifecycle);
   for (const name of ["pageshow", "pagehide", "online", "offline"]) window.addEventListener(name, lifecycle);

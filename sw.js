@@ -1,4 +1,4 @@
-const CACHE_VERSION = "v32-storage-lifecycle-diagnostics";
+const CACHE_VERSION = "v33-storage-startup-fix";
 const CACHE_NAME = `field-task-app-${CACHE_VERSION}`;
 
 const BASE_PATH = "/nsca/";

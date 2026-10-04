@@ -251,7 +251,10 @@
       renderSummary(); renderRows(); renderDiagnostics();
       let db;
       try {
-        if (!(await checkStep("Checking database presence", databaseExists))) {
+        let exists = true;
+        try { exists = await checkStep("Checking database presence", databaseExists, 3000); }
+        catch (error) { window.DriverStorageDiagnostics.record("database_listing_fallback", { error: String(error) }); }
+        if (!exists) {
           throw new Error("No driver task storage was found in this browser.");
         }
         db = await checkStep("Opening IndexedDB", openExistingDatabase);
