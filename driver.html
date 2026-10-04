@@ -617,6 +617,7 @@ img { width:100%;margin-top:8px;border-radius:6px; }
 >
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 
+<script src="./storage-diagnostics.js"></script>
 <script type="module">
 import { escapeDeliveryHTML, deliveryFieldHTML } from "./delivery-fields.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
@@ -846,6 +847,8 @@ console.log(
 
 const DB_NAME = "driver_uploads";
 const DB_VERSION = 6;
+const storageDiagnostic = window.DriverStorageDiagnostics;
+storageDiagnostic.record("driver_startup", { website: location.origin + location.pathname, browser: navigator.userAgent, databaseVersion: DB_VERSION });
 const STORE = "photos";
 const TASK_STORE = "tasks";
 const META_STORE = "meta";
@@ -873,8 +876,24 @@ function openDB() {
       }
     };
 
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
+    let expired = false;
+    const timer = setTimeout(() => {
+      expired = true;
+      storageDiagnostic.record("database_open_timeout");
+      reject(new Error("Opening driver storage timed out after 15 seconds"));
+    }, 15000);
+    req.onblocked = () => storageDiagnostic.record("database_open_blocked", { version: DB_VERSION });
+    req.onsuccess = () => {
+      clearTimeout(timer);
+      if (expired) { req.result.close(); return; }
+      req.result.onversionchange = () => req.result.close();
+      resolve(req.result);
+    };
+    req.onerror = () => {
+      clearTimeout(timer);
+      storageDiagnostic.record("database_open_failed", { error: String(req.error) });
+      reject(req.error);
+    };
   });
 }
 
@@ -897,7 +916,11 @@ async function saveTasksToIndexedDB(tasks) {
   const db = await openDB();
   const tx = db.transaction(TASK_STORE, "readwrite");
   const store = tx.objectStore(TASK_STORE);
-
+  const completion = new Promise((resolve, reject) => {
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onabort = tx.onerror = () => { db.close(); reject(tx.error || new Error("Task write failed")); };
+  });
+  completion.catch(() => {});
   for (const t of tasks) {
     if (!t._key) continue;
   
@@ -915,6 +938,13 @@ async function saveTasksToIndexedDB(tasks) {
       dateKey: t.dateKey // 🔥 FORCE overwrite
     });
   }
+  try {
+    await completion;
+    storageDiagnostic.record("tasks_saved", { count: tasks.length, tasks: tasks.map(t => ({ taskId: t._key, status: t.status, dateKey: t.dateKey })) });
+  } catch (error) {
+    storageDiagnostic.record("tasks_save_failed", { error: String(error) });
+    throw error;
+  }
 }
 
 async function getTasksFromIndexedDB() {
@@ -926,6 +956,8 @@ async function getTasksFromIndexedDB() {
     const timeout = setTimeout(() => {
       if (settled) return;
       settled = true;
+      db.close();
+      storageDiagnostic.record("task_read_timeout");
       reject(new Error("Device task storage did not respond within 15 seconds"));
     }, 15000);
 
@@ -933,6 +965,8 @@ async function getTasksFromIndexedDB() {
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
+      db.close();
+      storageDiagnostic.record(callback === resolve ? "task_count_read" : "task_read_failed", callback === resolve ? { count: value.length, pending: value.filter(t => String(t.status || "PENDING").toUpperCase() === "PENDING").length } : { error: String(value) });
       callback(value);
     };
 
@@ -1524,10 +1558,22 @@ async function deletePhotoFromDB(id) {
   tx.objectStore(STORE).delete(id);
 }
 
-async function deleteTaskFromIndexedDB(taskKey) {
+async function deleteTaskFromIndexedDB(taskKey, reason = "unspecified") {
   const db = await openDB();
   const tx = db.transaction(TASK_STORE, "readwrite");
-  tx.objectStore(TASK_STORE).delete(taskKey);
+  await new Promise((resolve, reject) => {
+    const store = tx.objectStore(TASK_STORE);
+    const count = store.count();
+    store.delete(taskKey);
+    tx.oncomplete = () => {
+      storageDiagnostic.record("task_deleted", { taskId: taskKey, reason, before: count.result, after: Math.max(0, count.result - 1) });
+      db.close(); resolve();
+    };
+    tx.onabort = tx.onerror = () => {
+      storageDiagnostic.record("task_delete_failed", { taskId: taskKey, reason, error: String(tx.error) });
+      db.close(); reject(tx.error || new Error("Task deletion failed"));
+    };
+  });
 }
 
 async function archiveTransferredLocalTask(taskKey, assignedDriverId) {
@@ -1722,6 +1768,7 @@ async function requestPersistentStorage() {
       ? await navigator.storage.persisted()
       : false;
     const granted = alreadyPersistent || await navigator.storage.persist();
+    storageDiagnostic.record("storage_protection", { granted });
     setStorageWarning(
       "persistence",
       granted ? "" : "Offline storage is not protected from automatic cleanup. Keep free space and disable browser/app cleanup."
@@ -2574,7 +2621,7 @@ for (let taskIndex = 0; taskIndex < completed.length; taskIndex++) {
         await deletePhotoFromDB(p.id);
       }
     
-      await deleteTaskFromIndexedDB(task._key);
+      await deleteTaskFromIndexedDB(task._key, "verified_sync");
 
       successful++;
 
@@ -2891,9 +2938,9 @@ async function pruneOldTasks() {
           t._key
         );
 
-        store.delete(
-          t._key
-        );
+        const deletion = store.delete(t._key);
+        deletion.onsuccess = () => storageDiagnostic.record("cleanup_task_deleted", { taskId: t._key, reason: "missing_dateKey", startupCount: tasks.length });
+        deletion.onerror = () => storageDiagnostic.record("cleanup_delete_failed", { taskId: t._key, error: String(deletion.error) });
 
         return;
       }
@@ -3054,9 +3101,8 @@ async function pruneOldTasks() {
             }
           );
 
-          store.delete(
-            t._key
-          );
+          const deletion = store.delete(t._key);
+          deletion.onsuccess = () => storageDiagnostic.record("cleanup_task_deleted", { taskId: t._key, reason: "aged_pending_without_photos", ageDays, startupCount: tasks.length });
 
         })
         .catch(err => {
@@ -4703,7 +4749,7 @@ async function loadDriverTasksFromFirestore(selectedDate) {
   });
 
   for (const taskId of deletedTaskIds) {
-    await deleteTaskFromIndexedDB(taskId);
+    await deleteTaskFromIndexedDB(taskId, "server_deleted_at_download");
   }
 
   // Sort locally instead of using Firestore orderBy().
@@ -4945,6 +4991,7 @@ async function downloadTasksForDriver() {
     // 1. GET TASKS WAITING FOR DOWNLOAD
     // ==========================================
 
+    storageDiagnostic.record("download_started", { selectedDate, driverId: DRIVER_ID, before: (await getTasksFromIndexedDB()).length });
     const freshTasks =
       await loadDriverTasksFromFirestore(
         selectedDate
@@ -5026,6 +5073,7 @@ async function downloadTasksForDriver() {
     // 5. LOAD LOCAL TASK LIST
     // ==========================================
 
+    storageDiagnostic.record("download_completed", { downloaded: localTasks.length, after: (await getTasksFromIndexedDB()).length });
     FORCE_REDOWNLOAD = false;
 
     await loadTasks();
@@ -7683,7 +7731,7 @@ setTimeout(() => {
     const tasks = await getTasksFromIndexedDB();
     for (const t of tasks) {
       if (t.status === "COMPLETED") {
-        await deleteTaskFromIndexedDB(t._key);
+        await deleteTaskFromIndexedDB(t._key, "completed_boot_cleanup");
       }
     }
 

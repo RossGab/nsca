@@ -1,4 +1,4 @@
-const CACHE_VERSION = "v30-install-recovery";
+const CACHE_VERSION = "v31-storage-diagnostics";
 const CACHE_NAME = `field-task-app-${CACHE_VERSION}`;
 
 const BASE_PATH = "/nsca/";
@@ -6,6 +6,8 @@ const DRIVER_URL = BASE_PATH + "driver.html";
 
 const CORE_ASSETS = [
   DRIVER_URL,
+  BASE_PATH + "driver-storage-viewer.html",
+  BASE_PATH + "storage-diagnostics.js",
   BASE_PATH + "install.html",
   BASE_PATH + "manifest.json",
   BASE_PATH + "icon-192.png",
@@ -53,7 +55,8 @@ self.addEventListener("activate", event => {
 function isDriverNavigation(requestUrl) {
   const url = new URL(requestUrl);
   return url.origin === self.location.origin &&
-    (url.pathname === DRIVER_URL || url.pathname === BASE_PATH);
+    (url.pathname === DRIVER_URL || url.pathname === BASE_PATH ||
+      url.pathname === BASE_PATH + "driver-storage-viewer.html");
 }
 
 function isCacheableStaticRequest(requestUrl) {
@@ -83,15 +86,17 @@ self.addEventListener("fetch", event => {
     if (!isDriverNavigation(request.url)) return;
 
     event.respondWith((async () => {
+      const navigationKey = new URL(request.url).pathname === BASE_PATH + "driver-storage-viewer.html"
+        ? BASE_PATH + "driver-storage-viewer.html" : DRIVER_URL;
       try {
         const response = await fetch(request);
         if (response.ok) {
           const cache = await caches.open(CACHE_NAME);
-          await cache.put(DRIVER_URL, response.clone());
+          await cache.put(navigationKey, response.clone());
         }
         return response;
       } catch {
-        return (await caches.match(DRIVER_URL)) || Response.error();
+        return (await caches.match(navigationKey)) || Response.error();
       }
     })());
     return;

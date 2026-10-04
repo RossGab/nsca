@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Driver Device Storage Check</title>
 <script src="./admin-dark-mode.js"></script>
+<script src="./storage-diagnostics.js"></script>
   <style>
     :root {
       color-scheme: light;
@@ -98,20 +99,21 @@
     <div class="actions">
       <a class="button secondary" href="driver.html">Back to Driver</a>
       <button id="refreshBtn" type="button">Refresh</button>
-      <button id="exportBtn" type="button" disabled>Export Diagnostic Report</button>
+      <button id="exportBtn" type="button">Export Diagnostic Report</button>
     </div>
 
     <div id="message" role="status"></div>
 
     <section class="summary" aria-label="Storage summary">
-      <div class="summary-card"><span>Total tasks</span><strong id="totalTasks">0</strong></div>
-      <div class="summary-card"><span>Pending</span><strong id="pendingTasks">0</strong></div>
-      <div class="summary-card"><span>For upload</span><strong id="uploadTasks">0</strong></div>
-      <div class="summary-card"><span>Archived transfer</span><strong id="archivedTasks">0</strong></div>
-      <div class="summary-card"><span>Saved photos</span><strong id="totalPhotos">0</strong></div>
+      <div class="summary-card"><span>Total tasks</span><strong id="totalTasks">Unknown</strong></div>
+      <div class="summary-card"><span>Pending</span><strong id="pendingTasks">Unknown</strong></div>
+      <div class="summary-card"><span>For upload</span><strong id="uploadTasks">Unknown</strong></div>
+      <div class="summary-card"><span>Archived transfer</span><strong id="archivedTasks">Unknown</strong></div>
+      <div class="summary-card"><span>Saved photos</span><strong id="totalPhotos">Unknown</strong></div>
       <div class="summary-card"><span>Storage used</span><strong id="storageUsed">--</strong></div>
     </section>
 
+    <section class="panel"><h2>Storage diagnostics</h2><pre id="diagnostics" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre></section>
     <section class="panel">
       <h2>Saved tasks</h2>
       <div class="filters">
@@ -153,6 +155,31 @@
     let tasks = [];
     let photos = [];
     let storageDetails = {};
+    let tasksKnown = false, photosKnown = false;
+    let checkResult = "Not checked";
+    let steps = [];
+    const diagnostic = window.DriverStorageDiagnostics;
+    function renderDiagnostics() {
+      document.getElementById("diagnostics").textContent = JSON.stringify({
+        result: checkResult, website: location.origin + location.pathname,
+        browser: navigator.userAgent, online: navigator.onLine,
+        database: DB_NAME, storage: storageDetails, steps,
+        recentEvents: diagnostic.events()
+      }, null, 2);
+    }
+    async function checkStep(label, operation, milliseconds = 15000) {
+      document.getElementById("message").textContent = label + "?";
+      const step = { label, result: "Checking", startedAt: new Date().toISOString() };
+      steps.push(step); renderDiagnostics();
+      try {
+        const value = await diagnostic.timed(label, operation, milliseconds);
+        step.result = "Successful"; return value;
+      } catch (error) {
+        step.result = error.name === "TimeoutError" ? "Timed out" : "Failed";
+        step.error = error.name + ": " + error.message;
+        throw error;
+      } finally { renderDiagnostics(); }
+    }
 
     const currentDriver = String(localStorage.getItem("driverId") || "").trim();
     document.getElementById("driverLabel").textContent =
@@ -174,9 +201,21 @@
     function openExistingDatabase() {
       return new Promise((resolve, reject) => {
         const request = indexedDB.open(DB_NAME);
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error || new Error("Unable to open device storage."));
+        let expired = false;
+        const timer = setTimeout(() => { expired = true; reject(new Error("Opening IndexedDB timed out")); }, 14000);
+        request.onsuccess = () => {
+          clearTimeout(timer);
+          if (expired) { request.result.close(); return; }
+          request.result.onversionchange = () => request.result.close();
+          resolve(request.result);
+        };
+        request.onblocked = () => {
+          diagnostic.record("database_open_blocked");
+          document.getElementById("message").textContent = "Database blocked. Close other driver tabs and retry.";
+        };
+        request.onerror = () => { clearTimeout(timer); reject(request.error || new Error("Unable to open device storage.")); };
         request.onupgradeneeded = () => {
+          clearTimeout(timer);
           request.transaction.abort();
           reject(new Error("No driver task storage exists in this browser."));
         };
@@ -186,11 +225,12 @@
     function readAll(db, storeName) {
       return new Promise((resolve, reject) => {
         if (!db.objectStoreNames.contains(storeName)) {
-          resolve([]);
+          reject(new Error(`Missing database store: ${storeName}`));
           return;
         }
         const tx = db.transaction(storeName, "readonly");
         const request = tx.objectStore(storeName).getAll();
+        tx.onabort = () => reject(tx.error || new Error(`Read aborted: ${storeName}`));
         request.onsuccess = () => resolve(request.result || []);
         request.onerror = () => reject(request.error || new Error(`Unable to read ${storeName}.`));
       });
@@ -206,53 +246,49 @@
       const message = document.getElementById("message");
       const refreshBtn = document.getElementById("refreshBtn");
       refreshBtn.disabled = true;
-      message.textContent = "Checking device storage…";
-
+      tasks = []; photos = []; tasksKnown = false; photosKnown = false;
+      storageDetails = {}; steps = []; checkResult = "Checking";
+      renderSummary(); renderRows(); renderDiagnostics();
+      let db;
       try {
-        if (!(await databaseExists())) {
+        if (!(await checkStep("Checking database presence", databaseExists))) {
           throw new Error("No driver task storage was found in this browser.");
         }
-
-        const db = await openExistingDatabase();
-        [tasks, photos] = await Promise.all([
-          readAll(db, TASK_STORE),
-          readAll(db, PHOTO_STORE)
-        ]);
-        db.close();
-
-        storageDetails = {};
-        if (navigator.storage && navigator.storage.estimate) {
-          storageDetails = await navigator.storage.estimate();
+        db = await checkStep("Opening IndexedDB", openExistingDatabase);
+        tasks = await checkStep("Reading tasks", () => readAll(db, TASK_STORE));
+        tasksKnown = true; renderSummary(); renderRows();
+        photos = await checkStep("Reading photos", () => readAll(db, PHOTO_STORE));
+        photosKnown = true; renderSummary(); renderRows();
+        db.close(); db = null;
+        for (const [method, label] of [["estimate", "Checking storage usage"], ["persisted", "Checking storage protection"]]) {
+          if (!navigator.storage?.[method]) continue;
+          try {
+            const value = await checkStep(label, () => navigator.storage[method](), 5000);
+            if (method === "estimate") Object.assign(storageDetails, value);
+            else storageDetails.persisted = value;
+          } catch (_) { /* Optional information must not hide successfully read tasks. */ }
         }
-        if (navigator.storage && navigator.storage.persisted) {
-          storageDetails.persisted = await navigator.storage.persisted();
-        }
-
-        renderSummary();
-        renderRows();
-        document.getElementById("exportBtn").disabled = false;
-        message.textContent = tasks.length
-          ? `Found ${tasks.length} task record(s) in this device.`
-          : "Device storage exists, but it contains no task records.";
+        checkResult = steps.some(step => step.result !== "Successful") ? "Tasks read; optional storage check failed" : "Successful";
+        message.textContent = tasks.length ? `Found ${tasks.length} task record(s) in this device.` : "Device storage exists, but it contains no task records.";
+        if (checkResult !== "Successful") message.textContent += " See diagnostics for the incomplete check.";
       } catch (error) {
-        tasks = [];
-        photos = [];
-        renderSummary();
-        renderRows();
-        document.getElementById("exportBtn").disabled = true;
-        message.textContent = error.message || "Unable to read device storage.";
+        checkResult = /timed out/i.test(error.message) ? "Timed out" : "Failed";
+        message.textContent = `Storage check ${checkResult.toLowerCase()}: ${error.message}. Unread counts are unknown. Export the diagnostic report.`;
       } finally {
+        db?.close();
+        diagnostic.record("storage_viewer_check", { result: checkResult, tasks: tasksKnown ? tasks.length : null, photos: photosKnown ? photos.length : null, steps });
+        renderSummary(); renderRows(); renderDiagnostics();
         refreshBtn.disabled = false;
       }
     }
 
     function renderSummary() {
       const count = status => tasks.filter(task => normalizeStatus(task) === status).length;
-      document.getElementById("totalTasks").textContent = tasks.length;
-      document.getElementById("pendingTasks").textContent = count("PENDING");
-      document.getElementById("uploadTasks").textContent = count("LOCAL_COMPLETED");
-      document.getElementById("archivedTasks").textContent = count("TRANSFERRED_ARCHIVED");
-      document.getElementById("totalPhotos").textContent = photos.length;
+      document.getElementById("totalTasks").textContent = tasksKnown ? tasks.length : "Unknown";
+      document.getElementById("pendingTasks").textContent = !tasksKnown ? "Unknown" : count("PENDING");
+      document.getElementById("uploadTasks").textContent = !tasksKnown ? "Unknown" : count("LOCAL_COMPLETED");
+      document.getElementById("archivedTasks").textContent = !tasksKnown ? "Unknown" : count("TRANSFERRED_ARCHIVED");
+      document.getElementById("totalPhotos").textContent = photosKnown ? photos.length : "Unknown";
       document.getElementById("storageUsed").textContent = formatBytes(storageDetails.usage);
     }
 
@@ -320,12 +356,12 @@
         row.appendChild(statusCell);
 
         const photoCell = document.createElement("td");
-        photoCell.textContent = photoCounts.get(String(task._key || "")) || 0;
+        photoCell.textContent = photosKnown ? (photoCounts.get(String(task._key || "")) || 0) : "Unknown";
         row.appendChild(photoCell);
         tbody.appendChild(row);
       });
 
-      document.getElementById("emptyState").hidden = filtered.length !== 0;
+      document.getElementById("emptyState").hidden = !tasksKnown || filtered.length !== 0;
     }
 
     function exportDiagnosticReport() {
@@ -337,6 +373,9 @@
 
       const report = {
         reportType: "DRIVER_DEVICE_STORAGE_DIAGNOSTIC",
+        checkResult, steps, recentEvents: diagnostic.events(),
+        browser: navigator.userAgent, pageUrl: location.origin + location.pathname,
+        online: navigator.onLine,
         exportedAt: new Date().toISOString(),
         pageOrigin: location.origin,
         currentDriverId: currentDriver,
@@ -347,8 +386,8 @@
           persistent: storageDetails.persisted ?? null
         },
         totals: {
-          tasks: tasks.length,
-          photos: photos.length
+          tasks: tasksKnown ? tasks.length : null,
+          photos: photosKnown ? photos.length : null
         },
         tasks: tasks.map(task => ({
           taskId: task._key || "",
@@ -361,7 +400,7 @@
           exported: task.exported === true,
           transferredToDriverId: task.transferredToDriverId || "",
           transferredArchivedAt: task.transferredArchivedAt || "",
-          savedPhotoCount: photoCounts.get(String(task._key || "")) || 0
+          savedPhotoCount: photosKnown ? (photoCounts.get(String(task._key || "")) || 0) : null
         }))
       };
 
