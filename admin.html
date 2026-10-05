@@ -3963,6 +3963,7 @@ function renderAdminTasks(tasks) {
     <b>${t.CUSTOMERNAME || ""}</b>
         <div class="small">${t.ADDRESS || ""}</div>
         <div class="small">Driver: ${t.driverId || "—"}</div>
+        ${taskSearchPanel.style.display === "block" ? `<div class="small">Task uploaded: ${escapeAdminHtml(formatFirestoreDate(t.createdAt || t.createdDate) || "Unavailable")}</div>` : ""}
         ${renderTaskCompletionTimes(t)}
         ${sla ? `<div class="small ${sla.cls}">⏱ ${sla.text}</div>` : ""}
       </div>
