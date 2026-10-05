@@ -640,7 +640,7 @@ import {
 import { getStorage, ref as sRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js";
 import { increment } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
   
-const VERSION = "V.R.0.0.16.1.4.19";
+const VERSION = "V.R.0.0.16.1.4.20";
 const BILLING_CACHE = {};
 window.BILLING_CACHE = BILLING_CACHE;
 const DRIVER_UI_CACHE = {};
@@ -3133,27 +3133,40 @@ function showMessage(message) {
 
 /* ===== IMAGE ===== */
 function compressImage(file, gps, takenAt) {
-  return new Promise(resolve => {
+  return new Promise((resolve, reject) => {
     const img = new Image();
-    const r = new FileReader();
-
-    r.onload = e => (img.src = e.target.result);
+    let sourceURL, canvas, settled = false;
+    const finish = (error, blob) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      img.onload = img.onerror = null;
+      img.removeAttribute("src");
+      if (sourceURL) URL.revokeObjectURL(sourceURL);
+      if (canvas) canvas.width = canvas.height = 0;
+      if (error) reject(error); else resolve(blob);
+    };
+    const timer = setTimeout(() => finish(new Error("Photo processing timed out. Please retry.")), 20000);
+    img.onerror = () => finish(new Error("Unable to read this photo. Please capture it again."));
 
     img.onload = () => {
-      const canvas = document.createElement("canvas");
+      if (settled) return;
+      try {
+      canvas = document.createElement("canvas");
       let w = img.width;
       let h = img.height;
 
       // ✅ Resize (recommended values)
-      if (w > 1024) {
-        h *= 1024 / w;
-        w = 1024;
-      }
+      if (!w || !h) throw new Error("The photo has no image data.");
+      const scale = Math.min(1, 1024 / Math.max(w, h));
+      w = Math.max(1, Math.round(w * scale));
+      h = Math.max(1, Math.round(h * scale));
 
       canvas.width = w;
       canvas.height = h;
 
       const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("Unable to process the photo on this device.");
       ctx.drawImage(img, 0, 0, w, h);
 
       // =========================
@@ -3207,18 +3220,44 @@ function compressImage(file, gps, takenAt) {
       // 🗜️ FINAL COMPRESSION
       // =========================
       canvas.toBlob(
-        blob => resolve(blob),
+        blob => finish(blob?.size ? null : new Error("Photo compression failed. Please retry."), blob),
         "image/jpeg",
         0.45 // ✅ recommended quality
       );
+      } catch (error) { finish(error); }
     };
 
-    r.readAsDataURL(file);
+    try {
+      sourceURL = URL.createObjectURL(file);
+      img.src = sourceURL;
+    } catch (error) { finish(error); }
   });
 }
 
   let CURRENT_TASK = null;
 let CURRENT_PHOTO_INDEX = null;
+let PHOTO_CAPTURE_BUSY = false;
+function setPhotoProgress(message) {
+  let status = document.getElementById("photoCaptureStatus");
+  if (!status) {
+    status = document.createElement("div");
+    status.id = "photoCaptureStatus";
+    status.setAttribute("role", "status");
+    status.style.cssText = "position:fixed;bottom:20px;left:50%;transform:translateX(-50%);padding:12px 18px;background:#18212b;color:white;border-radius:8px;z-index:10000;pointer-events:none";
+    document.body.appendChild(status);
+  }
+  status.textContent = message;
+  status.hidden = !message;
+  document.querySelectorAll("button[data-photo-capture],button[data-submit-task]").forEach(button => {
+    if (PHOTO_CAPTURE_BUSY) {
+      if (!button.hasAttribute("data-photo-lock")) button.dataset.photoLock = String(button.disabled);
+      button.disabled = true;
+    } else if (button.hasAttribute("data-photo-lock")) {
+      button.disabled = button.dataset.photoLock === "true";
+      delete button.dataset.photoLock;
+    }
+  });
+}
 let BOOT_WATCHDOG_FIRED = false;
 
 // window.startPhoto = async function(index, taskKey) {
@@ -3231,6 +3270,7 @@ let BOOT_WATCHDOG_FIRED = false;
 //   cameraInput.click();
 // };
 window.startPhoto = async function(index, taskKey) {
+  if (PHOTO_CAPTURE_BUSY) return;
 
   // 🔒 DO NOT START A NEW TASK DURING SYNC
   if (SYNC_RUNNING) {
@@ -3249,93 +3289,60 @@ window.startPhoto = async function(index, taskKey) {
 };
 
 
+cameraInput.oncancel = () => {
+  CURRENT_TASK = CURRENT_PHOTO_INDEX = null;
+};
 cameraInput.onchange = async e => {
-  try {
-    const file = e.target.files?.[0];   // ✅ ADD THIS LINE
-
-    const taskKey = CURRENT_TASK;
-    const photoIndex = CURRENT_PHOTO_INDEX;
-  
-  CURRENT_TASK = null;
-  CURRENT_PHOTO_INDEX = null;
-  
+  if (PHOTO_CAPTURE_BUSY) return;
+  const file = e.target.files?.[0];
+  const taskKey = CURRENT_TASK;
+  const photoIndex = CURRENT_PHOTO_INDEX;
+  CURRENT_TASK = CURRENT_PHOTO_INDEX = null;
   if (!file || !taskKey || !photoIndex) return;
-  
-  if (!PHOTO_BUFFER[taskKey]) PHOTO_BUFFER[taskKey] = {};
-
-  const gps = LAST_KNOWN_GPS;
-  if (!gps || !gps.latitude) {
-    alert("📍 Waiting for GPS signal...");
-    return;
-  }
-    
-  let blob;
+  PHOTO_CAPTURE_BUSY = true;
+  let previewURL;
+  let saved = false;
   try {
-    blob = await compressImage(file, gps, new Date().toISOString());
-  } catch {
-    alert("Image processing failed");
-    return;
-  }
-
-  
-
-  const previewURL = URL.createObjectURL(blob);
-  
-  PHOTO_BUFFER[taskKey][photoIndex] = {
-    blob,
-    previewURL,
-    takenAt: new Date().toISOString(),
-    gps
-  };
-
-  const takenAt = new Date().toISOString();
-
-  const latestData =
-    loadFormCache()[taskKey] ||
-    BILLING_CACHE[taskKey] ||
-    {};
-  
-  await savePhotoToDB({
-    id: `${taskKey}_${photoIndex}`,
-    taskKey,
-    photoIndex,
-    blob,
-    takenAt,
-    gps,
-    submitIntent: false
-  });
-  
-  setTimeout(checkStorageQuota, 0);
-
-  // 🔒 Lock UI to this task after first photo
-  if (photoIndex === 1) {
-    ACTIVE_CAPTURE_TASK = taskKey;
-  }
-
-  CURRENT_PHOTO_INDEX = null;
-  CURRENT_TASK = null;   // 🔥 REQUIRED FIX
-  
-  // ✅ reset AFTER capture finishes
-  setTimeout(() => {
-    cameraInput.value = "";
-  }, 150);
-  // ✅ LOCAL UI UPDATE ONLY — NO FULL RELOAD
-    applyFiltersOnly();
-    
-    // ⬇️ Auto scroll to bottom of page after render
-    requestAnimationFrame(() => {
-      window.scrollTo({
-        top: document.body.scrollHeight,
-        behavior: "smooth"
-      });
-  });
-  } catch (err) {
-      console.error("📸 Camera handler crash:", err);
-      alert("Camera error — please retry.");
+    const gps = LAST_KNOWN_GPS ? { ...LAST_KNOWN_GPS } : null;
+    if (!gps || !Number.isFinite(gps.latitude) || !Number.isFinite(gps.longitude)) {
+      throw new Error("Waiting for GPS signal. Please retry when GPS is ready.");
     }
-  };
-  
+    const takenAt = new Date().toISOString();
+    setPhotoProgress("Processing photo...");
+    // Allow the progress message to paint before decoding begins.
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const blob = await compressImage(file, gps, takenAt);
+    previewURL = URL.createObjectURL(blob);
+    setPhotoProgress("Saving photo...");
+    await savePhotoToDB({
+      id: taskKey + "_" + photoIndex,
+      taskKey, photoIndex, blob, takenAt, gps, submitIntent: false
+    });
+    const previous = PHOTO_BUFFER[taskKey]?.[photoIndex];
+    if (!PHOTO_BUFFER[taskKey]) PHOTO_BUFFER[taskKey] = {};
+    PHOTO_BUFFER[taskKey][photoIndex] = { blob, previewURL, takenAt, gps };
+    previewURL = null;
+    if (previous?.previewURL) URL.revokeObjectURL(previous.previewURL);
+    if (photoIndex === 1) ACTIVE_CAPTURE_TASK = taskKey;
+    saved = true;
+    setTimeout(checkStorageQuota, 0);
+  } catch (error) {
+    console.error("Photo capture failed:", error);
+    alert(error.message || "Unable to save the photo. Please retry.");
+  } finally {
+    if (previewURL) URL.revokeObjectURL(previewURL);
+    cameraInput.value = "";
+    PHOTO_CAPTURE_BUSY = false;
+    setPhotoProgress("");
+  }
+  applyFiltersOnly();
+  if (saved) {
+    requestAnimationFrame(() => window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" }));
+  }
+};
+
   window.submitTask = async function(taskKey) {
+  if (PHOTO_CAPTURE_BUSY) { alert("Please wait until the photo is saved."); return; }
 
   let btn = Array.from(
     document.querySelectorAll("button[data-submit-task]")
@@ -7116,25 +7123,25 @@ function renderOneTask(t) {
     }
 
     /* ===== PHOTO BUTTONS ===== */
-    const disable1 = !!p[1];
-    const disable2 = !p[1] || !!p[2];
-    const disable3 = !p[2] || !!p[3];
-    const disableSubmit = Object.keys(p).length === 0;
+    const disable1 = PHOTO_CAPTURE_BUSY || !!p[1];
+    const disable2 = PHOTO_CAPTURE_BUSY || !p[1] || !!p[2];
+    const disable3 = PHOTO_CAPTURE_BUSY || !p[2] || !!p[3];
+    const disableSubmit = PHOTO_CAPTURE_BUSY || Object.keys(p).length === 0;
 
     /* ===== PHOTO BUTTONS ===== */
       html += `
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:8px;">
-          <button ${disable1 ? "disabled" : ""}
+          <button data-photo-capture ${disable1 ? "disabled" : ""}
             onclick="startPhoto(1,'${t._key}')">
             📸 Photo 1
           </button>
       
-          <button ${disable2 ? "disabled" : ""}
+          <button data-photo-capture ${disable2 ? "disabled" : ""}
             onclick="startPhoto(2,'${t._key}')">
             📸 Photo 2
           </button>
       
-          <button ${disable3 ? "disabled" : ""}
+          <button data-photo-capture ${disable3 ? "disabled" : ""}
             onclick="startPhoto(3,'${t._key}')">
             📸 Photo 3
           </button>
