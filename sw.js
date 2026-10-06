@@ -1,4 +1,4 @@
-const CACHE_VERSION = "v34-camera-capture-fix";
+const CACHE_VERSION = "v35-camera-memory-fix";
 const CACHE_NAME = `field-task-app-${CACHE_VERSION}`;
 
 const BASE_PATH = "/nsca/";

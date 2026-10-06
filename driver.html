@@ -640,7 +640,7 @@ import {
 import { getStorage, ref as sRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js";
 import { increment } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
   
-const VERSION = "V.R.0.0.16.1.4.20";
+const VERSION = "V.R.0.0.16.1.4.21";
 const BILLING_CACHE = {};
 window.BILLING_CACHE = BILLING_CACHE;
 const DRIVER_UI_CACHE = {};
@@ -915,6 +915,62 @@ async function photoOperation(mode, action) {
   } finally { db.close(); }
 }
 async function savePhotoToDB(record) { await photoOperation("readwrite", store => store.put(record)); }
+// Scan one record at a time; never retain the whole photo store's blobs.
+async function readPhotoDetails(taskKey, includeBlobs = false) {
+  const db = await openDB();
+  try {
+    return await new Promise((resolve, reject) => {
+      const rows = [];
+      const tx = db.transaction(STORE, "readonly");
+      const timer = setTimeout(() => { try { tx.abort(); } catch (_) {} reject(new Error("Photo storage timed out")); }, 15000);
+      tx.oncomplete = () => { clearTimeout(timer); resolve(rows); };
+      tx.onerror = tx.onabort = () => { clearTimeout(timer); reject(tx.error || new Error("Photo storage failed")); };
+      const request = tx.objectStore(STORE).openCursor();
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) return;
+        const p = cursor.value;
+        if (taskKey == null || p.taskKey === taskKey) {
+          if (includeBlobs) rows.push(p);
+          else rows.push({ id: p.id, taskKey: p.taskKey, photoIndex: p.photoIndex, takenAt: p.takenAt, gps: p.gps, submitIntent: p.submitIntent });
+        }
+        cursor.continue();
+      };
+    });
+  } finally { db.close(); }
+}
+function releasePhotoPreviews() {
+  for (const photos of Object.values(PHOTO_BUFFER)) {
+    for (const photo of Object.values(photos)) {
+      if (photo.previewURL) URL.revokeObjectURL(photo.previewURL);
+      delete photo.previewURL;
+      delete photo.blob;
+    }
+  }
+}
+async function restoreCapturedPhotoDetails() {
+  const rows = await readPhotoDetails(null);
+  for (const p of rows) {
+    if (p.submitIntent) continue;
+    if (!PHOTO_BUFFER[p.taskKey]) PHOTO_BUFFER[p.taskKey] = {};
+    PHOTO_BUFFER[p.taskKey][p.photoIndex] = p;
+  }
+}
+const CAPTURE_RECOVERY_KEY = "driver_pending_capture";
+function clearCaptureRecovery() { try { localStorage.removeItem(CAPTURE_RECOVERY_KEY); } catch (_) {} }
+function reportInterruptedCapture() {
+  try {
+    const raw = localStorage.getItem(CAPTURE_RECOVERY_KEY);
+    if (!raw) return;
+    const pending = JSON.parse(raw);
+    clearCaptureRecovery();
+    const saved = PHOTO_BUFFER[pending.taskKey]?.[pending.photoIndex];
+    if (!saved || saved.takenAt < pending.startedAt) {
+      alert("The app restarted during photo capture. Check the saved photo count for task " + pending.taskKey + ". If the new photo is missing, please retake Photo " + pending.photoIndex + ".");
+    }
+  } catch (_) { clearCaptureRecovery(); }
+}
+
 async function getAllPhotosFromDB() { return (await photoOperation("readonly", store => store.getAll())) || []; }
 
 async function saveTasksToIndexedDB(tasks) {
@@ -1704,7 +1760,7 @@ async function reconcilePendingTaskOwnership(tasks) {
 async function cleanOrphanPhotos() {
   try {
     const tasks = await getTasksFromIndexedDB();
-    const photos = await getAllPhotosFromDB();
+    const photos = await readPhotoDetails(null);
 
     const validTaskKeys = new Set(tasks.map(t => t._key));
 
@@ -2326,7 +2382,7 @@ document.getElementById("syncBtn").onclick = async () => {
 
   // 🔥 LOAD PHOTOS ONCE
 
-const photos = await getAllPhotosFromDB();
+// Read only the current task's photos during upload.
 
 let successful = 0;
 let failed = 0;
@@ -2354,7 +2410,7 @@ for (let taskIndex = 0; taskIndex < completed.length; taskIndex++) {
     message:
       `🔄 Processing task ${taskIndex + 1} of ${completed.length}`
   });
-  const related = photos.filter(p => p.taskKey === task._key);
+  const related = await readPhotoDetails(task._key, true);
 
    if (related.length === 0) {
 
@@ -2889,7 +2945,9 @@ async function pruneOldTasks() {
     await new Promise((resolve, reject) => {
       const tx = db.transaction([TASK_STORE, STORE], "readwrite");
       const store = tx.objectStore(TASK_STORE);
-      const tasks = store.getAll(), photos = tx.objectStore(STORE).getAll();
+      const tasks = store.getAll(), photos = tx.objectStore(STORE).openCursor();
+      const photoKeys = new Set();
+      let photosDone = false;
       const deleted = [];
       const timer = setTimeout(() => { try { tx.abort(); } catch (_) {} reject(new Error("Cleanup timed out")); }, 15000);
       tx.oncomplete = () => {
@@ -2899,8 +2957,7 @@ async function pruneOldTasks() {
       };
       tx.onabort = tx.onerror = () => { clearTimeout(timer); reject(tx.error || new Error("Cleanup failed")); };
       const prune = () => {
-        if (tasks.readyState !== "done" || photos.readyState !== "done") return;
-        const photoKeys = new Set((photos.result || []).map(p => p.taskKey));
+        if (tasks.readyState !== "done" || !photosDone) return;
         for (const task of tasks.result || []) {
           if (resolveStatus(task) !== "PENDING" || photoKeys.has(task._key)) continue;
           const key = String(task.dateKey || "");
@@ -2911,7 +2968,12 @@ async function pruneOldTasks() {
           store.delete(task._key); deleted.push(task._key);
         }
       };
-      tasks.onsuccess = photos.onsuccess = prune;
+      tasks.onsuccess = prune;
+      photos.onsuccess = () => {
+        const cursor = photos.result;
+        if (cursor) { photoKeys.add(cursor.value.taskKey); cursor.continue(); }
+        else { photosDone = true; prune(); }
+      };
     });
   } finally { db.close(); }
 }
@@ -3135,7 +3197,7 @@ function showMessage(message) {
 function compressImage(file, gps, takenAt) {
   return new Promise((resolve, reject) => {
     const img = new Image();
-    let sourceURL, canvas, settled = false;
+    let sourceURL, canvas, bitmap, settled = false;
     const finish = (error, blob) => {
       if (settled) return;
       settled = true;
@@ -3143,6 +3205,7 @@ function compressImage(file, gps, takenAt) {
       img.onload = img.onerror = null;
       img.removeAttribute("src");
       if (sourceURL) URL.revokeObjectURL(sourceURL);
+      if (bitmap) bitmap.close();
       if (canvas) canvas.width = canvas.height = 0;
       if (error) reject(error); else resolve(blob);
     };
@@ -3153,8 +3216,8 @@ function compressImage(file, gps, takenAt) {
       if (settled) return;
       try {
       canvas = document.createElement("canvas");
-      let w = img.width;
-      let h = img.height;
+      let w = bitmap ? bitmap.width : img.width;
+      let h = bitmap ? bitmap.height : img.height;
 
       // ✅ Resize (recommended values)
       if (!w || !h) throw new Error("The photo has no image data.");
@@ -3167,7 +3230,7 @@ function compressImage(file, gps, takenAt) {
 
       const ctx = canvas.getContext("2d");
       if (!ctx) throw new Error("Unable to process the photo on this device.");
-      ctx.drawImage(img, 0, 0, w, h);
+      ctx.drawImage(bitmap || img, 0, 0, w, h);
 
       // =========================
       // 🖊️ WATERMARK OVERLAY
@@ -3228,8 +3291,22 @@ function compressImage(file, gps, takenAt) {
     };
 
     try {
-      sourceURL = URL.createObjectURL(file);
-      img.src = sourceURL;
+      const fallback = () => {
+        if (settled) return;
+        sourceURL = URL.createObjectURL(file);
+        img.src = sourceURL;
+      };
+      if (typeof createImageBitmap === "function") {
+        createImageBitmap(file, { resizeWidth: 1024, resizeQuality: "medium" }).then(decoded => {
+          if (settled) { decoded.close(); return; }
+          bitmap = decoded;
+          img.onload();
+        }).catch(error => {
+          if (error?.name === "NotSupportedError" || error instanceof TypeError) {
+            try { fallback(); } catch (failure) { finish(failure); }
+          } else finish(error);
+        });
+      } else fallback();
     } catch (error) { finish(error); }
   });
 }
@@ -3281,6 +3358,9 @@ window.startPhoto = async function(index, taskKey) {
     return;
   }
 
+  releasePhotoPreviews();
+  taskList.querySelectorAll("img").forEach(img => { if (img.src.startsWith("blob:")) img.removeAttribute("src"); });
+  try { localStorage.setItem(CAPTURE_RECOVERY_KEY, JSON.stringify({ taskKey, photoIndex: index, startedAt: new Date().toISOString() })); } catch (_) {}
   CURRENT_TASK = taskKey;
   CURRENT_PHOTO_INDEX = index;
 
@@ -3290,6 +3370,8 @@ window.startPhoto = async function(index, taskKey) {
 
 
 cameraInput.oncancel = () => {
+  clearCaptureRecovery();
+  applyFiltersOnly();
   CURRENT_TASK = CURRENT_PHOTO_INDEX = null;
 };
 cameraInput.onchange = async e => {
@@ -3320,7 +3402,8 @@ cameraInput.onchange = async e => {
     });
     const previous = PHOTO_BUFFER[taskKey]?.[photoIndex];
     if (!PHOTO_BUFFER[taskKey]) PHOTO_BUFFER[taskKey] = {};
-    PHOTO_BUFFER[taskKey][photoIndex] = { blob, previewURL, takenAt, gps };
+    PHOTO_BUFFER[taskKey][photoIndex] = { previewURL, takenAt, gps, id: taskKey + "_" + photoIndex };
+    clearCaptureRecovery();
     previewURL = null;
     if (previous?.previewURL) URL.revokeObjectURL(previous.previewURL);
     if (photoIndex === 1) ACTIVE_CAPTURE_TASK = taskKey;
@@ -3331,6 +3414,7 @@ cameraInput.onchange = async e => {
     alert(error.message || "Unable to save the photo. Please retry.");
   } finally {
     if (previewURL) URL.revokeObjectURL(previewURL);
+    clearCaptureRecovery();
     cameraInput.value = "";
     PHOTO_CAPTURE_BUSY = false;
     setPhotoProgress("");
@@ -3377,7 +3461,7 @@ cameraInput.onchange = async e => {
 
   if (!(await validateDynamic(taskKey))) return;
 
-  const photos = PHOTO_BUFFER[taskKey];
+  const photos = Object.fromEntries((await readPhotoDetails(taskKey, true)).map(p => [p.photoIndex, p]));
 
   if (!photos || Object.keys(photos).length === 0) {
     alert("Please take at least 1 photo.");
@@ -3419,7 +3503,7 @@ cameraInput.onchange = async e => {
    
      const taskPhotos =
         Object.entries(
-          PHOTO_BUFFER[taskKey] || {}
+          photos || {}
         );
       
       const backupPhotos = [];
@@ -3566,24 +3650,22 @@ updateTaskMapMarkerAfterLocalSubmit(
       const tx = dbi.transaction(STORE, "readwrite");
       const store = tx.objectStore(STORE);
     
-      const req = store.getAll();
-    
+      const req = store.openCursor();
       req.onsuccess = () => {
-        req.result
-          .filter(p => p.taskKey === taskKey)
-          .forEach(p => {
-            store.put({
-              ...p,
-              submitIntent: true
-            });
-          });
+        const cursor = req.result;
+        if (!cursor) return;
+        if (cursor.value.taskKey === taskKey) cursor.update({ ...cursor.value, submitIntent: true });
+        cursor.continue();
       };
-    
+
       tx.oncomplete = resolve;
       tx.onerror = reject;
     });
   
   // 🧠 Photos already saved to IndexedDB at capture time
+  for (const p of Object.values(PHOTO_BUFFER[taskKey] || {})) {
+    if (p.previewURL) URL.revokeObjectURL(p.previewURL);
+  }
   delete PHOTO_BUFFER[taskKey];
   ACTIVE_CAPTURE_TASK = null;
 
@@ -5281,6 +5363,7 @@ async function updateRemainingCounter(tasks) {
 }  
 
  function renderWithPagination(tasks) {
+  releasePhotoPreviews();
   CURRENT_RENDER_LIST = tasks;
   RENDER_OFFSET = 0;
 
@@ -7092,9 +7175,9 @@ function renderOneTask(t) {
 
     /* ===== PREVIEW THUMBNAILS ===== */
     const previews = [1,2,3].map(i => {
-      if (!p[i]?.previewURL) return "";
+      if (!p[i]) return "";
       return `
-        <img src="${p[i].previewURL}"
+        <img data-photo-index="${i}" ${p[i].previewURL ? `src="${p[i].previewURL}"` : ""}
           onclick="window.open('${p[i].previewURL}','_blank')"
           style="
             width:100%;
@@ -7192,6 +7275,20 @@ function renderOneTask(t) {
 
   div.innerHTML = html;
 taskList.appendChild(div);
+  if (Object.keys(p).length && !CURRENT_TASK && !PHOTO_CAPTURE_BUSY) {
+    readPhotoDetails(t._key, true).then(rows => {
+      if (!div.isConnected || CURRENT_TASK || PHOTO_CAPTURE_BUSY) return;
+      const images = div.querySelectorAll("img[data-photo-index]");
+      images.forEach(img => {
+        const photo = p[img.dataset.photoIndex];
+        const row = rows.find(r => String(r.photoIndex) === img.dataset.photoIndex);
+        if (!photo || !row?.blob) return;
+        if (!photo.previewURL) photo.previewURL = URL.createObjectURL(row.blob);
+        img.src = photo.previewURL;
+        img.onclick = () => window.open(photo.previewURL, "_blank");
+      });
+    }).catch(error => console.warn("Photo preview unavailable", error));
+  }
   // 🔒 If sync started while this task was being rendered,
   // immediately lock its controls.
   if (SYNC_RUNNING) {
@@ -7545,6 +7642,8 @@ setTimeout(() => {
 // Sequence startup maintenance before task loading.
 (async () => {
   try {
+    await restoreCapturedPhotoDetails();
+    reportInterruptedCapture();
     await migrateIndexedDBTasks();
     const tasks = await getTasksFromIndexedDB();
     for (const t of tasks) {
