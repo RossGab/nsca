@@ -3802,28 +3802,25 @@ function removeTaskFromUI(taskKey) {
 }
 
 function sortTasksOfflineSafe(tasks) {
-  function getOfflineRank(t) {
-    if (t.status === "OFFLINE_PENDING") return 3;
-    if (t.status === "UPLOADING") return 2;
-
-    const resolved = resolveStatus(t);
-    if (resolved === "READY") return 1;
-    if (resolved === "PENDING") return 1;
-
-    return 9;
+  function getUploadPosition(t) {
+    // Older cached tasks can recover their upload position from the task ID.
+    const idParts = String(t._key || t.taskId || "").match(/^TASK_(\d+)_(\d+)$/);
+    const batch = Number(t.uploadBatch ?? idParts?.[1]);
+    const row = Number(t.rowIndex ?? (idParts ? Number(idParts[2]) + 1 : undefined));
+    return {
+      batch: Number.isFinite(batch) && batch > 0 ? batch : Infinity,
+      row: Number.isFinite(row) && row > 0 ? row : Infinity
+    };
   }
 
   return tasks.sort((a, b) => {
-    const ra = getOfflineRank(a);
-    const rb = getOfflineRank(b);
-  
-    if (ra !== rb) return ra - rb;
-  
-    // ✅ Excel chronological order
-    if (a.rowIndex != null && b.rowIndex != null) {
-      return Number(a.rowIndex) - Number(b.rowIndex);
-    }
-  
+    const pa = getUploadPosition(a);
+    const pb = getUploadPosition(b);
+
+    // Keep whole uploads together, oldest first, then preserve CSV row order.
+    // Task status must not move a task away from its original position.
+    if (pa.batch !== pb.batch) return pa.batch < pb.batch ? -1 : 1;
+    if (pa.row !== pb.row) return pa.row < pb.row ? -1 : 1;
     return 0;
   });
 }
