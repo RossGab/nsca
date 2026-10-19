@@ -53,6 +53,28 @@ h2 { text-align:center; }
   box-shadow:var(--nsca-shadow);
 }
 .assign-task-muted { color:var(--nsca-muted); }
+.task-search {
+  display:flex;
+  flex:1 1 100%;
+  min-width:0;
+  flex-direction:column;
+  gap:6px;
+  margin-top:8px;
+}
+.task-search-label {
+  color:var(--nsca-text);
+  font-size:14px;
+  font-weight:700;
+}
+#searchBox {
+  width:100%;
+  min-width:0;
+  min-height:48px;
+  padding:12px 14px;
+  font:16px Arial,sans-serif;
+  border:2px solid var(--nsca-accent) !important;
+}
+
 
 .panel {
   background:#fff;
@@ -230,12 +252,14 @@ select, input[type="date"] {
     <select id="filterMRU"><option value="">All MRU</option></select>
     <button id="bulkBtn" disabled onclick="openBulkActions()">Bulk Action</button>
     <span id="selectedCount" style="font-size:12px;color:#555;"></span>
-    <input
-  type="text"
-  id="searchBox"
-  placeholder="Search customer, address, account, meter…"
-  style="min-width:220px;"
->
+    <label class="task-search" for="searchBox">
+      <span class="task-search-label">Search tasks</span>
+      <input
+        type="search"
+        id="searchBox"
+        placeholder="Search customer, address, account or meter"
+      >
+    </label>
   </div>
 </div>
 
