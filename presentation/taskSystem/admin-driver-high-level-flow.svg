@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="620" viewBox="0 0 1200 620" role="img" aria-labelledby="title desc">
+<title id="title">High-level Admin and Driver flow</title>
+<desc id="desc">Admin imports, assigns, monitors, and reviews tasks. Drivers download, visit, record, and sync work. Assignments pass to drivers; GPS activity and successfully uploaded results pass to administrators. Offline or failed uploads are retained for retry.</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 10 5 0 10Z" fill="#536b83"/></marker></defs>
+<style>text{font-family:Arial,sans-serif;fill:#17283e;text-anchor:middle;font-size:18px}.small{font-size:14px;fill:#526278}.label{font-size:13px;font-weight:bold;fill:#007e80}.node{fill:white;stroke:#008b8b;stroke-width:2;rx:12}.edge{fill:none;stroke:#536b83;stroke-width:2;marker-end:url(#arrow)}</style>
+<rect width="1200" height="620" rx="16" fill="#f5f8fc"/>
+<text x="35" y="43" style="text-anchor:start;font-size:28px;font-weight:bold">Admin + Driver — High-Level Flow</text>
+<text x="35" y="72" class="small" style="text-anchor:start">Two roles working together through shared task records</text>
+<text x="145" y="108" class="label">ADMIN FLOW</text>
+<rect class="node" x="35" y="130" width="220" height="85"/>
+<text x="145" y="162" class="">Import tasks</text>
+<text x="145" y="188" class="small">Customer, location, and job details</text>
+<path class="edge" d="M255 172H335"/>
+<rect class="node" x="335" y="130" width="220" height="85"/>
+<text x="445" y="162" class="">Assign drivers</text>
+<text x="445" y="188" class="small">Distribute the workload</text>
+<path class="edge" d="M555 172H635"/>
+<rect class="node" x="635" y="130" width="220" height="85"/>
+<text x="745" y="162" class="">Monitor operations</text>
+<text x="745" y="188" class="small">Live map, graphs, and heatmap</text>
+<path class="edge" d="M855 172H935"/>
+<rect class="node" x="935" y="130" width="220" height="85"/>
+<text x="1045" y="162" class="">Review and report</text>
+<text x="1045" y="188" class="small">Evidence, results, and exports</text>
+<text x="145" y="338" class="label">DRIVER FLOW</text>
+<rect class="node" x="35" y="360" width="220" height="85"/>
+<text x="145" y="392" class="">Download assignments</text>
+<text x="145" y="418" class="small">Select driver ID and date</text>
+<path class="edge" d="M255 402H335"/>
+<rect class="node" x="335" y="360" width="220" height="85"/>
+<text x="445" y="392" class="">Find and visit tasks</text>
+<text x="445" y="418" class="small">Search, QR, task map, and GPS</text>
+<path class="edge" d="M555 402H635"/>
+<rect class="node" x="635" y="360" width="220" height="85"/>
+<text x="745" y="392" class="">Record and save work</text>
+<text x="745" y="418" class="small">Outcome and photos on device</text>
+<path class="edge" d="M855 402H935"/>
+<rect class="node" x="935" y="360" width="220" height="85"/>
+<text x="1045" y="392" class="">Sync completed work</text>
+<text x="1045" y="418" class="small">Upload results and photos</text>
+<path class="edge" d="M445 215V255H145V360"/>
+<text x="250" y="244" class="small">Assigned tasks</text>
+<path class="edge" d="M445 360V295H745V215" style="stroke-dasharray:6 4"/>
+<text x="595" y="282" class="small">GPS / activity updates when available</text>
+<path class="edge" d="M1155 402H1180V172H1155"/>
+<text x="1045" y="320" class="small">Successful upload → admin review</text>
+<rect class="node" x="425" y="510" width="535" height="72" style="fill:#fff3df;stroke:#d18a23"/>
+<text x="692" y="538" class="">Offline or upload failed: keep work on device</text>
+<text x="692" y="565" class="small">Reconnect and retry until successfully transferred</text>
+<path class="edge" d="M1045 445V546H960"/>
+<path class="edge" d="M960 568H1165V470H1045V445" style="stroke-dasharray:6 4"/>
+<text x="220" y="545" class="small">Shared records connect both roles.</text>
+<text x="220" y="570" class="small">Admin follow-up guides the next workload.</text>
+</svg>

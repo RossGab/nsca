@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="680" viewBox="0 0 1200 680" role="img" aria-labelledby="title desc">
+<title id="title">NSCA system flowchart</title>
+<desc id="desc">Admin imports and assigns tasks. Drivers download tasks, perform field work, and save locally. Connected devices upload data and photos; offline or failed uploads retain work for retry. Shared records supply admin review, graphs, heatmap, and reports. Driver GPS updates supply the live map.</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 10 5 0 10Z" fill="#536b83"/></marker></defs>
+<style>text{font-family:Arial,sans-serif;fill:#17283e;text-anchor:middle;font-size:17px}.small{font-size:14px;fill:#526278}.heading{font-size:28px;font-weight:bold;text-anchor:start}.label{font-size:13px;font-weight:bold;fill:#007e80}.node{fill:white;stroke:#008b8b;stroke-width:2;rx:12}.cloud{fill:#e7f3fb;stroke:#2583d8;stroke-width:2;rx:12}.offline{fill:#fff3df;stroke:#d18a23;stroke-width:2;rx:12}.edge{fill:none;stroke:#536b83;stroke-width:2;marker-end:url(#arrow)}.retry{stroke-dasharray:6 4}</style>
+<rect width="1200" height="680" rx="16" fill="#f5f8fc"/>
+<text x="35" y="43" class="heading">NSCA — System Flow</text>
+<text x="35" y="70" class="small" style="text-anchor:start">Task operations, offline completion, and monitoring</text>
+<g>
+<rect class="node" x="35" y="105" width="175" height="75"/><text x="122" y="132" class="label">ADMINISTRATOR</text><text x="122" y="157">Import task CSV</text>
+<rect class="node" x="260" y="105" width="175" height="75"/><text x="347" y="132" class="label">ADMINISTRATOR</text><text x="347" y="157">Assign driver</text>
+<rect class="node" x="485" y="105" width="175" height="75"/><text x="572" y="132" class="label">DRIVER</text><text x="572" y="157">Download tasks</text>
+<rect class="node" x="710" y="105" width="200" height="75"/><text x="810" y="132" class="label">DRIVER · FIELD WORK</text><text x="810" y="157">Outcome + photos</text>
+<rect class="node" x="960" y="105" width="205" height="75"/><text x="1062" y="132" class="label">DEVICE STORAGE</text><text x="1062" y="157">Save locally</text>
+<path class="edge" d="M210 143H260"/><path class="edge" d="M435 143H485"/><path class="edge" d="M660 143H710"/><path class="edge" d="M910 143H960"/>
+<path class="edge" d="M1062 180V222"/>
+<path d="M1062 222 1155 270 1062 318 969 270Z" fill="#e5f3f2" stroke="#008b8b" stroke-width="2"/>
+<text x="1062" y="264">Internet</text><text x="1062" y="285">available?</text>
+<rect class="node" x="710" y="232" width="200" height="76"/><text x="810" y="261">Upload details</text><text x="810" y="284">and photos</text>
+<path class="edge" d="M969 270H910"/><text x="940" y="255" class="small">Yes</text>
+<rect class="offline" x="960" y="358" width="205" height="82"/><text x="1062" y="385">Keep work on device</text><text x="1062" y="410" class="small">Reconnect / retry</text>
+<path class="edge" d="M1062 318V358"/><text x="1084" y="343" class="small">No</text>
+<path class="edge retry" d="M1165 399H1183V270H1155"/>
+<path class="edge" d="M810 308V399H960"/><text x="870" y="387" class="small">Upload fails</text>
+<rect class="cloud" x="440" y="232" width="220" height="76"/><text x="550" y="258">Shared task records</text><text x="550" y="283" class="small">Successful upload: COMPLETED</text>
+<path class="edge" d="M710 270H660"/><text x="685" y="252" class="small">Success</text>
+<path class="edge" d="M347 180V207H550V232"/>
+<text x="390" y="198" class="small">Assigned records</text>
+<rect class="cloud" x="35" y="232" width="285" height="76"/><text x="177" y="260">Driver GPS + activity updates</text><text x="177" y="284" class="small">When location and connectivity allow</text>
+<path class="edge" d="M177 308V490"/>
+<path class="edge" d="M550 308V458H432V490"/>
+<path class="edge" d="M550 458H702V490"/>
+<path class="edge" d="M702 458H1022V490"/>
+<text x="560" y="438" class="label">ADMIN MONITORING &amp; REVIEW</text>
+<rect class="node" x="35" y="490" width="285" height="85"/><text x="177" y="519">Live driver map</text><text x="177" y="545" class="small">Location · Active / Idle / Offline</text>
+<rect class="node" x="345" y="490" width="230" height="85"/><text x="460" y="519">Task summary + graphs</text><text x="460" y="545" class="small">Workload · Completions by hour</text>
+<rect class="node" x="600" y="490" width="230" height="85"/><text x="715" y="519">7-day completion heatmap</text><text x="715" y="545" class="small">Completed / total by created date</text>
+<rect class="node" x="855" y="490" width="310" height="85"/><text x="1010" y="519">Review evidence + export reports</text><text x="1010" y="545" class="small">Task details · Photos · Report filters</text>
+<path class="edge" d="M177 575V602H600V628"/><path class="edge" d="M460 575V602"/><path class="edge" d="M715 575V602H600"/><path class="edge" d="M1010 575V602H715"/>
+<text x="600" y="654" style="font-weight:bold">Admin follow-up and workload decisions</text>
+</g></svg>

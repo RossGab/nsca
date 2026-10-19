@@ -15,6 +15,45 @@ body {
 
 h2 { text-align:center; }
 
+.upload-csv-button {
+  padding:8px 12px;
+  border:1px solid var(--nsca-primary);
+  border-radius:6px;
+  background:var(--nsca-primary);
+  color:#fff;
+  font-weight:700;
+  cursor:pointer;
+}
+.upload-csv-button:disabled {
+  background:var(--nsca-border);
+  border-color:var(--nsca-border);
+  color:var(--nsca-text);
+  cursor:wait;
+}
+.upload-csv-button:focus-visible {
+  outline:3px solid var(--nsca-accent);
+  outline-offset:3px;
+}
+#csvFile::file-selector-button {
+  padding:6px 10px;
+  border:0;
+  border-right:1px solid var(--nsca-border);
+  background:var(--nsca-surface);
+  color:var(--nsca-text);
+  cursor:pointer;
+}
+.assign-task-card {
+  background:var(--nsca-surface);
+  color:var(--nsca-text);
+  padding:10px;
+  margin-bottom:8px;
+  border:1px solid var(--nsca-border);
+  border-left:4px solid orange;
+  border-radius:8px;
+  box-shadow:var(--nsca-shadow);
+}
+.assign-task-muted { color:var(--nsca-muted); }
+
 .panel {
   background:#fff;
   padding:14px;
@@ -156,13 +195,7 @@ select, input[type="date"] {
     <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
       <input type="file" id="csvFile" accept=".csv">
 
-      <button onclick="uploadCSV(this)" style="
-        padding:8px 12px;
-        border-radius:6px;
-        border:1px solid #ccc;
-        background:#f5f5f5;
-        cursor:pointer;
-      ">
+      <button class="upload-csv-button" onclick="uploadCSV(this)">
         Upload CSV
       </button>
     </div>
@@ -408,13 +441,7 @@ let TASKS = [];
 window.__TASKS_DATA__ = [];
 
 const PAGE_SIZE = 100;
-const FIRESTORE_PAGE_SIZE = 100;
-
-let FIRESTORE_LAST_DOC = null;
-let FIRESTORE_HAS_MORE = false;
-let FIRESTORE_CURRENT_DATE = null;
-let FIRESTORE_PAGE = 0;
-let FIRESTORE_LOADING = false;
+const FIRESTORE_PAGE_SIZE = 500;
 
 let CURRENT_PAGE = 0;
 let FILTERED_TASKS = [];
@@ -529,132 +556,28 @@ function toPHTime(ts) {
   });
 }
 
-async function loadLiveTasksFromFirebase(
-  dateKey,
-  onProgress,
-  direction = "first"
-) {
+async function loadLiveTasksFromFirebase(dateKey, cursor = null) {
+  const firestoreDate =
+    `${dateKey.slice(0, 4)}-${dateKey.slice(4, 6)}-${dateKey.slice(6, 8)}`;
+  const constraints = [
+    where("assignedDate", "==", firestoreDate),
+    // IDs stay stable when tasks are edited and include tasks without createdAt.
+    orderBy(documentId())
+  ];
+  if (cursor !== null) constraints.push(startAfter(cursor));
+  constraints.push(limit(FIRESTORE_PAGE_SIZE));
 
-  if (FIRESTORE_LOADING) {
-    console.log("🔥 Firestore load already running");
-    return [];
+  const snapshot = await getDocs(query(collection(db, "TASK"), ...constraints));
+  const nextCursor = snapshot.docs.at(-1)?.id ?? null;
+  if (cursor !== null && nextCursor !== null && nextCursor <= cursor) {
+    throw new Error(`Task pagination did not advance for ${firestoreDate}`);
   }
 
-  FIRESTORE_LOADING = true;
-
-  try {
-
-    const firestoreDate =
-      `${dateKey.slice(0, 4)}-${dateKey.slice(4, 6)}-${dateKey.slice(6, 8)}`;
-
-    console.log(
-      `🔥 Firestore ${direction}: ${firestoreDate}`
-    );
-
-    const tasksRef = collection(db, "TASK");
-
-    let q;
-
-    if (
-      direction === "first" ||
-      !FIRESTORE_LAST_DOC
-    ) {
-
-      q = query(
-        tasksRef,
-        where("assignedDate", "==", firestoreDate),
-        orderBy("createdAt"),
-        orderBy(documentId()),
-        limit(FIRESTORE_PAGE_SIZE)
-      );
-
-    } else {
-
-      q = query(
-        tasksRef,
-        where("assignedDate", "==", firestoreDate),
-        orderBy("createdAt"),
-        orderBy(documentId()),
-        startAfter(FIRESTORE_LAST_DOC),
-        limit(FIRESTORE_PAGE_SIZE)
-      );
-
-    }
-
-    const snapshot = await getDocs(q);
-
-    const results = [];
-
-    snapshot.forEach(docSnap => {
-
-      results.push({
-        _key: docSnap.id,
-        ...docSnap.data()
-      });
-
-    });
-
-    const previousCursorId = FIRESTORE_LAST_DOC?.id || "";
-    const nextCursor = snapshot.docs.length > 0
-      ? snapshot.docs[snapshot.docs.length - 1]
-      : null;
-
-    if (nextCursor) {
-      FIRESTORE_LAST_DOC =
-        nextCursor;
-    }
-
-    FIRESTORE_HAS_MORE =
-      snapshot.docs.length === FIRESTORE_PAGE_SIZE;
-
-    // Never allow a repeated Firestore page to create an infinite loop and
-    // repeated reads. A valid next page must advance to a different last doc.
-    if (
-      direction === "next" &&
-      nextCursor &&
-      nextCursor.id === previousCursorId
-    ) {
-      console.error(
-        "Firestore pagination stopped because the cursor did not advance:",
-        nextCursor.id
-      );
-      FIRESTORE_HAS_MORE = false;
-    }
-
-    FIRESTORE_CURRENT_DATE = dateKey;
-
-    console.log(
-      `🔥 Firestore returned ${results.length} tasks`
-    );
-
-    console.log(
-      `🔥 Has more: ${FIRESTORE_HAS_MORE}`
-    );
-
-    if (onProgress) {
-      onProgress(
-        100,
-        results.length,
-        results.length
-      );
-    }
-
-    return results;
-
-  } catch (e) {
-
-    console.error(
-      "🔥 Firestore load failed:",
-      e
-    );
-
-    return [];
-
-  } finally {
-
-    FIRESTORE_LOADING = false;
-
-  }
+  return {
+    tasks: snapshot.docs.map(docSnap => ({ ...docSnap.data(), _key: docSnap.id })),
+    cursor: nextCursor,
+    hasMore: snapshot.docs.length === FIRESTORE_PAGE_SIZE
+  };
 }
 
 /* ===== LOAD TASKS - FIRESTORE ONLY ===== */
@@ -731,72 +654,32 @@ async function loadTasks() {
       loadingText.innerText = `Cache updated (${updates.length} change(s))`;
     } else {
 
-    // 🔥 FIRESTORE ONLY
-    // Load the selected dates directly from Firestore.
-    for (let i = 0; i < dateKeys.length; i++) {
+      for (let i = 0; i < dateKeys.length; i++) {
+        let cursor = null;
+        let loadedForDate = 0;
+        let hasMore = true;
+        const loadedIdsForDate = new Set();
 
-      const key = dateKeys[i];
-
-      // Reset Firestore pagination for every date.
-      FIRESTORE_LAST_DOC = null;
-      FIRESTORE_HAS_MORE = false;
-      FIRESTORE_CURRENT_DATE = null;
-      FIRESTORE_PAGE = 0;
-
-      loadingText.innerText =
-        `Loading Firestore ${i + 1} / ${dateKeys.length}`;
-
-      const result = await loadLiveTasksFromFirebase(
-        key,
-        (p, loaded, total) => {
-
-          const dateProgress =
-            ((i + (p / 100)) / dateKeys.length) * 100;
-
-          loadingProgress.style.width =
-            Math.min(100, dateProgress) + "%";
-
+        while (hasMore) {
           loadingText.innerText =
-            `Loading Firestore... (${loaded}/${total})`;
-        },
-        "first"
-      );
-
-      result.forEach(t => {
-        if (t.deleted === true) return;
-        rangeTasks.push(t);
-        if (t.status !== "COMPLETED") {
-          allTasks.push(t);
+            `Loading date ${i + 1}/${dateKeys.length} (${loadedForDate} tasks)...`;
+          const page = await loadLiveTasksFromFirebase(dateKeys[i], cursor);
+          for (const task of page.tasks) {
+            if (loadedIdsForDate.has(task._key)) {
+              throw new Error(`Task pagination repeated a task for ${dateKeys[i]}`);
+            }
+            loadedIdsForDate.add(task._key);
+          }
+          rangeTasks.push(...excludeDeletedTasks(page.tasks));
+          loadedForDate += page.tasks.length;
+          cursor = page.cursor;
+          hasMore = page.hasMore;
+          loadingText.innerText =
+            `Loading date ${i + 1}/${dateKeys.length} (${loadedForDate} tasks loaded)...`;
+          loadingProgress.style.width =
+            ((i + (hasMore ? 0.5 : 1)) / dateKeys.length * 100) + "%";
         }
-      });
-
-      const loadedIdsForDate = new Set(result.map(task => task._key));
-      let pageSafetyCount = 0;
-
-      while (FIRESTORE_HAS_MORE) {
-        pageSafetyCount++;
-        if (pageSafetyCount > 1000) {
-          console.error("Firestore pagination stopped at the safety limit.");
-          FIRESTORE_HAS_MORE = false;
-          break;
-        }
-
-        const nextPage = await loadLiveTasksFromFirebase(key, null, "next");
-        const uniqueNextPage = nextPage.filter(task => {
-          if (loadedIdsForDate.has(task._key)) return false;
-          loadedIdsForDate.add(task._key);
-          return true;
-        });
-
-        if (nextPage.length && uniqueNextPage.length === 0) {
-          console.error("Firestore pagination returned a duplicate page; loading stopped.");
-          FIRESTORE_HAS_MORE = false;
-          break;
-        }
-
-        rangeTasks.push(...excludeDeletedTasks(uniqueNextPage));
       }
-    }
 
       await writeTaskCache(from, to, rangeTasks, { full: true });
     }
@@ -890,7 +773,8 @@ async function loadTasks() {
   } catch (err) {
 
     console.error("❌ loadTasks failed:", err);
-    alert("Something went wrong while loading tasks");
+    loadingBar.style.display = "none";
+    alert("Tasks could not be fully loaded. Please try again. " + err.message);
 
   } finally {
 
@@ -1133,14 +1017,7 @@ function renderTasks(data) {
     const div =
       document.createElement("div");
 
-    div.style.cssText = `
-      background:#fff;
-      padding:10px;
-      margin-bottom:8px;
-      border-radius:8px;
-      box-shadow:0 0 4px rgba(0,0,0,.1);
-      border-left:4px solid orange;
-    `;
+    div.className = "assign-task-card";
 
     div.innerHTML = `
 
@@ -1157,9 +1034,9 @@ function renderTasks(data) {
           onchange="toggleSelect(this)"
         >
 
-        <div style="
+        <div class="assign-task-muted" style="
           font-size:11px;
-          color:#777;
+
         ">
           ${t.workStatus || "fordownload"}
         </div>
@@ -1172,9 +1049,8 @@ function renderTasks(data) {
       </div>
 
       <!-- ADDRESS -->
-      <div style="
+      <div class="assign-task-muted" style="
         font-size:12px;
-        color:#555;
       ">
         ${t.address || ""}
       </div>
@@ -1242,9 +1118,9 @@ function renderTasks(data) {
       </div>
 
       <!-- LOCATION -->
-      <div style="
+      <div class="assign-task-muted" style="
         font-size:11px;
-        color:#777;
+
         margin-top:3px;
       ">
 
@@ -1260,9 +1136,9 @@ function renderTasks(data) {
       </div>
 
       <!-- CREATED -->
-      <div style="
+      <div class="assign-task-muted" style="
         font-size:11px;
-        color:#999;
+
         margin-top:4px;
       ">
 

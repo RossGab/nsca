@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="620" viewBox="0 0 1200 620" role="img" aria-labelledby="title desc">
+<title id="title">Driver app workflow</title>
+<desc id="desc">Validate driver ID, select date, download tasks, search or scan, view details and map, perform work, record fields and photos, submit and save locally. When connected, sync completed tasks. Failed or offline uploads retain local work for retry; successful upload makes completion available for admin review.</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 10 5 0 10Z" fill="#536b83"/></marker></defs>
+<style>text{font-family:Arial,sans-serif;fill:#17283e;text-anchor:middle;font-size:18px}.small{font-size:14px;fill:#526278}.node{fill:white;stroke:#008b8b;stroke-width:2;rx:12}.edge{fill:none;stroke:#536b83;stroke-width:2;marker-end:url(#arrow)}.label{font-size:13px;font-weight:bold;fill:#007e80}</style>
+<rect width="1200" height="620" rx="16" fill="#f5f8fc"/>
+<text x="35" y="43" style="text-anchor:start;font-size:28px;font-weight:bold">Driver App — Field Work Flow</text>
+<text x="35" y="71" class="small" style="text-anchor:start">Prepare online, complete work on site, then transfer saved results</text>
+<rect class="node" x="35" y="105" width="235" height="80"/><text x="152" y="132" class="label">START</text><text x="152" y="158">Validate driver ID</text>
+<rect class="node" x="335" y="105" width="235" height="80"/><text x="452" y="137">Select date</text><text x="452" y="163">Download assignments</text>
+<rect class="node" x="635" y="105" width="235" height="80"/><text x="752" y="137">Find a task</text><text x="752" y="163" class="small">Search / filter / scan meter QR</text>
+<rect class="node" x="935" y="105" width="230" height="80"/><text x="1050" y="137">View details / map</text><text x="1050" y="163" class="small">Locate and visit the customer</text>
+<path class="edge" d="M270 145H335"/><path class="edge" d="M570 145H635"/><path class="edge" d="M870 145H935"/>
+<path class="edge" d="M1050 185V240"/>
+<rect class="node" x="935" y="240" width="230" height="80"/><text x="1050" y="272">Perform field work</text><text x="1050" y="298" class="small">Complete the assigned job</text>
+<rect class="node" x="635" y="240" width="235" height="80"/><text x="752" y="272">Record outcome</text><text x="752" y="298" class="small">Completion fields + photos</text>
+<rect class="node" x="335" y="240" width="235" height="80"/><text x="452" y="272">Submit and save locally</text><text x="452" y="298" class="small">LOCAL_COMPLETED</text>
+<path class="edge" d="M935 280H870"/><path class="edge" d="M635 280H570"/>
+<path class="edge" d="M335 280H257"/>
+<path d="M152 220 257 280 152 340 47 280Z" fill="#e5f3f2" stroke="#008b8b" stroke-width="2"/>
+<text x="152" y="274">Internet</text><text x="152" y="297">available?</text>
+<path class="edge" d="M152 340V400"/><text x="176" y="373" class="small">Yes</text>
+<rect class="node" x="35" y="400" width="235" height="80"/><text x="152" y="433">Sync completed tasks</text><text x="152" y="459" class="small">Upload details and photos</text>
+<path class="edge" d="M270 440H347"/>
+<path d="M452 380 557 440 452 500 347 440Z" fill="#e5f3f2" stroke="#008b8b" stroke-width="2"/>
+<text x="452" y="434">Upload</text><text x="452" y="457">successful?</text>
+<rect class="node" x="635" y="400" width="235" height="80" style="fill:#e7f3fb;stroke:#2583d8"/><text x="752" y="433">Cloud task completed</text><text x="752" y="459" class="small">Available for admin review</text>
+<path class="edge" d="M557 440H635"/><text x="590" y="426" class="small">Yes</text>
+<rect class="node" x="935" y="400" width="230" height="80"/><text x="1050" y="433">Continue with next task</text><text x="1050" y="459" class="small">Or finish the day's work</text>
+<path class="edge" d="M870 440H935"/>
+<rect class="node" x="335" y="535" width="330" height="65" style="fill:#fff3df;stroke:#d18a23"/><text x="500" y="560">Keep saved work on device</text><text x="500" y="583" class="small">Reconnect and retry pending uploads</text>
+<path class="edge" d="M47 280H15V567H335"/><text x="35" y="365" class="small">No</text>
+<path class="edge" d="M452 500V535"/><text x="476" y="523" class="small">No</text>
+<path class="edge" d="M335 582H290V512H152V480" style="stroke-dasharray:6 4"/>
+<text x="921" y="550" class="small">Downloaded tasks support offline field work.</text>
+<text x="921" y="575" class="small">GPS / map availability depends on the device and network.</text>
+</svg>

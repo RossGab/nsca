@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NSCA System Flow Presentation</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#101c30;color:#17283e;font-family:Arial,sans-serif}nav{position:sticky;top:0;display:flex;justify-content:center;gap:12px;padding:12px;background:#101c30;z-index:2}button{border:0;border-radius:7px;padding:10px 18px;cursor:pointer;background:#fff;color:#17283e}button:focus-visible{outline:3px solid #22c8bd}.slide{background:#f5f8fc;max-width:1280px;min-height:720px;margin:24px auto;padding:54px 60px;border-radius:12px;position:relative}.eyebrow{color:#007e80;font-size:16px;font-weight:bold;letter-spacing:2px}h1{font-size:44px;margin:16px 0}h2{font-size:35px;margin:16px 0}.intro{font-size:21px;color:#526278;line-height:1.5;max-width:980px}.flow{display:grid;grid-template-columns:repeat(3,1fr);gap:22px;margin:32px 0}.card{background:#fff;border:1px solid #d6e0ec;border-top:5px solid #008b8b;border-radius:12px;padding:22px;min-height:155px}.number{font-size:14px;font-weight:bold;color:#007e80}.card h3{font-size:23px;margin:10px 0}.card p{font-size:18px;line-height:1.45;margin:0;color:#526278}.strip{padding:20px;background:#172e4b;color:#fff;border-radius:10px;font-size:21px;line-height:1.5}.lanes{display:grid;grid-template-columns:180px 1fr;gap:16px;margin:30px 0}.role{display:flex;align-items:center;font-size:21px;font-weight:bold;color:#007e80}.steps{background:#fff;border:1px solid #d6e0ec;border-radius:10px;padding:22px;font-size:21px;line-height:1.6}.branch{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin:25px 0}.branch .card{min-height:200px}.offline{border-top-color:#d18a23}.foot{margin-top:30px;color:#607087;font-size:15px}.note{font-size:18px;line-height:1.6;color:#526278}code{font-size:16px;background:#e6edf5;padding:3px 6px;border-radius:4px}@media(max-width:800px){.slide{margin:12px;padding:26px;min-height:auto}h1{font-size:32px}.flow,.branch{grid-template-columns:1fr}.lanes{grid-template-columns:1fr}}@media print{@page{size:landscape;margin:0}body{background:white}nav{display:none}.slide{margin:0;border-radius:0;max-width:none;min-height:100vh;padding:35px 45px;break-after:page;print-color-adjust:exact;-webkit-print-color-adjust:exact}.slide:last-child{break-after:auto}h1{font-size:36px}h2{font-size:30px}.card{min-height:130px;padding:18px}.card p{font-size:16px}.flow{margin:22px 0}}
+</style>
+</head>
+<body>
+<nav aria-label="Presentation controls"><button onclick="move(-1)">Previous</button><button onclick="move(1)">Next</button><button onclick="window.print()">Print / Save PDF</button></nav>
+<main>
+<section class="slide" id="slide-1">
+<div class="eyebrow">NSCA · SYSTEM FLOW</div>
+<h1>From task assignment to completed work</h1>
+<p class="intro">A shared workflow for administrators and drivers, with local storage supporting field work when internet access is unavailable.</p>
+<div class="flow">
+<article class="card"><span class="number">01 → ADMINISTRATOR</span><h3>Import tasks</h3><p>Upload a CSV containing customer, location, and job details.</p></article>
+<article class="card"><span class="number">02 → ADMINISTRATOR</span><h3>Assign a driver</h3><p>Select tasks and assign them to the responsible driver.</p></article>
+<article class="card"><span class="number">03 → DRIVER</span><h3>Download tasks</h3><p>Load assigned work onto the device for use in the field.</p></article>
+<article class="card"><span class="number">04 → DRIVER</span><h3>Perform field work</h3><p>View task details and maps, record the outcome, and capture supporting photos.</p></article>
+<article class="card"><span class="number">05 → DRIVER / SYSTEM</span><h3>Upload completed work</h3><p>Transfer locally completed task data and photos when connected.</p></article>
+<article class="card"><span class="number">06 → ADMINISTRATOR</span><h3>Monitor and report</h3><p>Review task progress and evidence, then export task reports.</p></article>
+</div>
+<div class="strip">Import → Assign → Download → Perform → Upload → Review &amp; Report</div>
+<p class="foot">1 / 11 · Main operational workflow</p>
+</section>
+<section class="slide" id="slide-2">
+<div class="eyebrow">ROLES &amp; INFORMATION FLOW</div>
+<h2>How the users and system connect</h2>
+<p class="intro">The cloud holds shared task records. The driver device holds downloaded work and completed items awaiting upload.</p>
+<div class="lanes">
+<div class="role">Administrator</div><div class="steps">Import CSV → Assign tasks → Monitor drivers and tasks → Review evidence → Export reports</div>
+<div class="role">Cloud system</div><div class="steps">Store task records ↔ Exchange task updates with devices<br>Store uploaded photos → Provide completion data for dashboards and reports</div>
+<div class="role">Driver</div><div class="steps">Select / validate driver ID → Download assigned tasks → Visit location → Record outcome and photos → Upload</div>
+<div class="role">Device storage</div><div class="steps">Keep downloaded tasks → Save field completion locally → Retain work awaiting successful transfer</div>
+</div>
+<div class="strip">Shared visibility: task status, completion details, supporting photos, and driver location updates when available.</div>
+<p class="foot">2 / 11 · Task records: Firestore · Photos: Firebase Storage · Driver location updates: Realtime Database · Local work: IndexedDB</p>
+</section>
+<section class="slide" id="slide-3">
+<div class="eyebrow">OFFLINE WORK &amp; COMPLETION</div>
+<h2>Field completion continues without internet</h2>
+<p class="intro">After downloading tasks, the driver records completed work on the device. A local completion becomes a shared cloud completion after a successful upload.</p>
+<div class="strip">Downloaded task → Record outcome &amp; photos → Save locally → Check connectivity</div>
+<div class="branch">
+<article class="card"><span class="number">CONNECTED</span><h3>Upload to the cloud</h3><p>Transfer task details and photos. Successful transfer marks the shared task completed, making it available for admin review and reporting.</p></article>
+<article class="card offline"><span class="number">OFFLINE / UPLOAD FAILED</span><h3>Keep work on the device</h3><p>Retain the local completion. Restore connectivity and retry the upload. Recovery tools can restore saved completion backups if needed.</p></article>
+</div>
+<p class="note">Presentation status flow: <strong>Assigned / pending → Downloaded → Completed locally → Uploaded / completed</strong></p>
+<p class="note">The driver stores unsent completion as <code>LOCAL_COMPLETED</code>; successful cloud completion uses <code>COMPLETED</code>. A task saved only on the device still needs transfer before it appears as completed in shared reports.</p>
+<p class="foot">3 / 11 · Offline handling and successful transfer</p>
+</section>
+<section class="slide" id="slide-4">
+<div class="eyebrow">MONITORING &amp; OPERATIONAL VISIBILITY</div>
+<h2>See driver activity, workload, and progress</h2>
+<p class="intro">Three dashboard views help administrators locate drivers, compare outstanding work, and track completion across days.</p>
+<div class="flow">
+<article class="card"><span class="number">01 · LIVE MAP</span><h3>Where are drivers?</h3><p>View reported GPS locations and driver activity. Select a driver to inspect their location and open tasks.</p><div style="margin-top:20px;font-size:16px;line-height:1.8"><span style="color:#258735">● Active</span> &nbsp; <span style="color:#b77500">● Idle</span> &nbsp; <span style="color:#bd3434">● Offline</span></div><p style="margin-top:12px;font-size:15px">Activity reflects the latest driver update; location refreshes depend on GPS and connectivity.</p></article>
+<article class="card"><span class="number">02 · TASK SUMMARY &amp; GRAPHS</span><h3>How much work remains?</h3><p>Compare each driver's For Download, Pending, and Completed counts using the summary table and stacked workload bars.</p><div role="img" aria-label="Illustrative workload bar: for download, pending, and completed" style="display:flex;height:24px;border-radius:5px;overflow:hidden;margin-top:20px"><span style="width:20%;background:#2583d8"></span><span style="width:30%;background:#f3a72f"></span><span style="width:50%;background:#2f8a27"></span></div><p style="margin-top:10px;font-size:15px">Blue: For Download · Amber: Pending · Green: Completed</p><p style="margin-top:12px;font-size:15px">A second graph shows completed tasks by hour in Philippine time. BA and job-type filters narrow the view.</p></article>
+<article class="card"><span class="number">03 · COMPLETION HEATMAP</span><h3>How is progress changing?</h3><p>View a seven-day grid by driver and task-created date. Each cell shows completed tasks ÷ total tasks as a percentage.</p><div role="img" aria-label="Illustrative heatmap color scale from no tasks through full completion" style="display:flex;gap:5px;margin-top:20px;font-size:14px;text-align:center"><span style="flex:1;padding:10px 2px;background:#e5e7eb">—</span><span style="flex:1;padding:10px 2px;background:#f8a6a6">35%</span><span style="flex:1;padding:10px 2px;background:#f9dc79">65%</span><span style="flex:1;padding:10px 2px;background:#9bd69b">90%</span><span style="flex:1;padding:10px 2px;background:#3a963a;color:white">100%</span></div><p style="margin-top:10px;font-size:15px">Gray: No tasks · Red: &lt;50% · Amber: 50–79% · Light green: 80–99% · Green: 100%</p><p style="margin-top:12px;font-size:15px">Browse previous periods and refresh to review recent progress.</p></article>
+</div>
+<div class="strip">Driver location updates → Live map<br>Shared task records → Summary &amp; graphs → Completion heatmap → Admin follow-up</div>
+<p class="foot">4 / 11 · Visual examples are illustrative. Summary graphs use cached task data; sync for changes. Heatmap ends yesterday, using older report snapshots and a live check for yesterday.</p>
+</section>
+<section class="slide" id="slide-5">
+<div class="eyebrow">COMPLETE SYSTEM FLOWCHART</div>
+<h2>How the system works from start to finish</h2>
+<img src="system-flow.svg" alt="NSCA flowchart showing task import, driver assignment, download, field work, offline completion, upload, and admin monitoring" style="display:block;width:100%;height:auto">
+<p class="foot">5 / 11 · Follow the arrows for task operations; the lower branches show monitoring and review. <a href="system-flow.svg" target="_blank" rel="noopener">Open full-size flowchart</a></p>
+</section>
+<section class="slide" id="slide-6">
+<div class="eyebrow">DRIVER APP FEATURES</div>
+<h2>A field workspace for every assigned task</h2>
+<p class="intro">Drivers can find their assignments, record work on site, and transfer completed results back to the administrator.</p>
+<div class="flow">
+<article class="card"><span class="number">01 · GET READY</span><h3>Download assignments</h3><p>Use a validated driver ID, select a date, and download assigned tasks. Task counters show available work.</p></article>
+<article class="card"><span class="number">02 · FIND WORK</span><h3>Search, filter &amp; scan</h3><p>Search task records, filter by date and job type, or scan a QR code to find the matching task.</p></article>
+<article class="card"><span class="number">03 · LOCATE TASKS</span><h3>Task map &amp; GPS</h3><p>View tasks on a map, explore task clusters, and center on My Location. GPS activity updates support admin monitoring when connected.</p></article>
+<article class="card"><span class="number">04 · RECORD RESULTS</span><h3>Details &amp; photo evidence</h3><p>Open customer and job details, fill in the configured completion fields, and capture supporting photos before submitting.</p></article>
+<article class="card"><span class="number">05 · WORK OFFLINE</span><h3>Save on the device</h3><p>Use previously downloaded tasks and save completion data and photos locally. The offline indicator shows connectivity status.</p></article>
+<article class="card"><span class="number">06 · FINISH &amp; RECOVER</span><h3>Sync, retry &amp; backup</h3><p>Sync completed tasks, see upload progress and success/failure counts, and retry pending uploads. Completion backup files support recovery.</p></article>
+</div>
+<div class="strip">Download → Search / Scan → Locate → Record &amp; Capture → Save locally → Sync</div>
+<p class="foot">6 / 11 · Download before going offline. Map tiles, QR scanning, and GPS depend on network availability, browser support, and device permissions as applicable.</p>
+</section>
+<section class="slide" id="slide-7">
+<div class="eyebrow">DRIVER APP WORKFLOW</div>
+<h2>From assignment download to completed upload</h2>
+<img src="driver-app-flow.svg" alt="Driver app flowchart: validate ID, download, find task, visit, record outcome and photos, save locally, sync, and retry if offline or upload fails" style="display:block;width:100%;height:auto">
+<p class="foot">7 / 11 · Follow the arrows across the top, back through field completion, then down to sync. <a href="driver-app-flow.svg" target="_blank" rel="noopener">Open full-size driver flowchart</a></p>
+</section>
+<section class="slide" id="slide-8">
+<div class="eyebrow">ADMIN &amp; DRIVER · HIGH-LEVEL FLOW</div>
+<h2>How administrators and drivers work together</h2>
+<img src="admin-driver-high-level-flow.svg" alt="High-level Admin and Driver flowchart with assignment handoff, activity monitoring, completed result upload, and offline retry" style="display:block;width:100%;height:auto">
+<p class="foot">8 / 11 · Each lane summarizes one role. Arrows between lanes show task assignment, driver activity, and completed results. <a href="admin-driver-high-level-flow.svg" target="_blank" rel="noopener">Open full-size high-level flowchart</a></p>
+</section>
+<section class="slide" id="slide-9">
+<div class="eyebrow">TASK VIEWER · HOW TO USE</div>
+<h2>Find and review completed task records</h2>
+<p class="intro">Use Task Viewer to check customer details, recorded outcomes, completion times, and photo evidence within your assigned BA access.</p>
+<div class="flow">
+<article class="card"><span class="number">01 · SIGN IN</span><h3>Open Task Viewer</h3><p>Open login-taskview.html, enter your registered email and password, and click Login. Your account must be active and authorized for Task Viewer.</p></article>
+<article class="card"><span class="number">02 · CHOOSE PERIOD</span><h3>Select From and To dates</h3><p>Choose the date range for the assigned tasks you want to review. Wait for the loading indicator while records are retrieved.</p></article>
+<article class="card"><span class="number">03 · FIND RECORDS</span><h3>Search &amp; filter by BA</h3><p>Type a customer name, meter number, account number, or driver ID in Search. Select BA filters to narrow the available results.</p></article>
+<article class="card"><span class="number">04 · INSPECT A TASK</span><h3>Open the task header</h3><p>Click a customer task header to expand the record. Review the driver, completion time, customer details, and configured result fields.</p></article>
+<article class="card"><span class="number">05 · CHECK EVIDENCE</span><h3>Click Load Photos</h3><p>Load the uploaded photos for the expanded task. If none are available, the button shows No photos. Click the header again to collapse details.</p></article>
+<article class="card"><span class="number">06 · FINISH REVIEW</span><h3>Browse pages &amp; log out</h3><p>Use Prev and Next to review additional results. If no tasks appear, check dates, search, and BA filters. Click Logout when finished.</p></article>
+</div>
+<div class="strip">Login → Select dates → Search / Filter → Open task → Load photos → Logout</div>
+<p class="foot">9 / 11 · Results are limited to configured BA access. Date selection retrieves tasks by assigned date; the displayed completion time may differ. The Config button is available to Task Viewer admins.</p>
+</section>
+<section class="slide" id="slide-10">
+<div class="eyebrow">TASK VIEWER · VISIBILITY FLOW</div>
+<h2>How completed tasks become viewable</h2>
+<img src="taskviewer-flow.svg" alt="Task Viewer visibility flow showing completion upload, account authorization, assigned dates, snapshots and live records, BA filtering, task cards, and photo review" style="display:block;width:100%;height:auto">
+<p class="foot">10 / 11 · Tasks are shown within the user's configured BA access and selected assigned dates. <a href="taskviewer-flow.svg" target="_blank" rel="noopener">Open full-size Task Viewer flowchart</a></p>
+</section>
+<section class="slide" id="slide-11">
+<div class="eyebrow">TASK VIEWER · HOW IT WORKS</div>
+<h2>From shared completion records to a review screen</h2>
+<p class="intro">Task Viewer combines saved records with current database checks, then displays completed work within each user's authorized BA access.</p>
+<div class="flow">
+<article class="card"><span class="number">01 · ACCESS CHECK</span><h3>Identify the viewer</h3><p>After sign-in, the system checks the account's active Task Viewer role and assigned BAs. Unauthorized accounts are redirected to login.</p></article>
+<article class="card"><span class="number">02 · FAST INITIAL VIEW</span><h3>Read saved snapshots</h3><p>For the selected dates, cached snapshots can appear first. The system checks published snapshots for changes and refreshes the saved copies.</p></article>
+<article class="card"><span class="number">03 · CURRENT RECORDS</span><h3>Check completed tasks</h3><p>The database query retrieves completed tasks by assigned date and allowed configured BAs. Work saved only on a driver device needs upload first.</p></article>
+<article class="card"><span class="number">04 · COMBINE &amp; FILTER</span><h3>Build the result list</h3><p>Records are merged by task ID, with live records replacing matching snapshots. BA access, selected BA filters, and search determine what is displayed.</p></article>
+<article class="card"><span class="number">05 · REVIEW DISPLAY</span><h3>Show task information</h3><p>Matching records appear as paginated task cards. Expanding a card shows customer details, the assigned driver, completion time, and result fields.</p></article>
+<article class="card"><span class="number">06 · PHOTO EVIDENCE</span><h3>Load photos on request</h3><p>Load Photos retrieves images from recorded photo links when requested. Click a thumbnail to open the full image. Task details are read-only.</p></article>
+</div>
+<div class="strip">Check access → Read cache &amp; check database → Merge records → Filter results → Review evidence</div>
+<p class="foot">11 / 11 · The loading indicator shows the background check. Cached records may appear before it finishes; a database read failure can leave saved snapshot records available.</p>
+</section>
+</main>
+<script>
+const slides=[...document.querySelectorAll('.slide')];let current=0;
+function move(direction){current=Math.max(0,Math.min(slides.length-1,current+direction));slides[current].scrollIntoView({behavior:'smooth',block:'start'});}
+document.addEventListener('keydown',event=>{if(event.key==='ArrowRight')move(1);if(event.key==='ArrowLeft')move(-1);});
+</script>
+</body>
+</html>
