@@ -640,7 +640,7 @@ import {
 import { getStorage, ref as sRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js";
 import { increment } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
   
-const VERSION = "V.R.0.0.16.1.4.21";
+const VERSION = "V.R.0.0.16.1.4.22";
 const BILLING_CACHE = {};
 window.BILLING_CACHE = BILLING_CACHE;
 const DRIVER_UI_CACHE = {};
@@ -846,7 +846,7 @@ console.log(
 );
 
 const DB_NAME = "driver_uploads";
-const DB_VERSION = 6;
+const DB_VERSION = 7;
 const storageDiagnostic = window.DriverStorageDiagnostics;
 storageDiagnostic.record("driver_startup", { website: location.origin + location.pathname, browser: navigator.userAgent, databaseVersion: DB_VERSION });
 const STORE = "photos";
@@ -864,6 +864,12 @@ function openDB() {
       // existing store (photos)
       if (!db.objectStoreNames.contains(STORE)) {
         db.createObjectStore(STORE, { keyPath: "id" });
+      }
+
+      // Build the index for existing saved photos without rewriting them.
+      const photos = e.target.transaction.objectStore(STORE);
+      if (!photos.indexNames.contains("taskKey")) {
+        photos.createIndex("taskKey", "taskKey", { unique: false });
       }
 
       // task cache store
@@ -915,7 +921,7 @@ async function photoOperation(mode, action) {
   } finally { db.close(); }
 }
 async function savePhotoToDB(record) { await photoOperation("readwrite", store => store.put(record)); }
-// Scan one record at a time; never retain the whole photo store's blobs.
+// Task-specific reads use the index; metadata reads do not retain blobs.
 async function readPhotoDetails(taskKey, includeBlobs = false) {
   const db = await openDB();
   try {
@@ -925,14 +931,17 @@ async function readPhotoDetails(taskKey, includeBlobs = false) {
       const timer = setTimeout(() => { try { tx.abort(); } catch (_) {} reject(new Error("Photo storage timed out")); }, 15000);
       tx.oncomplete = () => { clearTimeout(timer); resolve(rows); };
       tx.onerror = tx.onabort = () => { clearTimeout(timer); reject(tx.error || new Error("Photo storage failed")); };
-      const request = tx.objectStore(STORE).openCursor();
+      const store = tx.objectStore(STORE);
+      const request = taskKey == null
+        ? store.openCursor()
+        : store.index("taskKey").openCursor(IDBKeyRange.only(taskKey));
       request.onsuccess = () => {
         const cursor = request.result;
         if (!cursor) return;
         const p = cursor.value;
         if (taskKey == null || p.taskKey === taskKey) {
           if (includeBlobs) rows.push(p);
-          else rows.push({ id: p.id, taskKey: p.taskKey, photoIndex: p.photoIndex, takenAt: p.takenAt, gps: p.gps, submitIntent: p.submitIntent });
+          else rows.push({ id: p.id, taskKey: p.taskKey, photoIndex: p.photoIndex, takenAt: p.takenAt, gps: p.gps, submitIntent: p.submitIntent, blobSize: Number(p.blob?.size) || 0 });
         }
         cursor.continue();
       };
@@ -7902,7 +7911,6 @@ async function exportTasksToFile() {
 
   try {
     const tasks = await getTasksFromIndexedDB();
-    const photos = await getAllPhotosFromDB();
     const currentDriver = String(DRIVER_ID || "").trim().toUpperCase();
     const completed = tasks.filter(task =>
       task.status === "LOCAL_COMPLETED" &&
@@ -7917,11 +7925,15 @@ async function exportTasksToFile() {
       return;
     }
 
-    const photosByTask = new Map();
-    photos.forEach(photo => {
-      if (!photosByTask.has(photo.taskKey)) photosByTask.set(photo.taskKey, []);
-      photosByTask.get(photo.taskKey).push(photo);
+    updateSyncProgress({
+      current: 0, total: completed.length,
+      message: "Checking photos for completed tasks..."
     });
+    const photosByTask = new Map();
+    for (const task of completed) {
+      // Keep only metadata while planning parts, including the original byte limits.
+      photosByTask.set(task._key, await readPhotoDetails(task._key));
+    }
 
     const parts = buildExportParts(completed, photosByTask);
     PENDING_EXPORT_SESSION = {
@@ -7948,7 +7960,7 @@ function buildExportParts(completed, photosByTask) {
   for (const task of completed) {
     const taskPhotos = photosByTask.get(task._key) || [];
     const estimatedBytes = taskPhotos.reduce(
-      (total, photo) => total + (Number(photo.blob?.size) || 0) * 4 / 3,
+      (total, photo) => total + (Number(photo.blobSize) || 0) * 4 / 3,
       0
     ) + JSON.stringify(task).length * 2;
     const mustSplit = part.tasks.length > 0 && (
@@ -7969,6 +7981,34 @@ function buildExportParts(completed, photosByTask) {
   return parts;
 }
 
+// Fetch only the current part's blobs, preserving the planned photo order.
+async function readExportPartPhotos(photoDetails) {
+  const db = await openDB();
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, "readonly");
+      const store = tx.objectStore(STORE);
+      const photos = new Array(photoDetails.length);
+      const timer = setTimeout(() => {
+        try { tx.abort(); } catch (_) {}
+        reject(new Error("Photo storage timed out"));
+      }, 15000);
+      tx.oncomplete = () => { clearTimeout(timer); resolve(photos); };
+      tx.onerror = tx.onabort = () => {
+        clearTimeout(timer);
+        reject(tx.error || new Error("Photo storage failed"));
+      };
+      photoDetails.forEach((detail, index) => {
+        const request = store.get(detail.id);
+        request.onsuccess = () => {
+          // Retain identifying metadata so missing records fail validation below.
+          photos[index] = request.result || detail;
+        };
+      });
+    });
+  } finally { db.close(); }
+}
+
 async function downloadNextExportPart() {
   const session = PENDING_EXPORT_SESSION;
   if (!session || session.busy) return;
@@ -7985,6 +8025,7 @@ async function downloadNextExportPart() {
   try {
     const partNumber = session.nextIndex + 1;
     const partCount = session.parts.length;
+    const partPhotos = await readExportPartPhotos(part.photos);
     const progressTotal = Math.max(1, part.photos.length);
     const taskByKey = new Map(part.tasks.map(task => [task._key, task]));
     const exportData = {
@@ -8007,7 +8048,7 @@ async function downloadNextExportPart() {
     });
 
     for (let index = 0; index < part.photos.length; index++) {
-      const photo = part.photos[index];
+      const photo = partPhotos[index];
       if (!(photo.blob instanceof Blob) || photo.blob.size === 0) {
         throw new Error(`Photo ${photo.photoIndex} for ${photo.taskKey} is missing or empty.`);
       }
