@@ -640,7 +640,7 @@ import {
 import { getStorage, ref as sRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js";
 import { increment } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
   
-const VERSION = "V.R.0.0.16.1.4.22";
+const VERSION = "V.R.0.0.16.1.4.23";
 const BILLING_CACHE = {};
 window.BILLING_CACHE = BILLING_CACHE;
 const DRIVER_UI_CACHE = {};
@@ -1005,6 +1005,8 @@ async function saveTasksToIndexedDB(tasks) {
     store.put({
       ...existing,
       ...t,
+      localFirstStoredAt: Number.isFinite(existing.localFirstStoredAt) && existing.localFirstStoredAt > 0
+        ? existing.localFirstStoredAt : Date.now(),
       dateKey: t.dateKey // 🔥 FORCE overwrite
     });
   }
@@ -2967,13 +2969,19 @@ async function pruneOldTasks() {
       tx.onabort = tx.onerror = () => { clearTimeout(timer); reject(tx.error || new Error("Cleanup failed")); };
       const prune = () => {
         if (tasks.readyState !== "done" || !photosDone) return;
+        const now = Date.now();
         for (const task of tasks.result || []) {
+          // Existing undated records receive a full retention window on first observation.
+          if (!Number.isFinite(task.localFirstStoredAt) || task.localFirstStoredAt <= 0) {
+            task.localFirstStoredAt = now;
+            store.put(task);
+          }
           if (resolveStatus(task) !== "PENDING" || photoKeys.has(task._key)) continue;
           const key = String(task.dateKey || "");
           const date = task.assignedDate || (/^\d{8}$/.test(key) ? key.slice(0,4) + "-" + key.slice(4,6) + "-" + key.slice(6,8) : "");
           const assigned = Date.parse(date + "T00:00:00+08:00");
-          // Preserve records whose date cannot be established.
-          if (!Number.isFinite(assigned) || Date.now() - assigned < 30 * 86400000) continue;
+          const retentionStart = Number.isFinite(assigned) ? assigned : task.localFirstStoredAt;
+          if (now - retentionStart < 7 * 86400000) continue;
           store.delete(task._key); deleted.push(task._key);
         }
       };
