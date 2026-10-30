@@ -1,4 +1,4 @@
-const CACHE_VERSION = "v37-camera-checkpoints";
+const CACHE_VERSION = "v38-in-app-camera";
 const CACHE_NAME = `field-task-app-${CACHE_VERSION}`;
 
 const BASE_PATH = "/nsca/";
@@ -8,6 +8,7 @@ const CORE_ASSETS = [
   DRIVER_URL,
   BASE_PATH + "driver-storage-viewer.html",
   BASE_PATH + "storage-diagnostics.js",
+  BASE_PATH + "driver-camera.js",
   BASE_PATH + "install.html",
   BASE_PATH + "manifest.json",
   BASE_PATH + "icon-192.png",

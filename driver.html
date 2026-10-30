@@ -618,6 +618,7 @@ img { width:100%;margin-top:8px;border-radius:6px; }
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 
 <script src="./storage-diagnostics.js"></script>
+<script src="./driver-camera.js"></script>
 <script type="module">
 import { escapeDeliveryHTML, deliveryFieldHTML } from "./delivery-fields.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
@@ -640,7 +641,7 @@ import {
 import { getStorage, ref as sRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js";
 import { increment } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
   
-const VERSION = "V.R.0.0.16.1.4.24";
+const VERSION = "V.R.0.0.16.1.4.25";
 const BILLING_CACHE = {};
 window.BILLING_CACHE = BILLING_CACHE;
 const DRIVER_UI_CACHE = {};
@@ -3370,7 +3371,7 @@ let BOOT_WATCHDOG_FIRED = false;
 //   cameraInput.click();
 // };
 window.startPhoto = async function(index, taskKey) {
-  if (PHOTO_CAPTURE_BUSY) return;
+  if (PHOTO_CAPTURE_BUSY || CURRENT_TASK) return;
 
   // 🔒 DO NOT START A NEW TASK DURING SYNC
   if (SYNC_RUNNING) {
@@ -3391,7 +3392,14 @@ window.startPhoto = async function(index, taskKey) {
   storageDiagnostic.record("photo_camera_open_requested", { taskKey, photoIndex: index, version: VERSION });
   storageDiagnostic.flush();
   try {
-    cameraInput.click();
+    const capture = await window.captureDriverPhoto();
+    if (capture?.native) {
+      cameraInput.click();
+    } else if (capture?.file) {
+      await processCapturedPhoto(capture.file);
+    } else {
+      cameraInput.oncancel();
+    }
   } catch (error) {
     storageDiagnostic.record("photo_camera_open_failed", { taskKey, error: String(error) });
     storageDiagnostic.flush();
@@ -3411,8 +3419,10 @@ cameraInput.oncancel = () => {
   CURRENT_TASK = CURRENT_PHOTO_INDEX = null;
 };
 cameraInput.onchange = async e => {
+  await processCapturedPhoto(e.target.files?.[0]);
+};
+async function processCapturedPhoto(file) {
   if (PHOTO_CAPTURE_BUSY) return;
-  const file = e.target.files?.[0];
   const taskKey = CURRENT_TASK;
   const photoIndex = CURRENT_PHOTO_INDEX;
   CURRENT_TASK = CURRENT_PHOTO_INDEX = null;
