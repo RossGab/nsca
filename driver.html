@@ -640,7 +640,7 @@ import {
 import { getStorage, ref as sRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js";
 import { increment } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
   
-const VERSION = "V.R.0.0.16.1.4.23";
+const VERSION = "V.R.0.0.16.1.4.24";
 const BILLING_CACHE = {};
 window.BILLING_CACHE = BILLING_CACHE;
 const DRIVER_UI_CACHE = {};
@@ -972,6 +972,8 @@ function reportInterruptedCapture() {
     const raw = localStorage.getItem(CAPTURE_RECOVERY_KEY);
     if (!raw) return;
     const pending = JSON.parse(raw);
+    storageDiagnostic.record("photo_capture_interrupted", pending);
+    storageDiagnostic.flush();
     clearCaptureRecovery();
     const saved = PHOTO_BUFFER[pending.taskKey]?.[pending.photoIndex];
     if (!saved || saved.takenAt < pending.startedAt) {
@@ -3248,6 +3250,10 @@ function compressImage(file, gps, takenAt) {
       const ctx = canvas.getContext("2d");
       if (!ctx) throw new Error("Unable to process the photo on this device.");
       ctx.drawImage(bitmap || img, 0, 0, w, h);
+      // The smaller canvas now owns the pixels needed for encoding.
+      if (bitmap) { bitmap.close(); bitmap = null; }
+      img.removeAttribute("src");
+      if (sourceURL) { URL.revokeObjectURL(sourceURL); sourceURL = null; }
 
       // =========================
       // 🖊️ WATERMARK OVERLAY
@@ -3382,11 +3388,24 @@ window.startPhoto = async function(index, taskKey) {
   CURRENT_PHOTO_INDEX = index;
 
   cameraInput.value = "";
-  cameraInput.click();
+  storageDiagnostic.record("photo_camera_open_requested", { taskKey, photoIndex: index, version: VERSION });
+  storageDiagnostic.flush();
+  try {
+    cameraInput.click();
+  } catch (error) {
+    storageDiagnostic.record("photo_camera_open_failed", { taskKey, error: String(error) });
+    storageDiagnostic.flush();
+    clearCaptureRecovery();
+    CURRENT_TASK = CURRENT_PHOTO_INDEX = null;
+    applyFiltersOnly();
+    alert("Unable to open the camera. Please retry.");
+  }
 };
 
 
 cameraInput.oncancel = () => {
+  storageDiagnostic.record("photo_camera_cancelled", { taskKey: CURRENT_TASK });
+  storageDiagnostic.flush();
   clearCaptureRecovery();
   applyFiltersOnly();
   CURRENT_TASK = CURRENT_PHOTO_INDEX = null;
@@ -3399,6 +3418,10 @@ cameraInput.onchange = async e => {
   CURRENT_TASK = CURRENT_PHOTO_INDEX = null;
   if (!file || !taskKey || !photoIndex) return;
   PHOTO_CAPTURE_BUSY = true;
+  storageDiagnostic.record("photo_processing_started", { taskKey, photoIndex, fileBytes: file.size, fileType: file.type });
+  storageDiagnostic.flush();
+  // Keep only the selected File reference while processing, not the input's FileList.
+  cameraInput.value = "";
   let previewURL;
   let saved = false;
   try {
@@ -3411,6 +3434,8 @@ cameraInput.onchange = async e => {
     // Allow the progress message to paint before decoding begins.
     await new Promise(resolve => setTimeout(resolve, 0));
     const blob = await compressImage(file, gps, takenAt);
+    storageDiagnostic.record("photo_compressed", { taskKey, photoIndex, blobBytes: blob.size });
+    storageDiagnostic.flush();
     previewURL = URL.createObjectURL(blob);
     setPhotoProgress("Saving photo...");
     await savePhotoToDB({
@@ -3422,12 +3447,16 @@ cameraInput.onchange = async e => {
     PHOTO_BUFFER[taskKey][photoIndex] = { previewURL, takenAt, gps, id: taskKey + "_" + photoIndex };
     clearCaptureRecovery();
     previewURL = null;
+    storageDiagnostic.record("photo_saved", { taskKey, photoIndex, blobBytes: blob.size });
+    storageDiagnostic.flush();
     if (previous?.previewURL) URL.revokeObjectURL(previous.previewURL);
     if (photoIndex === 1) ACTIVE_CAPTURE_TASK = taskKey;
     saved = true;
     setTimeout(checkStorageQuota, 0);
   } catch (error) {
     console.error("Photo capture failed:", error);
+    storageDiagnostic.record("photo_capture_failed", { taskKey, photoIndex, error: String(error) });
+    storageDiagnostic.flush();
     alert(error.message || "Unable to save the photo. Please retry.");
   } finally {
     if (previewURL) URL.revokeObjectURL(previewURL);

@@ -1,4 +1,4 @@
-const CACHE_VERSION = "v36-task-retention";
+const CACHE_VERSION = "v37-camera-checkpoints";
 const CACHE_NAME = `field-task-app-${CACHE_VERSION}`;
 
 const BASE_PATH = "/nsca/";

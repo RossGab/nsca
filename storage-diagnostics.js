@@ -103,10 +103,11 @@
   }
   function lifecycle(event) {
     record("page_" + event.type, { visibility: document.visibilityState, persisted: event.persisted, online: navigator.onLine, ...counts() });
+    if (event.type === "pagehide" || document.visibilityState === "hidden") flush();
   }
   document.addEventListener("visibilitychange", lifecycle);
   for (const name of ["pageshow", "pagehide", "online", "offline"]) window.addEventListener(name, lifecycle);
-  window.DriverStorageDiagnostics = { events, record, timed, observeOpen, snapshot };
+  window.DriverStorageDiagnostics = { events, record, timed, observeOpen, snapshot, flush };
   record("diagnostic_session", { page: location.origin + location.pathname, browser: navigator.userAgent, online: navigator.onLine });
   if (navigator.storage?.estimate) {
     timed("Storage usage snapshot", () => navigator.storage.estimate(), 5000)
