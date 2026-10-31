@@ -34,6 +34,18 @@ public class NativeDriverStoreTest {
         try { store.write("tasks",new JSONArray().put(task("ok","PENDING")).put(new JSONObject()),false,false); fail("Expected invalid row"); }
         catch(Exception expected) { assertNull(store.get("tasks","ok")); }
     }
+    @Test public void fivePhotoSlotsPersistAndAllAreMarkedSubmitted() throws Exception {
+        for(int index=1;index<=5;index++) store.writePhoto(photo("census_"+index,"census").put("photoIndex",index),new byte[]{(byte)index},false);
+        store.close();store=new NativeDriverStore(context);
+        assertEquals(5,store.list("photos","census").length());
+        store.submitPhotos("census");
+        for(int index=1;index<=5;index++) {
+            JSONObject row=store.get("photos","census_"+index);
+            assertEquals(index,row.getInt("photoIndex"));
+            assertTrue(row.getBoolean("submitIntent"));
+            assertArrayEquals(new byte[]{(byte)index},store.photoBytes(row));
+        }
+    }
     @Test public void photoReplacementAndSubmissionPreserveVerifiedBytes() throws Exception {
         byte[] first="first-photo".getBytes(StandardCharsets.UTF_8), second="second-photo".getBytes(StandardCharsets.UTF_8);
         JSONObject old=store.writePhoto(photo("one_1","one"),first,false);

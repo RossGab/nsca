@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { build } from 'esbuild';
 import { nativeDriverSource, nativeViewerSource } from './native-source.mjs';
+import { applyPhotoRules } from './photo-rules.mjs';
 
 const base = path.dirname(fileURLToPath(import.meta.url));
 const root = path.dirname(base);
@@ -47,6 +48,7 @@ const galleryEnd = source.indexOf('\nwindow.CURRENT_TASK', galleryStart);
 if (galleryStart < 0 || galleryEnd < 0) throw new Error('Cannot locate gallery download');
 source = nativeSave + source.slice(0, galleryStart) + 'function saveToGallery(blob, filename) {\n  return saveNativeFile(blob, filename, true).catch(error => {\n    window.DriverStorageDiagnostics?.record("automatic_backup_failed", { error: error.message });\n    alert("Your task remains saved in the app, but its extra backup could not be saved. " + error.message);\n  });\n}\n' + source.slice(galleryEnd);
 source = nativeDriverSource(source, path.join(base,'native-storage.mjs').replaceAll('\\','/'));
+source = applyPhotoRules(source,path.join(base,'photo-rules.mjs').replaceAll('\\','/'));
 const settingsPrompt = /const choice = await nscaPrompt\(\s*`Settings[\s\S]*?Enter 1, 2 or 3`\s*\);/;
 if (!settingsPrompt.test(source)) throw new Error('Settings action integration point missing');
 source = source.replace(settingsPrompt, 'const choice = await chooseSettings();\n  if (choice === "4") { window.dispatchEvent(new Event("driver-check-updates")); return; }');
