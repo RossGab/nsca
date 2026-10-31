@@ -1802,12 +1802,16 @@ window.refreshDashboard = function () {
   slaBreach.innerText = breach;
 };
 
+function getTaskPhotoNumbers(task) {
+  return Object.keys(task || {})
+    .filter(key => /^photo[1-9]\d*Url$/.test(key) &&
+      typeof task[key] === "string" && task[key].trim())
+    .map(key => Number(key.match(/^photo(\d+)Url$/)[1]))
+    .sort((a, b) => a - b);
+}
+
 function renderCompletedPhotos(t) {
-  const photos = [
-    t.photo1Url,
-    t.photo2Url,
-    t.photo3Url
-  ].filter(Boolean);
+  const photos = getTaskPhotoNumbers(t).map(number => t[`photo${number}Url`]);
 
   if (!photos.length) return "";
 
@@ -4160,9 +4164,7 @@ window.cancelEdit = function (btn) {
       "📸 Firestore task photo data:",
       {
         taskId,
-        photo1Url: !!t.photo1Url,
-        photo2Url: !!t.photo2Url,
-        photo3Url: !!t.photo3Url
+        photoNumbers: getTaskPhotoNumbers(t)
       }
     );
 
@@ -4189,7 +4191,7 @@ window.cancelEdit = function (btn) {
     // 3. RENDER ALL AVAILABLE PHOTOS
     // ==========================================
 
-    for (const i of [1, 2, 3]) {
+    for (const i of getTaskPhotoNumbers(t)) {
 
       const url =
         t[`photo${i}Url`];
