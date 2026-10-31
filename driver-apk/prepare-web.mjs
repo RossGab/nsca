@@ -46,13 +46,38 @@ const galleryEnd = source.indexOf('\nwindow.CURRENT_TASK', galleryStart);
 if (galleryStart < 0 || galleryEnd < 0) throw new Error('Cannot locate gallery download');
 source = nativeSave + source.slice(0, galleryStart) + 'function saveToGallery(blob, filename) {\n  return saveNativeFile(blob, filename, true).catch(error => {\n    window.DriverStorageDiagnostics?.record("automatic_backup_failed", { error: error.message });\n    alert("Your task remains saved in the app, but its extra backup could not be saved. " + error.message);\n  });\n}\n' + source.slice(galleryEnd);
 source = nativeDriverSource(source, path.join(base,'native-storage.mjs').replaceAll('\\','/'));
+source += `
+import { installPullRefresh } from ${JSON.stringify(path.join(base,'pull-refresh.mjs').replaceAll('\\','/'))};
+installPullRefresh({
+  canRefresh: () => !SYNC_RUNNING && !EXPORT_RUNNING && !LOAD_IN_PROGRESS && !PHOTO_CAPTURE_BUSY && !CURRENT_TASK && !Object.values(submitLock).some(Boolean),
+  refresh: async () => {
+    setTaskWorkLocked(true);
+    try {
+      saveFormCache({...loadFormCache(),...BILLING_CACHE});
+      await driverPreferences.flush();
+      await loadTasks();
+      await checkStorageQuota();
+    } finally { setTaskWorkLocked(false); applyFiltersOnly(); }
+  }
+});
+`;
 await build({ stdin: { contents: source, resolveDir: root, sourcefile: 'driver-wip-inline.js' }, nodePaths: [path.join(base, 'node_modules')], bundle: true, format: 'esm', platform: 'browser', target: 'es2022', outfile: path.join(web, 'driver-app.js') });
 html = html.replace(moduleMatch[0], '<script type="module" src="./driver-app.js"></script>');
 await build({ entryPoints: [path.join(base, 'update-ui.mjs')], bundle: true, format: 'esm', platform: 'browser', target: 'es2022', outfile: path.join(web, 'driver-updates.js') });
 html = html.replace('</body>', '<script type="module" src="./driver-updates.js"></script>\n</body>');
-html = html.replace('CAMERA TEST VERSION', 'ANDROID TEST VERSION');
-html = html.replace('Uses the same driver data as the live app.', 'Separate device storage; connects to the live task system.');
-html = html.replace('<div id="appHealthMount"></div>', '<div id="appHealthMount"></div><p style="padding:10px;color:#475569;font-size:13px">Tasks and photos use Android app storage. Sync completed work regularly. Clearing app data or uninstalling removes local tasks.</p>');
+// Keep the Android home screen clear of development/storage notes and floating controls.
+html = html.replace(/<div role="note"[^>]*>CAMERA TEST VERSION[^<]*<\/div>/, '');
+const floatingSettings = /<button id="settingsBtn"[\s\S]*?<\/button>/;
+if (!floatingSettings.test(html)) throw new Error('Settings button integration point missing');
+html = html.replace(floatingSettings, '');
+html = html.replace('<div id="appVersion"></div>', '<header class="apk-header"><div id="appVersion"></div><button id="settingsBtn" type="button" aria-label="Open settings">Settings</button></header>');
+html = html.replace('</head>', `<style>
+.apk-header{display:flex;align-items:center;gap:12px;padding:14px;margin-bottom:12px;border-radius:12px;background:#172033;color:#fff}
+.apk-header #appVersion{flex:1;min-width:0;margin:0;padding:0;background:transparent;color:inherit;text-align:left;font-size:14px;line-height:1.5;overflow-wrap:anywhere}
+.apk-header #settingsBtn{position:static;flex:0 0 auto;min-height:44px;padding:10px 14px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;color:#172033;font:600 14px Arial,sans-serif;cursor:pointer}
+.apk-header #settingsBtn:focus-visible{outline:3px solid #60a5fa;outline-offset:3px}
+.apk-header #settingsBtn:disabled{opacity:.5;cursor:wait}
+</style></head>`);
 await writeFile(path.join(web, 'index.html'), html);
 let viewer = await readFile(path.join(web, 'driver-storage-viewer.html'), 'utf8');
 const viewerModule = viewer.match(/<script>([\s\S]*?)<\/script>/);

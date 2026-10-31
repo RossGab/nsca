@@ -19,7 +19,7 @@ This migrates data **inside the existing APK installation** only. It cannot acce
 
 ## Storage health
 
-The obsolete browser-persistence banner is removed from the APK bundle. A neutral Android storage note replaces it. Low device space and native database/file failures still produce warnings. The APK health panel reads native task/photo data size and available device disk space.
+The obsolete browser-persistence banner is removed from the APK bundle. Low device space and native database/file failures still produce warnings. The APK health panel reads native task/photo data size and available device disk space.
 
 Clearing Android app data or uninstalling removes native records and app-private photo files. Native storage does not guarantee protection from all OS/device failures; sync completed work regularly. Automatic recovery copies and manual exports retain their separate existing Android save locations.
 
