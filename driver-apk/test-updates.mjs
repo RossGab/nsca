@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import { availableUpdate } from './update-policy.mjs';
+const good = { appId: 'com.nsca.driver.wip', versionCode: 101, versionName: '1.0.101', apkUrl: 'https://github.com/RossGab/nsca/releases/download/driver-wip-v101/driver-wip.apk' };
+assert.equal(availableUpdate(good, 2).versionCode, 101);
+assert.equal(availableUpdate(good, 101), null);
+assert.equal(availableUpdate(good, 102), null);
+assert.equal(availableUpdate({ ...good, appId: 'other' }, 2), null);
+assert.equal(availableUpdate({ ...good, versionCode: '101' }, 2), null);
+for (const apkUrl of ['http://github.com/RossGab/nsca/releases/download/driver-wip-v101/driver-wip.apk', 'https://evil.example/driver-wip.apk', 'https://github.com/Other/repo/releases/download/driver-wip-v101/driver-wip.apk', good.apkUrl + '?redirect=evil', 'javascript:alert(1)']) assert.equal(availableUpdate({ ...good, apkUrl }, 2), null);
+assert.equal(availableUpdate(null, 2), null);
+console.log('PASS: newer releases offered; same/older versions, wrong app, and untrusted download URLs rejected.');

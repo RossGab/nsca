@@ -1,0 +1,99 @@
+name: Driver WIP APK
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'driver-apk/**'
+      - 'driver-wip.html'
+      - 'driver-camera.js'
+      - 'driver-health-wip.js'
+      - 'storage-diagnostics.js'
+      - 'driver-storage-viewer.html'
+      - 'delivery-fields.js'
+      - 'admin-dialog.js'
+      - 'admin-dark-mode.js'
+      - 'admin-dark-mode.css'
+      - 'logo.jpg'
+      - 'icon-*.png'
+      - '.github/workflows/driver-wip-apk.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: driver-wip-apk-release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build-release:
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: driver-apk
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: driver-apk/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Set Android update version
+        run: |
+          version_code=$((GITHUB_RUN_NUMBER + 100))
+          echo "DRIVER_VERSION_CODE=$version_code" >> "$GITHUB_ENV"
+          echo "DRIVER_VERSION_NAME=1.0.$version_code" >> "$GITHUB_ENV"
+      - name: Restore original WIP signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.DRIVER_WIP_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo 'Add repository Actions secret DRIVER_WIP_KEYSTORE_BASE64. See driver-apk/UPDATES.md. Refusing to generate a different signing key.'
+            exit 1
+          fi
+          mkdir -p .signing
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > .signing/driver-wip.keystore
+          chmod 600 .signing/driver-wip.keystore
+      - name: Install dependencies
+        run: npm ci
+      - name: Ensure Android SDK packages
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;35.0.0"'
+      - name: Bundle and validate driver app
+        run: |
+          npm run android:sync
+          npm test
+      - name: Build signed test APK
+        run: |
+          chmod +x android/gradlew
+          npm run apk
+      - name: Retain APK and update manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: driver-wip-apk
+          path: |
+            driver-apk/dist/driver-wip.apk
+            driver-apk/dist/driver-update.json
+          if-no-files-found: error
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release create "driver-wip-v${DRIVER_VERSION_CODE}" \
+            dist/driver-wip.apk dist/driver-update.json \
+            --target "$GITHUB_SHA" \
+            --title "Driver WIP ${DRIVER_VERSION_NAME}" \
+            --notes 'Driver WIP test APK. Install over the existing Driver WIP app; do not uninstall. Uses live task data. Android asks you to approve installation.' \
+            --latest
+      - name: Remove signing key from runner
+        if: always()
+        run: rm -f .signing/driver-wip.keystore

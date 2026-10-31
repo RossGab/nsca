@@ -5,6 +5,8 @@ const html = await read('www/index.html');
 assert(!html.includes('https://unpkg.com/'), 'CDN scripts must be bundled');
 assert(!html.includes('serviceWorker.register'), 'APK must not register the production service worker');
 assert(html.includes('ANDROID TEST VERSION'));
+assert(html.includes('src="./driver-updates.js"'));
+assert((await read('www/driver-updates.js')).includes('Download update'));
 for (const match of html.matchAll(/(?:src|href)="\.\/([^"?#]+)(?:[?#][^"]*)?"/g)) {
   await access(new URL('www/' + match[1], import.meta.url));
 }

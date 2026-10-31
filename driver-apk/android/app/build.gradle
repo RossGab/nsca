@@ -1,5 +1,13 @@
 apply plugin: 'com.android.application'
 
+def driverVersion = new groovy.json.JsonSlurper().parse(file('../../version.json'))
+def driverVersionCode = (System.getenv('DRIVER_VERSION_CODE') ?: driverVersion.versionCode).toString().toInteger()
+def driverVersionName = System.getenv('DRIVER_VERSION_NAME') ?: driverVersion.versionName
+def driverKeystore = file(System.getenv('DRIVER_KEYSTORE_PATH') ?: '../../.signing/driver-wip.keystore')
+if (!driverKeystore.exists()) {
+    throw new GradleException('Original Driver WIP signing key missing. See driver-apk/UPDATES.md; do not generate a replacement key.')
+}
+
 android {
     namespace = "com.nsca.driver.wip"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -7,13 +15,21 @@ android {
         applicationId "com.nsca.driver.wip"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode driverVersionCode
+        versionName driverVersionName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
              // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    signingConfigs {
+        debug {
+            storeFile driverKeystore
+            storePassword 'android'
+            keyAlias 'AndroidDebugKey'
+            keyPassword 'android'
         }
     }
     buildTypes {

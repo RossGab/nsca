@@ -1,9 +1,16 @@
 import { spawnSync } from 'node:child_process';
-import { mkdir, copyFile } from 'node:fs/promises';
+import { mkdir, copyFile, readFile, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+const version = JSON.parse(await readFile(new URL('./version.json', import.meta.url), 'utf8'));
+const versionCode = Number(process.env.DRIVER_VERSION_CODE || version.versionCode);
+const versionName = process.env.DRIVER_VERSION_NAME || version.versionName;
+if (!Number.isSafeInteger(versionCode) || versionCode < 2 || versionCode > 2100000000) throw new Error('Invalid Android version code');
 const windows = process.platform === 'win32';
 const result = spawnSync(windows ? 'cmd.exe' : './gradlew', windows ? ['/d', '/c', 'gradlew.bat assembleDebug'] : ['assembleDebug'], { cwd: new URL('./android/', import.meta.url), stdio: 'inherit' });
 if (result.error) throw result.error;
 if (result.status !== 0) process.exit(result.status || 1);
 await mkdir(new URL('./dist/', import.meta.url), { recursive: true });
 await copyFile(new URL('./android/app/build/outputs/apk/debug/app-debug.apk', import.meta.url), new URL('./dist/driver-wip.apk', import.meta.url));
+const sha256 = createHash('sha256').update(await readFile(new URL('./dist/driver-wip.apk', import.meta.url))).digest('hex');
+await writeFile(new URL('./dist/driver-update.json', import.meta.url), JSON.stringify({ appId: 'com.nsca.driver.wip', versionCode, versionName, apkUrl: `https://github.com/RossGab/nsca/releases/download/driver-wip-v${versionCode}/driver-wip.apk`, sha256 }, null, 2) + '\n');
 console.log('Created driver-apk/dist/driver-wip.apk (debug test build)');

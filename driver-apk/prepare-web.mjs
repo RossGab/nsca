@@ -44,6 +44,8 @@ if (galleryStart < 0 || galleryEnd < 0) throw new Error('Cannot locate gallery d
 source = nativeSave + source.slice(0, galleryStart) + 'function saveToGallery(blob, filename) {\n  return saveNativeFile(blob, filename).catch(error => alert(error.message));\n}\n' + source.slice(galleryEnd);
 await build({ stdin: { contents: source, resolveDir: root, sourcefile: 'driver-wip-inline.js' }, nodePaths: [path.join(base, 'node_modules')], bundle: true, format: 'esm', platform: 'browser', target: 'es2022', outfile: path.join(web, 'driver-app.js') });
 html = html.replace(moduleMatch[0], '<script type="module" src="./driver-app.js"></script>');
+await build({ entryPoints: [path.join(base, 'update-ui.mjs')], bundle: true, format: 'esm', platform: 'browser', target: 'es2022', outfile: path.join(web, 'driver-updates.js') });
+html = html.replace('</body>', '<script type="module" src="./driver-updates.js"></script>\n</body>');
 html = html.replace('CAMERA TEST VERSION', 'ANDROID TEST VERSION');
 html = html.replace('Uses the same driver data as the live app.', 'Separate device storage; connects to the live task system.');
 await writeFile(path.join(web, 'index.html'), html);

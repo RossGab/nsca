@@ -6,6 +6,8 @@ The APK has separate local storage from the installed PWA. Enter the Driver ID a
 
 ## Rebuild
 
+For GitHub Releases and automatic update notices, see [UPDATES.md](UPDATES.md). The original signing key must be present in `.signing/driver-wip.keystore` locally, or restored from the GitHub Actions secret on the build runner.
+
 Install Node 22+, Java 21, and the Android SDK (platform 36 and build tools 35.0.0). Configure `JAVA_HOME` and `ANDROID_HOME`.
 
 From this directory:
@@ -16,7 +18,7 @@ npm run android:sync
 npm run apk
 ```
 
-Output: `dist/driver-wip.apk`. This is a signed **debug test APK**, not a Play Store release. Future test updates need the same signing key to preserve installed app data; Android's debug keystore is machine-specific. Keep it private and use a dedicated release key before distributing production updates.
+Output: `dist/driver-wip.apk` plus `dist/driver-update.json`. This is a signed **debug test APK**, not a Play Store release. Future updates use the preserved original signing key to remain compatible with the first installed APK. Keep it private; do not replace it for existing installations.
 
 `npm run android:init` is only for initial Android project generation. The generated Android project, including the custom file-saving plugin, is included; do not delete and regenerate it without preserving that plugin.
 

@@ -9,4 +9,5 @@ driver-apk/android/.gradle/
 driver-apk/android/**/build/
 driver-apk/android/local.properties
 driver-apk/.tooling/
+driver-apk/.signing/
 .tmp-camera-review/npm-cache/
