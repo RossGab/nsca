@@ -15,7 +15,9 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      height: 100vh;
+      min-height: 100vh;
+      box-sizing: border-box;
+      padding: 20px 14px;
       margin: 0;
     }
     .logo-wrap {
@@ -31,6 +33,7 @@
       height: auto;
     }
     .box {
+      box-sizing: border-box;
       background: #fff;
       padding: 24px;
       border-radius: 12px;
@@ -42,6 +45,28 @@
     h1 {
       margin-bottom: 10px;
     }
+    .install-option {
+      margin-top: 20px;
+      padding: 18px 0;
+      border-top: 1px solid #e2e8f0;
+    }
+    .install-option h2 { margin: 0 0 10px; font-size: 19px; color: #172033; }
+    .beta-label { display: inline-block; color: #965600; font-size: 14px; }
+    .apk-download {
+      display: block;
+      box-sizing: border-box;
+      padding: 14px;
+      border-radius: 10px;
+      background: #15803d;
+      color: #fff;
+      text-decoration: none;
+      font-size: 16px;
+      font-weight: bold;
+      margin: 16px 0;
+    }
+    .apk-download:focus-visible { outline: 3px solid #2563eb; outline-offset: 3px; }
+    .install-option p { line-height: 1.5; }
+    .install-steps { padding-left: 22px; text-align: left; color: #555; font-size: 14px; line-height: 1.6; }
     p {
       color: #555;
       font-size: 14px;
@@ -91,6 +116,22 @@
 </div>
 
 <h1>Driver App</h1>
+<p>Choose how to install the driver app.</p>
+
+<section class="install-option" aria-labelledby="androidInstallTitle">
+  <h2 id="androidInstallTitle">Android App <span class="beta-label">(Beta Test)</span></h2>
+  <p>Try the Android app with camera capture and offline task storage.</p>
+  <a class="apk-download" href="https://github.com/RossGab/nsca/releases/latest/download/driver-wip.apk">Download Android APK (Beta Test)</a>
+  <ol class="install-steps">
+    <li>Download the APK on your Android phone.</li>
+    <li>Open the file from Downloads and approve installation. Allow installation from your browser if Android asks.</li>
+    <li>For updates, install over the existing Driver WIP app without uninstalling.</li>
+  </ol>
+  <p>The beta connects to the live task system. It uses separate saved data from the browser app; sync your browser tasks before switching.</p>
+</section>
+
+<section class="install-option" aria-labelledby="browserInstallTitle">
+<h2 id="browserInstallTitle">Browser App (PWA)</h2>
 <p id="statusText">Install the app to continue</p>
 
 <button id="installBtn" disabled>
@@ -102,6 +143,7 @@
   <button id="repairBtn" type="button" class="repair-button">Repair Offline Files</button>
 </div>
 <div id="errorDetails"></div>
+</section>
 </div>
 
 <script>
