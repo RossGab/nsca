@@ -48,7 +48,7 @@ source = nativeSave + source.slice(0, galleryStart) + 'function saveToGallery(bl
 source = nativeDriverSource(source, path.join(base,'native-storage.mjs').replaceAll('\\','/'));
 const settingsPrompt = /const choice = await nscaPrompt\(\s*`Settings[\s\S]*?Enter 1, 2 or 3`\s*\);/;
 if (!settingsPrompt.test(source)) throw new Error('Settings action integration point missing');
-source = source.replace(settingsPrompt, 'const choice = await chooseSettings();');
+source = source.replace(settingsPrompt, 'const choice = await chooseSettings();\n  if (choice === "4") { window.dispatchEvent(new Event("driver-check-updates")); return; }');
 source = `import { chooseSettings } from ${JSON.stringify(path.join(base,'settings-menu.mjs').replaceAll('\\','/'))};\n` + source;
 source += `
 import { installPullRefresh } from ${JSON.stringify(path.join(base,'pull-refresh.mjs').replaceAll('\\','/'))};
@@ -74,11 +74,11 @@ html = html.replace(/<div role="note"[^>]*>CAMERA TEST VERSION[^<]*<\/div>/, '')
 const floatingSettings = /<button id="settingsBtn"[\s\S]*?<\/button>/;
 if (!floatingSettings.test(html)) throw new Error('Settings button integration point missing');
 html = html.replace(floatingSettings, '');
-html = html.replace('<div id="appVersion"></div>', '<header class="apk-header"><div id="appVersion"></div><button id="settingsBtn" type="button" aria-label="Open settings">Settings</button></header>');
+html = html.replace('<div id="appVersion"></div>', '<header class="apk-header"><div id="appVersion"></div><button id="settingsBtn" type="button" aria-label="Open settings" aria-haspopup="dialog" title="Settings"><svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m9.5 3-.7 2.2-1.7 1-2.3-.5-2.4 4.1 1.6 1.7v2L2.4 15l2.4 4.1 2.3-.5 1.7 1 .7 2.2h4.8l.7-2.2 1.7-1 2.3.5 2.4-4.1-1.6-1.6v-2l1.6-1.7L19 5.6l-2.3.5-1.7-1-.7-2.1z"/><circle cx="12" cy="12" r="3"/></svg></button></header>');
 html = html.replace('</head>', `<style>
-.apk-header{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;padding:14px;margin-bottom:12px;border-radius:12px;background:#172033;color:#fff}
-.apk-header #appVersion{flex:1;min-width:0;margin:0;padding:0;background:transparent;color:inherit;text-align:left;font-size:14px;line-height:1.5;overflow-wrap:anywhere}
-.apk-header #settingsBtn{position:static;width:auto;max-width:100%;margin:0;box-sizing:border-box;white-space:nowrap;min-height:44px;padding:10px 14px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;color:#172033;font:600 14px Arial,sans-serif;cursor:pointer}
+.apk-header{display:grid;grid-template-columns:minmax(0,1fr) 48px;align-items:center;gap:10px;margin-bottom:12px}
+.apk-header #appVersion{min-width:0;margin:0;padding:14px;border-radius:12px;background:#172033;color:#fff;text-align:left;font-size:14px;line-height:1.5;overflow-wrap:anywhere}
+.apk-header #settingsBtn{position:static;display:grid;place-items:center;width:48px;height:48px;margin:0;box-sizing:border-box;padding:0;border:1px solid #cbd5e1;border-radius:12px;background:#fff;color:#172033;cursor:pointer}
 .apk-header #settingsBtn:focus-visible{outline:3px solid #60a5fa;outline-offset:3px}
 .apk-header #settingsBtn:disabled{opacity:.5;cursor:wait}
 </style></head>`);

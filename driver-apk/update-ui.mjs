@@ -12,8 +12,12 @@ const status = section.querySelector('[data-update-status]');
 const check = section.querySelector('[data-check]');
 const download = section.querySelector('[data-download]');
 let latest = null, busy = false, lastCheck = 0;
-async function checkUpdates(manual = false) {
-  if (busy || document.hidden || (!manual && Date.now() - lastCheck < 21600000)) return;
+async function checkUpdates(manual = false, notify = false) {
+  if (busy) {
+    if (notify) await window.nscaAlert('An update check is already running. Please try again in a moment.');
+    return;
+  }
+  if (document.hidden || (!manual && Date.now() - lastCheck < 21600000)) return;
   busy = true;
   check.disabled = true;
   try {
@@ -25,12 +29,18 @@ async function checkUpdates(manual = false) {
     download.hidden = !latest;
     section.querySelector('[data-update-help]').hidden = !latest;
     lastCheck = Date.now();
+    if (notify) {
+      if (latest) section.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      else await window.nscaAlert('Your app is up to date (' + result.installedName + ').');
+    }
   } catch (_) {
     // Keep checks silent; retain an already discovered update if offline.
     section.hidden = !latest;
+    if (notify) await window.nscaAlert('Could not check for updates. Connect to the internet and try again.');
   } finally { busy = false; check.disabled = false; }
 }
 check.onclick = () => checkUpdates(true);
+window.addEventListener('driver-check-updates', () => checkUpdates(true, true));
 download.onclick = async () => {
   if (!latest) return;
   try { await updater.openDownload({ url: latest.apkUrl }); }
