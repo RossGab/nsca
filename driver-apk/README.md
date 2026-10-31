@@ -2,6 +2,8 @@
 
 This packages the full `../driver-wip.html` interface as a separate Capacitor Android application (`com.nsca.driver.wip`). Production web pages are not modified.
 
+APK task/photo storage now uses Android SQLite and app-private files. Existing APK records are copied and verified on first launch; see [NATIVE-STORAGE.md](NATIVE-STORAGE.md). The HTML/PWA storage implementation is unchanged.
+
 The APK has separate local storage from the installed PWA. Enter the Driver ID again. It connects to the existing live Firebase backend: downloads, completions, and sync affect real tasks. Sync pending work in the PWA before switching; this project does not migrate its data.
 
 ## Rebuild
@@ -24,7 +26,7 @@ Output: `dist/driver-wip.apk` plus `dist/driver-update.json`. This is a signed *
 
 ## Included
 
-- Driver WIP screen, GPS tracking, task download/completion/sync, IndexedDB task/photo storage, camera preview, health indicator, and storage viewer.
+- Driver WIP screen, GPS tracking, task download/completion/sync, native SQLite task records and photo files, camera preview, health indicator, and storage viewer.
 - Bundled Firebase JavaScript, map libraries, QR scanner, images, and local scripts so startup does not depend on CDN libraries.
 - Android camera and location permission requests via Capacitor's WebView integration.
 - Submission backups, synced photo copies (Sync 1), and completed-task exports (Sync 2) save automatically without a picker. Each export part is marked exported only after Android confirms a successful write.

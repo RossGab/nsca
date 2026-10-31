@@ -75,6 +75,7 @@ jobs:
       - name: Build signed test APK
         run: |
           chmod +x android/gradlew
+          (cd android && ./gradlew :app:testDebugUnitTest)
           npm run apk
       - name: Retain APK and update manifest
         uses: actions/upload-artifact@v4

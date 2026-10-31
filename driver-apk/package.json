@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "test": "node verify-web.mjs && node test-updates.mjs",
+    "test": "node verify-web.mjs && node test-updates.mjs && node test-storage.mjs",
     "prepare:web": "node prepare-web.mjs",
     "android:init": "npm run prepare:web && cap add android && node configure-android.mjs && cap sync android",
     "android:sync": "npm run prepare:web && node configure-android.mjs && cap sync android",

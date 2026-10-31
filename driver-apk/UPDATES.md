@@ -37,7 +37,7 @@ The first APK (version code 1) does not contain an updater. Install the newly bu
 
 ## Later updates
 
-On launch the app checks GitHub automatically. After returning to the app it checks again if six hours have passed. Drivers may tap **Check for updates** anytime. A newer version displays **Download update**. The button opens the public APK in the phone's browser. Save it, open it from Downloads, allow installation from that source if Android asks, and approve the update.
+On launch the app checks GitHub automatically. After returning to the app it checks again if six hours have passed. The update section stays hidden while checking, when no newer version is available, or when a check fails without a previously discovered update. A newer version reveals the section with **Download update** and **Check for updates**. The download button opens the public APK in the phone's browser. Save it, open it from Downloads, allow installation from that source if Android asks, and approve the update.
 
 This is an update notification and download flow, not silent installation. Drivers can continue working offline if the update check fails. It does not modify task storage. Same or older versions are not offered. Download links are restricted to Driver WIP APK assets in RossGab/nsca.
 

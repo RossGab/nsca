@@ -8,6 +8,7 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(DriverFilesPlugin.class);
         registerPlugin(DriverUpdatesPlugin.class);
+        registerPlugin(DriverStoragePlugin.class);
         super.onCreate(savedInstanceState);
     }
 }

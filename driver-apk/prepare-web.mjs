@@ -2,6 +2,7 @@ import { readFile, writeFile, mkdir, copyFile, cp } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { build } from 'esbuild';
+import { nativeDriverSource, nativeViewerSource } from './native-source.mjs';
 
 const base = path.dirname(fileURLToPath(import.meta.url));
 const root = path.dirname(base);
@@ -44,12 +45,14 @@ const galleryStart = source.indexOf('function saveToGallery(blob, filename) {');
 const galleryEnd = source.indexOf('\nwindow.CURRENT_TASK', galleryStart);
 if (galleryStart < 0 || galleryEnd < 0) throw new Error('Cannot locate gallery download');
 source = nativeSave + source.slice(0, galleryStart) + 'function saveToGallery(blob, filename) {\n  return saveNativeFile(blob, filename, true).catch(error => {\n    window.DriverStorageDiagnostics?.record("automatic_backup_failed", { error: error.message });\n    alert("Your task remains saved in the app, but its extra backup could not be saved. " + error.message);\n  });\n}\n' + source.slice(galleryEnd);
+source = nativeDriverSource(source, path.join(base,'native-storage.mjs').replaceAll('\\','/'));
 await build({ stdin: { contents: source, resolveDir: root, sourcefile: 'driver-wip-inline.js' }, nodePaths: [path.join(base, 'node_modules')], bundle: true, format: 'esm', platform: 'browser', target: 'es2022', outfile: path.join(web, 'driver-app.js') });
 html = html.replace(moduleMatch[0], '<script type="module" src="./driver-app.js"></script>');
 await build({ entryPoints: [path.join(base, 'update-ui.mjs')], bundle: true, format: 'esm', platform: 'browser', target: 'es2022', outfile: path.join(web, 'driver-updates.js') });
 html = html.replace('</body>', '<script type="module" src="./driver-updates.js"></script>\n</body>');
 html = html.replace('CAMERA TEST VERSION', 'ANDROID TEST VERSION');
 html = html.replace('Uses the same driver data as the live app.', 'Separate device storage; connects to the live task system.');
+html = html.replace('<div id="appHealthMount"></div>', '<div id="appHealthMount"></div><p style="padding:10px;color:#475569;font-size:13px">Tasks and photos use Android app storage. Sync completed work regularly. Clearing app data or uninstalling removes local tasks.</p>');
 await writeFile(path.join(web, 'index.html'), html);
 let viewer = await readFile(path.join(web, 'driver-storage-viewer.html'), 'utf8');
 const viewerModule = viewer.match(/<script>([\s\S]*?)<\/script>/);
@@ -64,7 +67,19 @@ viewerSource = nativeSave + viewerSource.slice(0, reportStart) + `
         await saveNativeFile(blob, 'DEVICE_STORAGE_' + safeDriver + '_' + new Date().toISOString().slice(0, 10) + '.json');
       } catch (error) { alert(error.message); }
 ` + viewerSource.slice(reportEnd + '      URL.revokeObjectURL(url);'.length);
+viewerSource = nativeViewerSource(viewerSource, path.join(base,'native-storage.mjs').replaceAll('\\','/'));
 await build({ stdin: { contents: viewerSource, resolveDir: base, sourcefile: 'driver-viewer-inline.js' }, bundle: true, format: 'esm', platform: 'browser', target: 'es2022', outfile: path.join(web, 'driver-viewer.js') });
 viewer = viewer.replace(viewerModule[0], '<script type="module" src="./driver-viewer.js"></script>').replaceAll('href="driver.html"', 'href="index.html"');
 await writeFile(path.join(web, 'driver-storage-viewer.html'), viewer);
+// Adapt the copied health script to native disk measurements; leave the web script alone.
+let health = await readFile(path.join(root,'driver-health-wip.js'),'utf8');
+health = health.replace('if (storage && storage.usage / storage.quota >= 0.9) reasons.push("Site storage is above 90% of its quota.");',
+  'if (storage && storage.freeBytes < 400 * 1048576) reasons.push("Device storage is low. Free space and sync completed work.");');
+health = health.replace('|| !navigator.storage?.estimate)', '|| !window.DriverNativeStorage)');
+health = health.replace('const value = await navigator.storage.estimate();', 'const value = await window.DriverNativeStorage.stats(); value.quota = value.usage + value.freeBytes;');
+health = health.replace('"Site storage: " + mb(storage.usage) + " / " + mb(storage.quota)', '"Android app data: " + mb(storage.usage) + "; device space free: " + mb(storage.freeBytes)');
+health = health.replace('Site storage: unavailable or checking.', 'Android storage: checking.');
+health = health.replace('Storage is this site’s quota, not free phone space.', 'Storage shows saved Android task/photo data and available device disk space.');
+health = health.replace('storage 90%', 'device space below 400 MB');
+await writeFile(path.join(web,'driver-health-wip.js'),health);
 console.log('Bundled full WIP driver and local libraries. Maps and server sync still require internet.');

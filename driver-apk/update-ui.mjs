@@ -2,6 +2,7 @@ import { registerPlugin } from '@capacitor/core';
 import { availableUpdate } from './update-policy.mjs';
 const updater = registerPlugin('DriverUpdates');
 const section = document.createElement('section');
+section.hidden = true;
 section.style.cssText = 'background:#fff;color:#172033;border:1px solid #ccc;padding:12px;border-radius:8px;margin:8px 0';
 section.setAttribute('aria-label', 'App updates');
 section.innerHTML = '<div data-update-status role="status">Checking for app updates…</div><button type="button" data-check style="margin-top:8px;min-height:44px">Check for updates</button> <button type="button" data-download hidden style="margin-top:8px;min-height:44px">Download update</button><p data-update-help hidden>Save the APK, then open it from Downloads and approve the update. Keep this app installed to retain saved tasks. Finish saving any photo before updating.</p>';
@@ -15,17 +16,18 @@ async function checkUpdates(manual = false) {
   if (busy || document.hidden || (!manual && Date.now() - lastCheck < 21600000)) return;
   busy = true;
   check.disabled = true;
-  status.textContent = 'Checking for app updates…';
   try {
     const result = await updater.check();
     if (result.published && (result.manifest?.appId !== 'com.nsca.driver.wip' || !Number.isSafeInteger(result.manifest?.versionCode))) throw new Error('Invalid update information');
     latest = availableUpdate(result.manifest, result.installedCode);
-    status.textContent = latest ? 'Update available: ' + latest.versionName : result.published ? 'Your app is up to date (' + result.installedName + ').' : 'App ' + result.installedName + ' — no update published yet.';
+    section.hidden = !latest;
+    status.textContent = latest ? 'Update available: ' + latest.versionName : '';
     download.hidden = !latest;
     section.querySelector('[data-update-help]').hidden = !latest;
     lastCheck = Date.now();
   } catch (_) {
-    status.textContent = 'Could not check for updates. Connect to the internet and try again.';
+    // Keep checks silent; retain an already discovered update if offline.
+    section.hidden = !latest;
   } finally { busy = false; check.disabled = false; }
 }
 check.onclick = () => checkUpdates(true);
