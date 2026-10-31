@@ -11,6 +11,9 @@ assert(!html.includes('CAMERA TEST VERSION'));
 assert(!html.includes('Tasks and photos use Android app storage.'));
 assert(html.includes('src="./driver-updates.js"'));
 assert((await read('www/driver-updates.js')).includes('Download update'));
+const health=await read('www/driver-health-wip.js');
+assert(!/heap|performance\.memory|deviceMemory/i.test(health),'APK health must not show browser memory details');
+assert(health.includes('Your tasks waiting to upload:'));
 for (const match of html.matchAll(/(?:src|href)="\.\/([^"?#]+)(?:[?#][^"]*)?"/g)) {
   await access(new URL('www/' + match[1], import.meta.url));
 }

@@ -100,15 +100,5 @@ viewerSource = nativeViewerSource(viewerSource, path.join(base,'native-storage.m
 await build({ stdin: { contents: viewerSource, resolveDir: base, sourcefile: 'driver-viewer-inline.js' }, bundle: true, format: 'esm', platform: 'browser', target: 'es2022', outfile: path.join(web, 'driver-viewer.js') });
 viewer = viewer.replace(viewerModule[0], '<script type="module" src="./driver-viewer.js"></script>').replaceAll('href="driver.html"', 'href="index.html"');
 await writeFile(path.join(web, 'driver-storage-viewer.html'), viewer);
-// Adapt the copied health script to native disk measurements; leave the web script alone.
-let health = await readFile(path.join(root,'driver-health-wip.js'),'utf8');
-health = health.replace('if (storage && storage.usage / storage.quota >= 0.9) reasons.push("Site storage is above 90% of its quota.");',
-  'if (storage && storage.freeBytes < 400 * 1048576) reasons.push("Device storage is low. Free space and sync completed work.");');
-health = health.replace('|| !navigator.storage?.estimate)', '|| !window.DriverNativeStorage)');
-health = health.replace('const value = await navigator.storage.estimate();', 'const value = await window.DriverNativeStorage.stats(); value.quota = value.usage + value.freeBytes;');
-health = health.replace('"Site storage: " + mb(storage.usage) + " / " + mb(storage.quota)', '"Android app data: " + mb(storage.usage) + "; device space free: " + mb(storage.freeBytes)');
-health = health.replace('Site storage: unavailable or checking.', 'Android storage: checking.');
-health = health.replace('Storage is this site’s quota, not free phone space.', 'Storage shows saved Android task/photo data and available device disk space.');
-health = health.replace('storage 90%', 'device space below 400 MB');
-await writeFile(path.join(web,'driver-health-wip.js'),health);
+await build({ entryPoints: [path.join(base,'native-health.mjs')], bundle: true, format: 'iife', platform: 'browser', target: 'es2022', outfile: path.join(web,'driver-health-wip.js') });
 console.log('Bundled full WIP driver and local libraries. Maps and server sync still require internet.');
