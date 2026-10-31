@@ -41,6 +41,17 @@ function fixture(latest = {}) {
     if(password!==null)assert.match(denied.context.statusBox.textContent,/Incorrect submission password/);
   }
   const ok=fixture();await ok.context.submit({preventDefault(){}});
+  for(const job of ['CENSUS','meter cencus']){
+    for(const count of [1,5]){
+      const census=fixture();census.state.task.JOBTYPE=job;
+      census.state.photos=new Map(Array.from({length:count},(_,index)=>[index+1,{type:'image/jpeg'}]));
+      await census.context.submit({preventDefault(){}});
+      assert.equal(census.writes.length,1);
+      assert.ok(census.writes[0][`photo${count}Url`]);
+    }
+  }
+  const tooMany=fixture();tooMany.state.photos.set(4,{type:'image/jpeg'});
+  await tooMany.context.submit({preventDefault(){}});assert.equal(tooMany.writes.length,0);
   assert.equal(ok.writes.length,1);
   const payload=ok.writes[0];
   assert.equal(payload.status,'COMPLETED');assert.equal(payload.completedBy,'Admin');

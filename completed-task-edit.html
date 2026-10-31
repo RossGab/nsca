@@ -25,7 +25,7 @@
   <section class="card" id="loadingCard">Loading completed task...</section>
   <div id="editor" hidden>
     <section class="card"><div class="summary" id="summary"></div></section>
-    <section class="card"><h2>Existing photos</h2><div class="photos" id="photos"></div></section>
+    <section class="card"><h2>Existing photos</h2><p>Each uploaded photo can be replaced individually, including photos 4 and 5 for census jobs. Unchanged photos are preserved.</p><div class="photos" id="photos"></div></section>
     <section class="card">
       <h2>Correct delivery information</h2><div class="methods" id="methods"></div><div class="fields" id="deliveryFields"></div>
       <div class="full" style="margin-top:15px"><label for="reason">Correction reason *</label><textarea id="reason" placeholder="Explain why this completed task is being corrected."></textarea></div>
@@ -62,6 +62,13 @@ function selectReplacement(photoNumber, input) {
   if (preview) preview.src = URL.createObjectURL(file);
   const note = document.getElementById(`photoNote${photoNumber}`);
   if (note) note.textContent = "Replacement selected";
+}
+
+function getExistingPhotoNumbers(task) {
+  return Object.keys(task || {})
+    .filter(key => /^photo[1-9]\d*Url$/.test(key) && typeof task[key] === "string" && task[key].trim())
+    .map(key => Number(key.match(/^photo(\d+)Url$/)[1]))
+    .sort((a,b) => a-b);
 }
 
 async function saveCorrection() {
@@ -146,10 +153,10 @@ async function boot() {
     state.radio = state.task.deliverytype_2nd || "";
     state.values = { ...state.task };
     document.getElementById("summary").innerHTML = `<div><b>Task ID</b><span>${esc(taskId)}</span></div><div><b>Status</b><span>${esc(state.task.status || state.task.workStatus)}</span></div><div><b>Customer</b><span>${esc(state.task.CUSTOMERNAME)}</span></div><div><b>Driver</b><span>${esc(state.task.driverId || state.task.AGENTID)}</span></div><div><b>Job type</b><span>${esc(state.task.JOBTYPE)}</span></div><div><b>Completed at</b><span>${esc(dateText(state.task.completedAt))}</span></div><div><b>BA</b><span>${esc(state.task.BA)}</span></div><div><b>DMZ / MRU</b><span>${esc([state.task.DMZ,state.task.MRU].filter(Boolean).join(" / "))}</span></div><div><b>Account number</b><span>${esc(state.task.ACCOUNTNUMBER)}</span></div><div><b>Meter number</b><span>${esc(state.task.METERNUMBER)}</span></div><div><b>Sequence</b><span>${esc(state.task.SEQUENCE)}</span></div><div><b>Current delivery method</b><span>${esc(state.task.deliveryType)}</span></div><div class="full"><b>Address</b><span>${esc(state.task.ADDRESS)}</span></div>`;
-    const urls = Object.keys(state.task).filter(k => /^photo\d+Url$/i.test(k) && state.task[k]).sort((a,b) => a.localeCompare(b,undefined,{numeric:true}));
+    const photoNumbers = getExistingPhotoNumbers(state.task);
     const photosBox = document.getElementById("photos");
-    photosBox.innerHTML = urls.length ? urls.map(key => {
-      const match = key.match(/^photo(\d+)Url$/i), number = Number(match?.[1] || 0);
+    photosBox.innerHTML = photoNumbers.length ? photoNumbers.map(number => {
+      const key = `photo${number}Url`;
       return `<div class="photo-card"><b>Photo ${number}</b><a href="${esc(state.task[key])}" target="_blank" rel="noopener"><img id="photoPreview${number}" src="${esc(state.task[key])}" alt="Task photo ${number}"></a><input type="file" data-photo-number="${number}" accept="image/*"><div class="photo-note" id="photoNote${number}"></div></div>`;
     }).join("") : "No uploaded photos found.";
     photosBox.querySelectorAll("input[data-photo-number]").forEach(input => input.addEventListener("change", () => selectReplacement(Number(input.dataset.photoNumber), input)));

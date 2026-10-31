@@ -21,7 +21,7 @@
 <form id="editor" hidden>
 <section class="card"><div class="summary" id="summary"></div></section>
 <fieldset id="controls" class="card"><legend>Complete pending task</legend>
-<h2>Photos</h2><div class="photos" id="photos"></div>
+<h2>Photos</h2><p id="photoHelp"></p><div class="photos" id="photos"></div>
 <h2>Delivery Method</h2><div class="methods" id="methods"></div><div class="fields" id="deliveryFields"></div>
 <div class="actions"><button class="primary" id="saveBtn" type="submit">Submit Task</button></div>
 </fieldset></form><div id="status" role="status" aria-live="polite"></div>
@@ -64,6 +64,7 @@ function requestSubmissionPassword(){
   });
 }
 function owner(task){return String(task.driverId||task.agentId||task.AGENTID||"")}
+function photoLimit(task){return /census|cencus/i.test(String(task.JOBTYPE||task.jobType||""))?5:3}
 // Match the dashboard's getAdminEffectiveStatus, including legacy OPEN records.
 function effectiveStatus(task){
   const status=String(task.status||"").trim().toUpperCase();
@@ -102,6 +103,7 @@ async function submit(event){
   try{
     const answers=deliveryAnswers();
     if(!state.photos.size)throw new Error("Please select at least 1 photo.");
+    if([...state.photos.keys()].some(number=>!Number.isInteger(number)||number<1||number>photoLimit(state.task)))throw new Error(`This job allows up to ${photoLimit(state.task)} photos.`);
     if(!await window.nscaConfirm(`Complete this task on behalf of ${owner(state.task)||"the assigned driver"}?`))return;
     const password=await requestSubmissionPassword();
     if(password===null)return;
@@ -143,7 +145,8 @@ async function boot(){try{
   state.methods=(await get(ref(rtdb,`config/driverUI/jobTypes/${state.task.JOBTYPE??state.task.jobType??""}/deliveryMethods`))).val()||{};
   if(!Object.keys(state.methods).length)throw new Error("No driver delivery configuration exists for this job type.");
   $("summary").innerHTML=Object.entries({"Task ID":taskId,"Assigned driver":owner(state.task),Customer:(state.task.CUSTOMERNAME??state.task.customerName),Address:(state.task.ADDRESS??state.task.address),"Account #":(state.task.ACCOUNTNUMBER??state.task.accountNumber),"Job type":state.task.JOBTYPE??state.task.jobType,MRU:(state.task.MRU??state.task.mru),BG:(state.task.BG??state.task.bg),"Meter #":(state.task.METERNUMBER??state.task.meterNumber),DMZ:(state.task.DMZ??state.task.dmz),Sequence:(state.task.SEQUENCE??state.task.sequence)}).map(([key,value])=>`<div><b>${esc(key)}</b><span>${esc(value===null||value===undefined||value===""?"Not available":value)}</span></div>`).join("");
-  $("photos").innerHTML=[1,2,3].map(number=>`<label class="photo-card">Photo ${number}<img hidden alt="Photo ${number} preview"><input type="file" accept="image/*" data-number="${number}"></label>`).join("");
+  $("photoHelp").textContent=`Select up to ${photoLimit(state.task)} photos. Only 1 photo is required.`;
+  $("photos").innerHTML=Array.from({length:photoLimit(state.task)},(_,index)=>index+1).map(number=>`<label class="photo-card">Photo ${number}<img hidden alt="Photo ${number} preview"><input type="file" accept="image/*" data-number="${number}"></label>`).join("");
   $("photos").querySelectorAll("input").forEach(input=>input.addEventListener("change",()=>{
     const number=Number(input.dataset.number),file=input.files?.[0],preview=input.previousElementSibling;
     if(preview.dataset.url)URL.revokeObjectURL(preview.dataset.url);preview.hidden=true;preview.removeAttribute("src");delete preview.dataset.url;state.photos.delete(number);
