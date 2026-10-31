@@ -1,0 +1,24 @@
+{
+  "name": "nsca-driver-wip",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "test": "node verify-web.mjs",
+    "prepare:web": "node prepare-web.mjs",
+    "android:init": "npm run prepare:web && cap add android && node configure-android.mjs && cap sync android",
+    "android:sync": "npm run prepare:web && node configure-android.mjs && cap sync android",
+    "apk": "node build-apk.mjs"
+  },
+  "dependencies": {
+    "@capacitor/android": "8.6.0",
+    "@capacitor/core": "8.6.0",
+    "firebase": "10.7.1",
+    "html5-qrcode": "2.3.8",
+    "leaflet": "1.9.4",
+    "leaflet.markercluster": "1.5.3"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.6.0",
+    "esbuild": "0.25.12"
+  }
+}

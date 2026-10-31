@@ -2,3 +2,11 @@ functions/node_modules/
 firebase-debug.log
 firebase-debug.*.log
 .firebase/
+driver-apk/node_modules/
+driver-apk/www/
+driver-apk/dist/
+driver-apk/android/.gradle/
+driver-apk/android/**/build/
+driver-apk/android/local.properties
+driver-apk/.tooling/
+.tmp-camera-review/npm-cache/
