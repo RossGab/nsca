@@ -13,6 +13,9 @@ for (const match of html.matchAll(/(?:src|href)="\.\/([^"?#]+)(?:[?#][^"]*)?"/g)
 const app = await read('www/driver-app.js');
 assert(!app.includes('https://www.gstatic.com/firebasejs/10.7.1/'), 'Firebase must be bundled');
 assert(app.includes('DriverFiles.save'));
+assert(app.includes('DriverFiles.saveAutomatic(options)'));
+assert(app.includes('saveNativeFile(blob, filename, true)'), 'Automatic submission/sync backups must bypass the file picker');
+assert(app.includes('of_${partCount}.json`, true)'), 'Sync option 2 exports must bypass the file picker');
 const start = app.indexOf('async function downloadNextExportPart()');
 const save = app.indexOf('await saveNativeFile(blob,', start);
 const mark = app.indexOf('await saveTasksToIndexedDB(part.tasks.map', start);

@@ -24,24 +24,26 @@ let source = moduleMatch[1].replace(/https:\/\/www\.gstatic\.com\/firebasejs\/10
 const nativeSave = `
 import { registerPlugin } from '@capacitor/core';
 const DriverFiles = registerPlugin('DriverFiles');
-async function saveNativeFile(blob, name) {
+async function saveNativeFile(blob, name, automatic = false) {
   const base64 = await new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result).split(',')[1]);
     reader.onerror = () => reject(new Error('Unable to read export file'));
     reader.readAsDataURL(blob);
   });
-  await DriverFiles.save({ name, mime: blob.type || 'application/octet-stream', base64 });
+  const options = { name, mime: blob.type || 'application/octet-stream', base64 };
+  if (automatic) await DriverFiles.saveAutomatic(options);
+  else await DriverFiles.save(options);
 }
 `;
 const exportStart = source.indexOf('    const url = URL.createObjectURL(blob);', source.indexOf('async function downloadNextExportPart()'));
 const exportEnd = source.indexOf('    await saveTasksToIndexedDB(part.tasks.map', exportStart);
 if (exportStart < 0 || exportEnd < 0) throw new Error('Cannot locate export download; review native save integration');
-source = source.slice(0, exportStart) + '    await saveNativeFile(blob, `tasks_export_${Date.now()}_part_${partNumber}_of_${partCount}.json`);\n\n' + source.slice(exportEnd);
+source = source.slice(0, exportStart) + '    await saveNativeFile(blob, `tasks_export_${Date.now()}_part_${partNumber}_of_${partCount}.json`, true);\n\n' + source.slice(exportEnd);
 const galleryStart = source.indexOf('function saveToGallery(blob, filename) {');
 const galleryEnd = source.indexOf('\nwindow.CURRENT_TASK', galleryStart);
 if (galleryStart < 0 || galleryEnd < 0) throw new Error('Cannot locate gallery download');
-source = nativeSave + source.slice(0, galleryStart) + 'function saveToGallery(blob, filename) {\n  return saveNativeFile(blob, filename).catch(error => alert(error.message));\n}\n' + source.slice(galleryEnd);
+source = nativeSave + source.slice(0, galleryStart) + 'function saveToGallery(blob, filename) {\n  return saveNativeFile(blob, filename, true).catch(error => {\n    window.DriverStorageDiagnostics?.record("automatic_backup_failed", { error: error.message });\n    alert("Your task remains saved in the app, but its extra backup could not be saved. " + error.message);\n  });\n}\n' + source.slice(galleryEnd);
 await build({ stdin: { contents: source, resolveDir: root, sourcefile: 'driver-wip-inline.js' }, nodePaths: [path.join(base, 'node_modules')], bundle: true, format: 'esm', platform: 'browser', target: 'es2022', outfile: path.join(web, 'driver-app.js') });
 html = html.replace(moduleMatch[0], '<script type="module" src="./driver-app.js"></script>');
 await build({ entryPoints: [path.join(base, 'update-ui.mjs')], bundle: true, format: 'esm', platform: 'browser', target: 'es2022', outfile: path.join(web, 'driver-updates.js') });

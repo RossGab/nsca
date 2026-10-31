@@ -27,7 +27,8 @@ Output: `dist/driver-wip.apk` plus `dist/driver-update.json`. This is a signed *
 - Driver WIP screen, GPS tracking, task download/completion/sync, IndexedDB task/photo storage, camera preview, health indicator, and storage viewer.
 - Bundled Firebase JavaScript, map libraries, QR scanner, images, and local scripts so startup does not depend on CDN libraries.
 - Android camera and location permission requests via Capacitor's WebView integration.
-- Native file-save picker for JSON exports and photo downloads. An export part is marked exported only after Android confirms a successful write. Canceling the picker rejects the export.
+- Submission backups, synced photo copies (Sync 1), and completed-task exports (Sync 2) save automatically without a picker. Each export part is marked exported only after Android confirms a successful write.
+- On Android 10+, JSON backups/exports go to Downloads/NSCA Driver WIP and photo copies to Pictures/NSCA Driver WIP. Android 7–9 uses private app storage. The separate storage diagnostic report still uses a save picker.
 
 Maps need network access for map tiles, and Firebase operations require network access. Downloaded tasks/photos remain local for offline work. Background GPS and background sync are not implemented as Android services; do not assume they continue after leaving the app.
 
@@ -37,7 +38,7 @@ Maps need network access for map tiles, and Firebase operations require network 
 2. Grant precise location and camera; test denial and retry as well.
 3. Download tasks, go offline, reopen the app, capture all photo slots, and complete a test task.
 4. Reconnect and confirm synchronization against the admin view.
-5. Export a JSON part; cancel once and verify it stays unexported, then save and inspect the file.
+5. Use Sync 2 and verify JSON parts save without a picker and are readable in Downloads/NSCA Driver WIP on Android 10+. Confirm a failed save leaves the part unexported.
 6. Open storage viewer and return; test photo downloads, scanner, external map links, rotation, and app resume.
 
 Desktop compilation does not verify these phone behaviors or prove that the earlier PWA crash is fixed.

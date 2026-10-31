@@ -23,7 +23,7 @@ The repository and release assets must be public for drivers to check/download w
 - `driver-wip.apk`
 - `driver-update.json` (version code, display version, APK URL, SHA-256)
 
-Release tag: `driver-wip-v<versionCode>`. GitHub builds use a version code equal to the workflow run number plus 100. The workflow must not be deleted/recreated with a lower version counter after distribution. Rerunning an already published build does not overwrite its release; push a new driver change or start a new workflow run for the next version.
+Release tag: `driver-wip-v<versionCode>`. GitHub builds add the workflow run number to the base version code in `version.json`, so they are newer than the current local build. Never lower that base or reset the workflow counter after distribution. Rerunning an already published build does not overwrite its release; push a new driver change or start a new workflow run for the next version.
 
 Release page: <https://github.com/RossGab/nsca/releases/latest>
 
