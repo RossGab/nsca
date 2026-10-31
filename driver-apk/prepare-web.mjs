@@ -46,6 +46,10 @@ const galleryEnd = source.indexOf('\nwindow.CURRENT_TASK', galleryStart);
 if (galleryStart < 0 || galleryEnd < 0) throw new Error('Cannot locate gallery download');
 source = nativeSave + source.slice(0, galleryStart) + 'function saveToGallery(blob, filename) {\n  return saveNativeFile(blob, filename, true).catch(error => {\n    window.DriverStorageDiagnostics?.record("automatic_backup_failed", { error: error.message });\n    alert("Your task remains saved in the app, but its extra backup could not be saved. " + error.message);\n  });\n}\n' + source.slice(galleryEnd);
 source = nativeDriverSource(source, path.join(base,'native-storage.mjs').replaceAll('\\','/'));
+const settingsPrompt = /const choice = await nscaPrompt\(\s*`Settings[\s\S]*?Enter 1, 2 or 3`\s*\);/;
+if (!settingsPrompt.test(source)) throw new Error('Settings action integration point missing');
+source = source.replace(settingsPrompt, 'const choice = await chooseSettings();');
+source = `import { chooseSettings } from ${JSON.stringify(path.join(base,'settings-menu.mjs').replaceAll('\\','/'))};\n` + source;
 source += `
 import { installPullRefresh } from ${JSON.stringify(path.join(base,'pull-refresh.mjs').replaceAll('\\','/'))};
 installPullRefresh({
@@ -72,9 +76,9 @@ if (!floatingSettings.test(html)) throw new Error('Settings button integration p
 html = html.replace(floatingSettings, '');
 html = html.replace('<div id="appVersion"></div>', '<header class="apk-header"><div id="appVersion"></div><button id="settingsBtn" type="button" aria-label="Open settings">Settings</button></header>');
 html = html.replace('</head>', `<style>
-.apk-header{display:flex;align-items:center;gap:12px;padding:14px;margin-bottom:12px;border-radius:12px;background:#172033;color:#fff}
+.apk-header{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;padding:14px;margin-bottom:12px;border-radius:12px;background:#172033;color:#fff}
 .apk-header #appVersion{flex:1;min-width:0;margin:0;padding:0;background:transparent;color:inherit;text-align:left;font-size:14px;line-height:1.5;overflow-wrap:anywhere}
-.apk-header #settingsBtn{position:static;flex:0 0 auto;min-height:44px;padding:10px 14px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;color:#172033;font:600 14px Arial,sans-serif;cursor:pointer}
+.apk-header #settingsBtn{position:static;width:auto;max-width:100%;margin:0;box-sizing:border-box;white-space:nowrap;min-height:44px;padding:10px 14px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;color:#172033;font:600 14px Arial,sans-serif;cursor:pointer}
 .apk-header #settingsBtn:focus-visible{outline:3px solid #60a5fa;outline-offset:3px}
 .apk-header #settingsBtn:disabled{opacity:.5;cursor:wait}
 </style></head>`);
