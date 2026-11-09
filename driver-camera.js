@@ -57,7 +57,7 @@ window.captureDriverPhoto = function () {
       shutter.disabled = true;
       const canvas = document.createElement("canvas");
       try {
-        const scale = Math.min(1, 1024 / Math.max(video.videoWidth, video.videoHeight));
+        const scale = Math.min(1, 1280 / Math.max(video.videoWidth, video.videoHeight));
         canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
         canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
         const context = canvas.getContext("2d");
@@ -87,8 +87,8 @@ window.captureDriverPhoto = function () {
       audio: false,
       video: {
         facingMode: { ideal: "environment" },
-        width: { ideal: 1280, max: 1280 },
-        height: { ideal: 720, max: 1280 },
+        width: { ideal: 1600, max: 1600 },
+        height: { ideal: 900, max: 1600 },
         frameRate: { ideal: 15, max: 15 }
       }
     }).then(async acquired => {
