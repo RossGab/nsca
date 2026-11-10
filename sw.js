@@ -1,4 +1,4 @@
-const CACHE_VERSION = "v40-high-quality-photos";
+const CACHE_VERSION = "v41-single-pass-photos";
 const CACHE_NAME = `field-task-app-${CACHE_VERSION}`;
 
 const BASE_PATH = "/nsca/";

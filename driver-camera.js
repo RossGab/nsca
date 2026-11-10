@@ -65,12 +65,8 @@ window.captureDriverPhoto = function () {
         context.drawImage(video, 0, 0, canvas.width, canvas.height);
         stop();
         status.textContent = "Preparing photo...";
-        canvas.toBlob(blob => {
-          canvas.width = canvas.height = 0;
-          if (done) return;
-          if (blob?.size) finish({ file: blob });
-          else unavailable();
-        }, "image/jpeg", 0.95);
+        // Pass pixels directly to watermark processing; encode JPEG only once.
+        finish({ file: canvas });
       } catch (_) {
         canvas.width = canvas.height = 0;
         unavailable();

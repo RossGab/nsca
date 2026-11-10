@@ -3217,6 +3217,7 @@ function showMessage(message) {
 function compressImage(file, gps, takenAt) {
   return new Promise((resolve, reject) => {
     const img = new Image();
+    let captureCanvas = file instanceof HTMLCanvasElement ? file : null;
     let sourceURL, canvas, bitmap, settled = false;
     const finish = (error, blob) => {
       if (settled) return;
@@ -3225,6 +3226,7 @@ function compressImage(file, gps, takenAt) {
       img.onload = img.onerror = null;
       img.removeAttribute("src");
       if (sourceURL) URL.revokeObjectURL(sourceURL);
+      if (captureCanvas) { captureCanvas.width = captureCanvas.height = 0; captureCanvas = null; }
       if (bitmap) bitmap.close();
       if (canvas) canvas.width = canvas.height = 0;
       if (error) reject(error); else resolve(blob);
@@ -3236,8 +3238,8 @@ function compressImage(file, gps, takenAt) {
       if (settled) return;
       try {
       canvas = document.createElement("canvas");
-      let w = bitmap ? bitmap.width : img.width;
-      let h = bitmap ? bitmap.height : img.height;
+      let w = captureCanvas ? captureCanvas.width : bitmap ? bitmap.width : img.width;
+      let h = captureCanvas ? captureCanvas.height : bitmap ? bitmap.height : img.height;
 
       // ✅ Resize (recommended values)
       if (!w || !h) throw new Error("The photo has no image data.");
@@ -3250,7 +3252,8 @@ function compressImage(file, gps, takenAt) {
 
       const ctx = canvas.getContext("2d");
       if (!ctx) throw new Error("Unable to process the photo on this device.");
-      ctx.drawImage(bitmap || img, 0, 0, w, h);
+      ctx.drawImage(captureCanvas || bitmap || img, 0, 0, w, h);
+      if (captureCanvas) { captureCanvas.width = captureCanvas.height = 0; captureCanvas = null; }
       // The smaller canvas now owns the pixels needed for encoding.
       if (bitmap) { bitmap.close(); bitmap = null; }
       img.removeAttribute("src");
@@ -3315,6 +3318,7 @@ function compressImage(file, gps, takenAt) {
     };
 
     try {
+      if (captureCanvas) { img.onload(); return; }
       const fallback = () => {
         if (settled) return;
         sourceURL = URL.createObjectURL(file);
