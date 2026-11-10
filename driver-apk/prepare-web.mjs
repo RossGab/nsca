@@ -49,6 +49,12 @@ if (galleryStart < 0 || galleryEnd < 0) throw new Error('Cannot locate gallery d
 source = nativeSave + source.slice(0, galleryStart) + 'function saveToGallery(blob, filename) {\n  return saveNativeFile(blob, filename, true).catch(error => {\n    window.DriverStorageDiagnostics?.record("automatic_backup_failed", { error: error.message });\n    alert("Your task remains saved in the app, but its extra backup could not be saved. " + error.message);\n  });\n}\n' + source.slice(galleryEnd);
 source = nativeDriverSource(source, path.join(base,'native-storage.mjs').replaceAll('\\','/'));
 source = applyPhotoRules(source,path.join(base,'photo-rules.mjs').replaceAll('\\','/'));
+// Open thumbnails in an in-app, screen-fitting preview.
+const inlinePreview = "window.open('$" + "{p[i].previewURL}','_blank')";
+const savedPreview = 'window.open(photo.previewURL, "_blank")';
+if (!source.includes(inlinePreview) || !source.includes(savedPreview)) throw new Error('Photo preview integration point missing');
+source = source.replaceAll(inlinePreview, "window.openDriverPhoto('$" + "{p[i].previewURL}')").replaceAll(savedPreview, 'window.openDriverPhoto(photo.previewURL)');
+source = 'import ' + JSON.stringify(path.join(base,'photo-preview.mjs').replaceAll('\\','/')) + ';\n' + source;
 // Native camera files stay on Android; only the resized JPEG crosses into the page.
 const photoProcessorStart = source.indexOf('function compressImage(file, gps, takenAt) {');
 const photoProcessorEnd = source.indexOf('  let CURRENT_TASK', photoProcessorStart);
