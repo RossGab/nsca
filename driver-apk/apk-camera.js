@@ -67,7 +67,7 @@ window.captureDriverPhoto = function () {
       shutter.disabled = true;
       const canvas = document.createElement("canvas");
       try {
-        const scale = Math.min(1, 1280 / Math.max(video.videoWidth, video.videoHeight));
+        const scale = Math.min(1, 1920 / Math.max(video.videoWidth, video.videoHeight));
         canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
         canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
         const context = canvas.getContext("2d");
@@ -80,7 +80,7 @@ window.captureDriverPhoto = function () {
           if (done) return;
           if (blob?.size) finish({ file: blob });
           else unavailable();
-        }, "image/jpeg", 0.85);
+        }, "image/jpeg", 0.95);
       } catch (_) {
         canvas.width = canvas.height = 0;
         unavailable();
@@ -100,8 +100,8 @@ window.captureDriverPhoto = function () {
       audio: false,
       video: {
         facingMode: { ideal: "environment" },
-        width: { ideal: 1600, max: 1600 },
-        height: { ideal: 900, max: 1600 },
+        width: { ideal: 2560, max: 2560 },
+        height: { ideal: 1440, max: 2560 },
         frameRate: { ideal: 15, max: 15 }
       }
       });

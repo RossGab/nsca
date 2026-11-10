@@ -3244,7 +3244,7 @@ function compressImage(file, gps, takenAt) {
 
       // ✅ Resize (recommended values)
       if (!w || !h) throw new Error("The photo has no image data.");
-      const scale = Math.min(1, 1280 / Math.max(w, h));
+      const scale = Math.min(1, 1920 / Math.max(w, h));
       w = Math.max(1, Math.round(w * scale));
       h = Math.max(1, Math.round(h * scale));
 
@@ -3312,7 +3312,7 @@ function compressImage(file, gps, takenAt) {
       canvas.toBlob(
         blob => finish(blob?.size ? null : new Error("Photo compression failed. Please retry."), blob),
         "image/jpeg",
-        0.65 // Moderate compression to retain text and meter detail
+        0.90 // High quality with light JPEG compression
       );
       } catch (error) { finish(error); }
     };
@@ -3324,7 +3324,7 @@ function compressImage(file, gps, takenAt) {
         img.src = sourceURL;
       };
       if (typeof createImageBitmap === "function") {
-        createImageBitmap(file, { resizeWidth: 1280, resizeQuality: "high" }).then(decoded => {
+        createImageBitmap(file, { resizeWidth: 1920, resizeQuality: "high" }).then(decoded => {
           if (settled) { decoded.close(); return; }
           bitmap = decoded;
           img.onload();
