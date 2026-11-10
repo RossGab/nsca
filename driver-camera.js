@@ -1,42 +1,45 @@
-// Keep capture in the page so opening the camera does not background the PWA.
+﻿// Keep capture and review inside the PWA.
 window.captureDriverPhoto = function () {
   return new Promise(resolve => {
-    const overlay = document.createElement("div");
-    overlay.setAttribute("role", "dialog");
-    overlay.setAttribute("aria-modal", "true");
-    overlay.setAttribute("aria-label", "Take task photo");
-    overlay.style.cssText = "position:fixed;inset:0;z-index:100001;background:#111;color:white;display:flex;flex-direction:column;padding:16px;gap:12px";
-    overlay.innerHTML = '<p role="status">Starting camera...</p><video autoplay muted playsinline style="width:100%;flex:1;min-height:0;object-fit:contain"></video><div style="display:flex;gap:12px;flex-wrap:wrap"><button type="button" data-shutter disabled>Take photo</button><button type="button" data-cancel>Cancel</button><button type="button" data-native hidden>Open phone camera</button></div>';
-    const video = overlay.querySelector("video");
-    const status = overlay.querySelector("p");
-    const shutter = overlay.querySelector("[data-shutter]");
-    const native = overlay.querySelector("[data-native]");
+    const overlay = document.createElement('div');
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-label', 'Take task photo');
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:100001;background:#111;color:#fff;display:flex;flex-direction:column;padding:16px;gap:12px;box-sizing:border-box';
+    overlay.innerHTML = '<p role="status">Starting camera...</p><video autoplay muted playsinline style="width:100%;flex:1;min-height:0;object-fit:contain"></video><div data-review hidden style="flex:1;min-height:0"></div><div style="display:flex;gap:12px;flex-wrap:wrap"><button type="button" data-shutter disabled>Take photo</button><button type="button" data-retake hidden>Retake</button><button type="button" data-use hidden>Use photo</button><button type="button" data-cancel>Cancel</button><button type="button" data-native hidden>Open phone camera</button></div>';
+    const video = overlay.querySelector('video'), status = overlay.querySelector('p');
+    const review = overlay.querySelector('[data-review]');
+    const shutter = overlay.querySelector('[data-shutter]'), retake = overlay.querySelector('[data-retake]');
+    const use = overlay.querySelector('[data-use]'), native = overlay.querySelector('[data-native]');
     const previousFocus = document.activeElement;
-    let stream, done = false, timer;
+    let stream, done = false, timer, reviewFile, reviewURL;
     function stop() {
       if (stream) stream.getTracks().forEach(track => track.stop());
       stream = null;
       video.srcObject = null;
     }
+    function clearReview(releasePixels = true) {
+      if (reviewURL) URL.revokeObjectURL(reviewURL);
+      reviewURL = null;
+      if (releasePixels && reviewFile instanceof HTMLCanvasElement) reviewFile.width = reviewFile.height = 0;
+      reviewFile = null;
+      review.replaceChildren();
+    }
     function finish(result) {
       if (done) return;
       done = true;
-      clearTimeout(timer);
-      stop();
-      document.removeEventListener("visibilitychange", onHidden);
-      document.removeEventListener("keydown", onKey);
-      window.removeEventListener("pagehide", onHidden);
-      overlay.remove();
-      previousFocus?.focus();
-      resolve(result);
+      clearTimeout(timer); stop(); clearReview(!result?.file);
+      document.removeEventListener('visibilitychange', onHidden);
+      document.removeEventListener('keydown', onKey);
+      window.removeEventListener('pagehide', onPageHide);
+      overlay.remove(); previousFocus?.focus(); resolve(result);
     }
-    function onHidden() {
-      if (document.hidden) finish(null);
-    }
+    function onHidden() { if (document.hidden) finish(null); }
+    function onPageHide() { finish(null); }
     function onKey(event) {
-      if (event.key === "Escape") finish(null);
-      if (event.key === "Tab") {
-        const buttons = [...overlay.querySelectorAll("button")].filter(button => !button.hidden && !button.disabled);
+      if (event.key === 'Escape') finish(null);
+      if (event.key === 'Tab') {
+        const buttons = [...overlay.querySelectorAll('button')].filter(b => !b.hidden && !b.disabled);
         const first = buttons[0], last = buttons[buttons.length - 1];
         if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
         else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
@@ -44,61 +47,88 @@ window.captureDriverPhoto = function () {
     }
     function unavailable() {
       if (done) return;
-      clearTimeout(timer);
-      stop();
-      shutter.disabled = true;
-      status.textContent = "Camera unavailable. Allow camera access in your browser settings and retry, or open the phone camera.";
+      clearTimeout(timer); stop(); shutter.disabled = true;
+      status.textContent = 'Camera unavailable. Allow camera access and retry, or open the phone camera.';
       native.hidden = false;
     }
-    overlay.querySelector("[data-cancel]").onclick = () => finish(null);
-    native.onclick = () => finish({ native: true });
-    shutter.onclick = () => {
-      if (done || !video.videoWidth || !video.videoHeight) return;
-      shutter.disabled = true;
-      const canvas = document.createElement("canvas");
+    async function start() {
+      clearReview(); video.hidden = false; review.hidden = true;
+      retake.hidden = use.hidden = true; shutter.hidden = false; shutter.disabled = true; native.hidden = true;
+      status.textContent = 'Starting camera...';
+      timer = setTimeout(unavailable, 20000);
       try {
-        const scale = Math.min(1, 1920 / Math.max(video.videoWidth, video.videoHeight));
-        canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
-        canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
-        const context = canvas.getContext("2d");
-        if (!context) throw new Error("Canvas unavailable");
-        context.drawImage(video, 0, 0, canvas.width, canvas.height);
-        stop();
-        status.textContent = "Preparing photo...";
-        // Pass pixels directly to watermark processing; encode JPEG only once.
-        finish({ file: canvas });
-      } catch (_) {
-        canvas.width = canvas.height = 0;
-        unavailable();
-      }
-    };
-    document.body.appendChild(overlay);
-    overlay.querySelector("[data-cancel]").focus();
-    document.addEventListener("visibilitychange", onHidden);
-    document.addEventListener("keydown", onKey);
-    window.addEventListener("pagehide", onHidden);
-    timer = setTimeout(unavailable, 20000);
-    if (!navigator.mediaDevices?.getUserMedia) { unavailable(); return; }
-    navigator.mediaDevices.getUserMedia({
-      audio: false,
-      video: {
-        facingMode: { ideal: "environment" },
-        width: { ideal: 2560, max: 2560 },
-        height: { ideal: 1440, max: 2560 },
-        frameRate: { ideal: 15, max: 15 }
-      }
-    }).then(async acquired => {
-      // A permission request may finish after cancellation or timeout.
-      if (done || !native.hidden) { acquired.getTracks().forEach(track => track.stop()); return; }
-      stream = acquired;
-      video.srcObject = stream;
-      try {
-        await video.play();
+        const acquired = await navigator.mediaDevices.getUserMedia({audio:false, video:{
+          facingMode:{ideal:'environment'}, width:{ideal:2560,max:2560},
+          height:{ideal:1440,max:2560}, frameRate:{ideal:15,max:15}
+        }});
+        if (done || !native.hidden) { acquired.getTracks().forEach(t => t.stop()); return; }
+        stream = acquired;
+        const track = stream.getVideoTracks()[0];
+        // Focus support varies by phone; failure must not block capture.
+        try {
+          if (track.getCapabilities?.().focusMode?.includes('continuous')) {
+            await track.applyConstraints({advanced:[{focusMode:'continuous'}]});
+          }
+        } catch (_) {}
         if (done) return;
+        video.srcObject = stream; await video.play();
+        await new Promise(resolveFrame => {
+          if (video.requestVideoFrameCallback) video.requestVideoFrameCallback(resolveFrame);
+          else if (video.readyState >= 2) resolveFrame();
+          else video.addEventListener('loadeddata', resolveFrame, {once:true});
+        });
+        if (done || !native.hidden) return;
         clearTimeout(timer);
-        status.textContent = "Position the photo, then tap Take photo.";
+        status.textContent = 'Hold steady and check the focus, then tap Take photo.';
         shutter.disabled = false;
       } catch (_) { unavailable(); }
-    }).catch(unavailable);
+    }
+    shutter.onclick = async () => {
+      if (done || shutter.disabled || !video.videoWidth || !video.videoHeight) return;
+      shutter.disabled = true; status.textContent = 'Taking photo...';
+      let file;
+      try {
+        const track = stream.getVideoTracks()[0];
+        if (typeof window.ImageCapture === 'function') {
+          let timeout;
+          try {
+            file = await Promise.race([
+              new window.ImageCapture(track).takePhoto(),
+              new Promise((_, reject) => { timeout = setTimeout(() => reject(new Error('Still capture timed out')), 5000); })
+            ]);
+            if (!file?.size) file = null;
+          } catch (_) { /* Fall back to a video frame when still capture is unsupported. */ }
+          finally { clearTimeout(timeout); }
+        }
+        if (done) return;
+        if (!file) {
+          const canvas = document.createElement('canvas');
+          const scale = Math.min(1, 1920 / Math.max(video.videoWidth, video.videoHeight));
+          canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
+          canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
+          const context = canvas.getContext('2d');
+          if (!context) throw new Error('Canvas unavailable');
+          context.drawImage(video, 0, 0, canvas.width, canvas.height);
+          file = canvas;
+        }
+        stop(); reviewFile = file;
+        const preview = file instanceof HTMLCanvasElement ? file : document.createElement('img');
+        if (preview !== file) { reviewURL = URL.createObjectURL(file); preview.src = reviewURL; preview.alt = 'Photo to review'; }
+        preview.style.cssText = 'display:block;width:100%;height:100%;object-fit:contain;max-height:none;max-width:100%;margin:0';
+        review.append(preview); review.hidden = false; video.hidden = true;
+        shutter.hidden = true; retake.hidden = use.hidden = false;
+        status.textContent = 'Check that the details are clear. Retake if blurry.';
+        use.focus();
+      } catch (_) { unavailable(); }
+    };
+    retake.onclick = () => { if (!done) start(); };
+    use.onclick = () => { if (reviewFile) finish({file:reviewFile}); };
+    overlay.querySelector('[data-cancel]').onclick = () => finish(null);
+    native.onclick = () => finish({native:true});
+    document.body.append(overlay); overlay.querySelector('[data-cancel]').focus();
+    document.addEventListener('visibilitychange', onHidden);
+    document.addEventListener('keydown', onKey);
+    window.addEventListener('pagehide', onPageHide);
+    if (navigator.mediaDevices?.getUserMedia) start(); else unavailable();
   });
 };

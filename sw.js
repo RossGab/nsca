@@ -1,4 +1,4 @@
-const CACHE_VERSION = "v41-single-pass-photos";
+const CACHE_VERSION = "v43-still-photo-review";
 const CACHE_NAME = `field-task-app-${CACHE_VERSION}`;
 
 const BASE_PATH = "/nsca/";
@@ -9,6 +9,7 @@ const CORE_ASSETS = [
   BASE_PATH + "driver-storage-viewer.html",
   BASE_PATH + "storage-diagnostics.js",
   BASE_PATH + "driver-camera.js",
+  BASE_PATH + "driver-photo-preview.js",
   BASE_PATH + "install.html",
   BASE_PATH + "manifest.json",
   BASE_PATH + "icon-192.png",

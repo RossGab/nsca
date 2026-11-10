@@ -619,6 +619,7 @@ img { width:100%;margin-top:8px;border-radius:6px; }
 
 <script src="./storage-diagnostics.js"></script>
 <script src="./driver-camera.js"></script>
+<script src="./driver-photo-preview.js"></script>
 <script type="module">
 import { escapeDeliveryHTML, deliveryFieldHTML } from "./delivery-fields.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
@@ -7235,7 +7236,7 @@ function renderOneTask(t) {
       if (!p[i]) return "";
       return `
         <img data-photo-index="${i}" ${p[i].previewURL ? `src="${p[i].previewURL}"` : ""}
-          onclick="window.open('${p[i].previewURL}','_blank')"
+          onclick="window.openDriverPhoto('${p[i].previewURL}')"
           style="
             width:100%;
             max-width:100px;
@@ -7342,7 +7343,7 @@ taskList.appendChild(div);
         if (!photo || !row?.blob) return;
         if (!photo.previewURL) photo.previewURL = URL.createObjectURL(row.blob);
         img.src = photo.previewURL;
-        img.onclick = () => window.open(photo.previewURL, "_blank");
+        img.onclick = () => window.openDriverPhoto(photo.previewURL);
       });
     }).catch(error => console.warn("Photo preview unavailable", error));
   }
