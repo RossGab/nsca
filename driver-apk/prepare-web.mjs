@@ -49,6 +49,11 @@ if (galleryStart < 0 || galleryEnd < 0) throw new Error('Cannot locate gallery d
 source = nativeSave + source.slice(0, galleryStart) + 'function saveToGallery(blob, filename) {\n  return saveNativeFile(blob, filename, true).catch(error => {\n    window.DriverStorageDiagnostics?.record("automatic_backup_failed", { error: error.message });\n    alert("Your task remains saved in the app, but its extra backup could not be saved. " + error.message);\n  });\n}\n' + source.slice(galleryEnd);
 source = nativeDriverSource(source, path.join(base,'native-storage.mjs').replaceAll('\\','/'));
 source = applyPhotoRules(source,path.join(base,'photo-rules.mjs').replaceAll('\\','/'));
+// Persist edits and the pending capture reference before Android backgrounds the app.
+const captureStart = '    const capture = await window.captureDriverPhoto();';
+if (!source.includes(captureStart)) throw new Error('Camera integration point missing');
+source = source.replace(captureStart, '    saveFormCache({...loadFormCache(),...BILLING_CACHE});\n    await driverPreferences.flush();\n' + captureStart);
+
 const settingsPrompt = /const choice = await nscaPrompt\(\s*`Settings[\s\S]*?Enter 1, 2 or 3`\s*\);/;
 if (!settingsPrompt.test(source)) throw new Error('Settings action integration point missing');
 source = source.replace(settingsPrompt, 'const choice = await chooseSettings();\n  if (choice === "4") { window.dispatchEvent(new Event("driver-check-updates")); return; }');
