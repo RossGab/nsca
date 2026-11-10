@@ -19,7 +19,9 @@ for (const match of html.matchAll(/(?:src|href)="\.\/([^"?#]+)(?:[?#][^"]*)?"/g)
 }
 const app = await read('www/driver-app.js');
 const camera = await read('www/driver-camera.js');
-assert(camera.includes('return { native: true }'), 'APK must open the Android camera through the capture input');
+assert(app.includes('DriverCamera'), 'APK must use the native camera plugin');
+assert(app.includes('nativeCameraPath'), 'Native camera files must bypass browser image decoding');
+assert(!app.includes('function compressImage('), 'APK must replace browser image processing');
 assert(!camera.includes('getUserMedia'), 'APK must not open the in-page camera');
 assert(html.includes('capture="environment"'), 'Android camera input must request image capture');
 assert(/await driverPreferences.flush\(\);\s*const capture = await window.captureDriverPhoto\(\)/.test(app), 'Capture reference and edits must persist before opening the phone camera');
