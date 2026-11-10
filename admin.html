@@ -1934,6 +1934,16 @@ function firestoreDateMillis(value) {
   }
 }
 
+// Initial task upload uses createdAt; uploadedAt records completed-work sync.
+function taskUploadMillis(task) {
+  return firestoreDateMillis(task.createdAt) || firestoreDateMillis(task.createdDate);
+}
+
+function compareTaskUploadsNewestFirst(a, b) {
+  return taskUploadMillis(b) - taskUploadMillis(a) ||
+    String(b._key || '').localeCompare(String(a._key || ''));
+}
+
 function completedTaskMillis(task) {
   return firestoreDateMillis(
     task.correctedCompletedAt ||
@@ -3473,6 +3483,8 @@ async function loadAdminPageFromFirestore(status) {
     });
   }
 
+  if (status !== "COMPLETED") tasks.sort(compareTaskUploadsNewestFirst);
+
   FILTERED_TASK_IDS = tasks.map(t => t._key);
 
   const start = ADMIN_CURRENT_PAGE * ADMIN_PAGE_SIZE;
@@ -3967,7 +3979,7 @@ function renderAdminTasks(tasks) {
     <b>${t.CUSTOMERNAME || ""}</b>
         <div class="small">${t.ADDRESS || ""}</div>
         <div class="small">Driver: ${t.driverId || "—"}</div>
-        ${taskSearchPanel.style.display === "block" ? `<div class="small">Task uploaded: ${escapeAdminHtml(formatFirestoreDate(t.createdAt || t.createdDate) || "Unavailable")}</div>` : ""}
+        ${t.status !== "COMPLETED" || taskSearchPanel.style.display === "block" ? `<div class="small">Task uploaded: ${escapeAdminHtml(taskUploadMillis(t) ? formatFirestoreDate(taskUploadMillis(t)) : "Unavailable")}</div>` : ""}
         ${renderTaskCompletionTimes(t)}
         ${sla ? `<div class="small ${sla.cls}">⏱ ${sla.text}</div>` : ""}
       </div>
