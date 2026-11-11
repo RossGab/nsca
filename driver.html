@@ -3366,15 +3366,16 @@ function setPhotoProgress(message) {
 }
 let BOOT_WATCHDOG_FIRED = false;
 
-// window.startPhoto = async function(index, taskKey) {
-//   if (!(await validateDynamic(taskKey))) return;
-
-//   CURRENT_TASK = taskKey;
-//   CURRENT_PHOTO_INDEX = index;
-
-//   cameraInput.value = "";
-//   cameraInput.click();
-// };
+window.retakeDriverPhoto = async function(index, taskKey) {
+  if (PHOTO_CAPTURE_BUSY || CURRENT_TASK || SYNC_RUNNING) return;
+  try {
+    const task = (await getTasksFromIndexedDB()).find(t => t._key === taskKey);
+    if (!task || task.finalized || !['PENDING','CAPTURING','READY'].includes(resolveStatus(task))) {
+      alert('This task can no longer be edited.'); return;
+    }
+    await window.startPhoto(index, taskKey);
+  } catch (error) { alert(error.message || 'Unable to retake photo. Please retry.'); }
+};
 window.startPhoto = async function(index, taskKey) {
   if (PHOTO_CAPTURE_BUSY || CURRENT_TASK) return;
 
@@ -7236,7 +7237,7 @@ function renderOneTask(t) {
       if (!p[i]) return "";
       return `
         <img data-photo-index="${i}" ${p[i].previewURL ? `src="${p[i].previewURL}"` : ""}
-          onclick="window.openDriverPhoto('${p[i].previewURL}')"
+          onclick="window.openDriverPhoto(this.src, () => window.retakeDriverPhoto(${i}, this.closest('[data-task-key]').dataset.taskKey))"
           style="
             width:100%;
             max-width:100px;
@@ -7343,7 +7344,7 @@ taskList.appendChild(div);
         if (!photo || !row?.blob) return;
         if (!photo.previewURL) photo.previewURL = URL.createObjectURL(row.blob);
         img.src = photo.previewURL;
-        img.onclick = () => window.openDriverPhoto(photo.previewURL);
+        img.onclick = () => window.openDriverPhoto(photo.previewURL, () => window.retakeDriverPhoto(Number(img.dataset.photoIndex), t._key));
       });
     }).catch(error => console.warn("Photo preview unavailable", error));
   }

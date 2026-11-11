@@ -1,6 +1,6 @@
 // Fit full task photos to the screen; browser/PWA Back dismisses the preview.
 let activePreview;
-window.openDriverPhoto = function (url) {
+window.openDriverPhoto = function (url, onRetake) {
   if (!url || activePreview) return;
   const previousFocus = document.activeElement;
   const previousOverflow = document.body.style.overflow;
@@ -17,7 +17,18 @@ window.openDriverPhoto = function (url) {
   photo.alt = 'Captured task photo';
   photo.style.cssText = 'display:block;flex:1 1 0;width:100%;height:0;min-height:0;max-width:100%;max-height:none;object-fit:contain;object-position:center;margin:0;padding:0;border:0;border-radius:0;transform:none;';
   photo.src = url;
-  overlay.append(back, photo);
+  const actions = document.createElement('div');
+  actions.style.cssText = 'display:flex;gap:12px;flex-wrap:wrap;flex:0 0 auto';
+  actions.append(back);
+  let afterClose;
+  if (typeof onRetake === 'function') {
+    const retake = document.createElement('button');
+    retake.type = 'button'; retake.textContent = 'Retake photo';
+    retake.style.cssText = back.style.cssText;
+    retake.onclick = () => { afterClose = onRetake; close(); };
+    actions.append(retake);
+  }
+  overlay.append(actions, photo);
   function cleanup() {
     if (activePreview !== cleanup) return;
     activePreview = null;
@@ -26,6 +37,7 @@ window.openDriverPhoto = function (url) {
     overlay.remove();
     document.body.style.overflow = previousOverflow;
     if (previousFocus?.isConnected) previousFocus.focus();
+    if (afterClose) afterClose();
   }
   function close() {
     if (history.state?.driverPhotoPreview) history.back();
@@ -33,7 +45,12 @@ window.openDriverPhoto = function (url) {
   }
   function onKey(event) {
     if (event.key === 'Escape') { event.preventDefault(); close(); }
-    if (event.key === 'Tab') { event.preventDefault(); back.focus(); }
+    if (event.key === 'Tab') {
+      const buttons = [...actions.querySelectorAll('button')];
+      const first = buttons[0], last = buttons[buttons.length-1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    }
   }
   back.onclick = close;
   activePreview = cleanup;

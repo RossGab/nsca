@@ -6,11 +6,11 @@ window.captureDriverPhoto = function () {
     overlay.setAttribute('aria-modal', 'true');
     overlay.setAttribute('aria-label', 'Take task photo');
     overlay.style.cssText = 'position:fixed;inset:0;z-index:100001;background:#111;color:#fff;display:flex;flex-direction:column;padding:16px;gap:12px;box-sizing:border-box';
-    overlay.innerHTML = '<p role="status">Starting camera...</p><video autoplay muted playsinline style="width:100%;flex:1;min-height:0;object-fit:contain"></video><div data-review hidden style="flex:1;min-height:0"></div><div style="display:flex;gap:12px;flex-wrap:wrap"><button type="button" data-shutter disabled>Take photo</button><button type="button" data-retake hidden>Retake</button><button type="button" data-use hidden>Use photo</button><button type="button" data-cancel>Cancel</button><button type="button" data-native hidden>Open phone camera</button></div>';
+    overlay.innerHTML = '<p role="status">Starting camera...</p><video autoplay muted playsinline style="width:100%;flex:1;min-height:0;object-fit:contain"></video><div data-review hidden style="flex:1;min-height:0"></div><div style="display:flex;gap:12px;flex-wrap:wrap"><button type="button" data-shutter disabled>Take photo</button><button type="button" data-cancel>Cancel</button><button type="button" data-native hidden>Open phone camera</button></div>';
     const video = overlay.querySelector('video'), status = overlay.querySelector('p');
     const review = overlay.querySelector('[data-review]');
-    const shutter = overlay.querySelector('[data-shutter]'), retake = overlay.querySelector('[data-retake]');
-    const use = overlay.querySelector('[data-use]'), native = overlay.querySelector('[data-native]');
+    const shutter = overlay.querySelector('[data-shutter]');
+    const native = overlay.querySelector('[data-native]');
     const previousFocus = document.activeElement;
     let stream, done = false, timer, reviewFile, reviewURL;
     function stop() {
@@ -53,7 +53,7 @@ window.captureDriverPhoto = function () {
     }
     async function start() {
       clearReview(); video.hidden = false; review.hidden = true;
-      retake.hidden = use.hidden = true; shutter.hidden = false; shutter.disabled = true; native.hidden = true;
+      shutter.hidden = false; shutter.disabled = true; native.hidden = true;
       status.textContent = 'Starting camera...';
       timer = setTimeout(unavailable, 20000);
       try {
@@ -111,18 +111,9 @@ window.captureDriverPhoto = function () {
           context.drawImage(video, 0, 0, canvas.width, canvas.height);
           file = canvas;
         }
-        stop(); reviewFile = file;
-        const preview = file instanceof HTMLCanvasElement ? file : document.createElement('img');
-        if (preview !== file) { reviewURL = URL.createObjectURL(file); preview.src = reviewURL; preview.alt = 'Photo to review'; }
-        preview.style.cssText = 'display:block;width:100%;height:100%;object-fit:contain;max-height:none;max-width:100%;margin:0';
-        review.append(preview); review.hidden = false; video.hidden = true;
-        shutter.hidden = true; retake.hidden = use.hidden = false;
-        status.textContent = 'Check that the details are clear. Retake if blurry.';
-        use.focus();
+        finish({file});
       } catch (_) { unavailable(); }
     };
-    retake.onclick = () => { if (!done) start(); };
-    use.onclick = () => { if (reviewFile) finish({file:reviewFile}); };
     overlay.querySelector('[data-cancel]').onclick = () => finish(null);
     native.onclick = () => finish({native:true});
     document.body.append(overlay); overlay.querySelector('[data-cancel]').focus();
