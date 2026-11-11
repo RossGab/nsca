@@ -103,6 +103,12 @@ if (!floatingSettings.test(html)) throw new Error('Settings button integration p
 html = html.replace(floatingSettings, '');
 html = html.replace('<div id="appVersion"></div>', '<header class="apk-header"><div id="appVersion"></div><button id="settingsBtn" type="button" aria-label="Open settings" aria-haspopup="dialog" title="Settings"><svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m9.5 3-.7 2.2-1.7 1-2.3-.5-2.4 4.1 1.6 1.7v2L2.4 15l2.4 4.1 2.3-.5 1.7 1 .7 2.2h4.8l.7-2.2 1.7-1 2.3.5 2.4-4.1-1.6-1.6v-2l1.6-1.7L19 5.6l-2.3.5-1.7-1-.7-2.1z"/><circle cx="12" cy="12" r="3"/></svg></button></header>');
 html = html.replace('</head>', `<style>
+/* Keep full-width controls inside the viewport instead of adding padding to 100%. */
+html{overflow-x:hidden;overscroll-behavior-x:none}
+body{margin:0;min-width:0;max-width:100%}
+*,*::before,*::after{box-sizing:border-box}
+input,select,textarea{min-width:0;max-width:100%}
+.task{overflow-wrap:anywhere}
 .apk-header{display:grid;grid-template-columns:minmax(0,1fr) 48px;align-items:center;gap:10px;margin-bottom:12px}
 .apk-header #appVersion{min-width:0;margin:0;padding:14px;border-radius:12px;background:#172033;color:#fff;text-align:left;font-size:14px;line-height:1.5;overflow-wrap:anywhere}
 .apk-header #settingsBtn{position:static;display:grid;place-items:center;width:48px;height:48px;margin:0;box-sizing:border-box;padding:0;border:1px solid #cbd5e1;border-radius:12px;background:#fff;color:#172033;cursor:pointer}
