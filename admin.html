@@ -2697,7 +2697,8 @@ function taskMatchesCachedSearch(task, searchText, field) {
 }
 
 function renderTaskSearchResults(tasks, sourceLabel) {
-  const results = excludeDeletedTasks(tasks || []).map(normalizeAdminCachedTask);
+  const results = excludeDeletedTasks(tasks || []).map(normalizeAdminCachedTask)
+    .sort(compareTaskUploadsNewestFirst);
   FILTERED_TASK_IDS = results.map(task => task._key);
   ADMIN_CURRENT_PAGE = 0;
   renderAdminTasks(results);
