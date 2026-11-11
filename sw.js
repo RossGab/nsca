@@ -1,4 +1,4 @@
-const CACHE_VERSION = "v44-thumbnail-retake";
+const CACHE_VERSION = "v45-export-receipts";
 const CACHE_NAME = `field-task-app-${CACHE_VERSION}`;
 
 const BASE_PATH = "/nsca/";
@@ -6,6 +6,8 @@ const DRIVER_URL = BASE_PATH + "driver.html";
 
 const CORE_ASSETS = [
   DRIVER_URL,
+  BASE_PATH + "offline-export-receipts.js",
+  BASE_PATH + "driver-export-confirmation.js",
   BASE_PATH + "driver-storage-viewer.html",
   BASE_PATH + "storage-diagnostics.js",
   BASE_PATH + "driver-camera.js",

@@ -151,6 +151,7 @@
 </main>
 
 <script type="module">
+import { buildUploadReceipt } from "./offline-export-receipts.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
 import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 import {
@@ -470,7 +471,7 @@ function validateExport(raw) {
     const taskKey = safeId(photo?.taskKey);
     const photoIndex = Number(photo?.photoIndex);
     if (!seenTasks.has(taskKey)) throw new Error(`Photo ${index + 1} references unknown task ${taskKey || "(blank)"}.`);
-    if (!Number.isInteger(photoIndex) || photoIndex < 1 || photoIndex > 3) {
+    if (!Number.isInteger(photoIndex) || photoIndex < 1 || photoIndex > 5) {
       throw new Error(`Photo for task ${taskKey} has invalid photoIndex ${photo?.photoIndex}.`);
     }
     const uniqueKey = `${taskKey}:${photoIndex}`;
@@ -582,6 +583,7 @@ async function uploadTask(task, relatedPhotos, options = {}) {
     };
   }
 
+  const uploadReceipt = buildUploadReceipt(task, relatedPhotos, serverTimestamp());
   const updatePayload = { ...(task.deliveryData || {}) };
   const orderedPhotos = [...relatedPhotos].sort((a, b) => a.photoIndex - b.photoIndex);
 
@@ -624,6 +626,7 @@ async function uploadTask(task, relatedPhotos, options = {}) {
     });
   }
 
+  if (uploadReceipt) updatePayload.offlineExportReceipt = uploadReceipt;
   await updateDoc(taskRef, updatePayload);
   return {
     skipped: false,

@@ -621,6 +621,8 @@ img { width:100%;margin-top:8px;border-radius:6px; }
 <script src="./driver-camera.js"></script>
 <script src="./driver-photo-preview.js"></script>
 <script type="module">
+import { prepareExportReceipt } from "./offline-export-receipts.js";
+import { createReceiptChecker } from "./driver-export-confirmation.js";
 import { escapeDeliveryHTML, deliveryFieldHTML } from "./delivery-fields.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
 import { getDatabase, ref, get, update, query, orderByChild, equalTo } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
@@ -634,6 +636,7 @@ import {
   getCountFromServer,
   doc as fsDoc,
   getDoc,
+  getDocFromServer,
   updateDoc,
   runTransaction,
   writeBatch,
@@ -642,7 +645,34 @@ import {
 import { getStorage, ref as sRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js";
 import { increment } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
   
-const VERSION = "V.R.0.0.16.1.4.25";
+const VERSION = "V.R.0.0.16.1.4.26";
+
+const checkExportUploadReceipts = createReceiptChecker({
+  driverId: () => DRIVER_ID,
+  getTasks: getTasksFromIndexedDB,
+  saveTasks: saveTasksToIndexedDB,
+  readServer: async key => {
+    const snap = await getDocFromServer(fsDoc(firestore, 'TASK', key));
+    return snap.exists() ? snap.data() : null;
+  },
+  isBusy: () => SYNC_RUNNING || EXPORT_RUNNING || PHOTO_CAPTURE_BUSY || IS_DOWNLOADING,
+  render: (tasks, state) => {
+    let banner = document.getElementById('exportReceiptSummary');
+    if (!banner) {
+      banner = document.createElement('p'); banner.id = 'exportReceiptSummary';
+      banner.setAttribute('role','status');
+      banner.style.cssText = 'padding:12px;border:1px solid #8b9aaa;border-radius:8px;font-size:14px';
+      document.getElementById('syncBtn').after(banner);
+    }
+    banner.hidden = !tasks.length;
+    const count = tasks.filter(t => t.offlineExport?.id && t.offlineExportConfirmed?.id === t.offlineExport.id).length;
+    banner.textContent = count + ' upload confirmed | ' + (tasks.length-count) + ' awaiting admin upload';
+    if (state.offline) banner.textContent += ' (offline - showing last confirmation)';
+    else if (state.failures) banner.textContent += ' (some checks unavailable; refresh to retry)';
+    if (tasks.some(t => !t.offlineExport?.id)) banner.textContent += '. Older exports have no receipt and cannot be automatically confirmed.';
+  }
+});
+
 const BILLING_CACHE = {};
 window.BILLING_CACHE = BILLING_CACHE;
 const DRIVER_UI_CACHE = {};
@@ -4587,6 +4617,8 @@ async function migrateIndexedDBTasks() {
     normalized.finalized =
       oldTask.finalized || false;
 
+    normalized.offlineExport = oldTask.offlineExport || null;
+    normalized.offlineExportConfirmed = oldTask.offlineExportConfirmed || null;
     normalized.exported =
       oldTask.exported || false;
 
@@ -5137,6 +5169,7 @@ async function loadTasks() {
       cached = await getTasksFromIndexedDB();
     }
     // 🔥 Calculate upload queue once
+    void checkExportUploadReceipts(cached).catch(error => console.warn("Upload confirmation unavailable", error));
     UPLOAD_QUEUE_COUNT = cached.filter(t =>
       String(t.driverId || "").trim().toUpperCase() ===
       String(DRIVER_ID).trim().toUpperCase() &&
@@ -6690,7 +6723,7 @@ function renderDriverTaskMap() {
 
     if (status === "EXPORTED") {
       statusLabel =
-        "🔵 Exported — waiting for admin upload";
+        task.offlineExportConfirmed?.id === task.offlineExport?.id && task.offlineExport?.id ? "Upload confirmed" : "Exported - awaiting admin upload";
     }
 
     marker.bindPopup(`
@@ -7310,7 +7343,7 @@ function renderOneTask(t) {
   if (status === "EXPORTED") {
     html += `
       <div class="uploading" style="color:#2980b9;">
-        📦 Exported — waiting for admin upload
+        ${t.offlineExportConfirmed?.id === t.offlineExport?.id && t.offlineExport?.id ? "Upload confirmed" : "Exported - awaiting admin upload"}
       </div>
     `;
   }
@@ -7988,6 +8021,12 @@ async function exportTasksToFile() {
       photosByTask.set(task._key, await readPhotoDetails(task._key));
     }
 
+    for (const task of completed) {
+      task.offlineExport = prepareExportReceipt(task, photosByTask.get(task._key) || []);
+      task.offlineExportConfirmed = null;
+    }
+    // Persist identity before saving a file, so retries retain the same receipt.
+    await saveTasksToIndexedDB(completed);
     const parts = buildExportParts(completed, photosByTask);
     PENDING_EXPORT_SESSION = {
       parts,
