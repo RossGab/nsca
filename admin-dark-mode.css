@@ -117,3 +117,11 @@ html[data-admin-theme="dark"] .upload-grid .result-processing { color:#83c5ff; }
 html[data-admin-theme="dark"] .upload-grid :is(.results-wrap,.deleted-row) { border-color:var(--nsca-border); }
 html[data-admin-theme="dark"] #uploadResultsBody td[colspan] { color:var(--nsca-muted)!important; }
 html[data-admin-theme="dark"] #uploadOverlay .loader { background:var(--nsca-surface); color:var(--nsca-text); }
+/* Keep task status accents visible on dark surfaces. */
+html[data-admin-theme="dark"] .task.pending { border-left-color:orange!important; }
+html[data-admin-theme="dark"] .task.completed { border-left-color:green!important; }
+html[data-admin-theme="dark"] .card.open { border-top-color:orange!important; }
+html[data-admin-theme="dark"] .card.done { border-top-color:green!important; }
+html[data-admin-theme="dark"] .task .small.sla-ok { color:#75d89a!important; }
+html[data-admin-theme="dark"] .task .small.sla-warn { color:#ffd071!important; }
+html[data-admin-theme="dark"] .task .small.sla-breach { color:#ff9098!important; }
