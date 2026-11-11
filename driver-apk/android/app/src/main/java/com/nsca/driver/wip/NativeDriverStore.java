@@ -98,6 +98,59 @@ public final class NativeDriverStore extends SQLiteOpenHelper {
             return bytes;
         }
     }
+    /** Streams compatible JSON with bounded photo buffers; never loads whole photos. */
+    public synchronized void streamExport(java.io.OutputStream output, JSONArray ids, String driver,
+            String exportedAt, int partNumber, int totalParts) throws Exception {
+        JSONArray tasks = new JSONArray();
+        java.util.HashSet<String> unique = new java.util.HashSet<>();
+        for (int i=0; i<ids.length(); i++) {
+            String id = ids.getString(i);
+            JSONObject task = get("tasks", id);
+            if (!unique.add(id) || task == null || !task.optString("status").equals("LOCAL_COMPLETED") ||
+                task.optBoolean("exported") || !task.optString("driverId").trim().equalsIgnoreCase(driver.trim()))
+                throw new IllegalStateException("Task is no longer eligible for export: " + id);
+            if (list("photos", id).length()==0) throw new IllegalStateException("Task photos are missing: " + id);
+            task.put("exported", true); tasks.put(task);
+        }
+        JSONObject header = new JSONObject().put("exportedAt",exportedAt).put("driverId",driver)
+            .put("partNumber",partNumber).put("totalParts",totalParts).put("totalTasks",tasks.length()).put("tasks",tasks);
+        String json = header.toString();
+        exportText(output, json.substring(0,json.length()-1) + ",\"photos\":[");
+        boolean first = true;
+        byte[] buffer = new byte[16384];
+        for (int t=0; t<tasks.length(); t++) {
+            JSONObject task = tasks.getJSONObject(t);
+            JSONArray rows = list("photos",task.getString("_key"));
+            for (int p=0; p<rows.length(); p++) {
+                JSONObject row = rows.getJSONObject(p);
+                if (!first) exportText(output,","); first=false;
+                JSONObject meta = new JSONObject().put("id",row.getString("id")).put("taskKey",row.getString("taskKey"))
+                    .put("photoIndex",row.getInt("photoIndex")).put("takenAt",row.opt("takenAt"))
+                    .put("gps",row.opt("gps")).put("deliveryData",task.optJSONObject("deliveryData") == null ? new JSONObject() : task.getJSONObject("deliveryData"));
+                String metadata = meta.toString();
+                String mime = row.optString("mime","image/jpeg");
+                if (!mime.matches("image/[a-zA-Z0-9.+-]+")) throw new IllegalStateException("Invalid photo type");
+                exportText(output,metadata.substring(0,metadata.length()-1)+",\"base64\":\"data:"+mime+";base64,");
+                MessageDigest digest = MessageDigest.getInstance("SHA-256");
+                long bytes=0;
+                android.util.Base64OutputStream encoded = new android.util.Base64OutputStream(output,
+                    android.util.Base64.NO_WRAP | android.util.Base64.NO_CLOSE);
+                try (FileInputStream input = new FileInputStream(photoFile(row))) {
+                    int count;
+                    while ((count=input.read(buffer))!=-1) { encoded.write(buffer,0,count); digest.update(buffer,0,count); bytes+=count; }
+                } finally { encoded.close(); }
+                StringBuilder hex=new StringBuilder();
+                for (byte value:digest.digest()) hex.append(String.format("%02x",value & 255));
+                if (bytes==0 || bytes!=row.getLong("blobSize") || !hex.toString().equals(row.getString("sha256")))
+                    throw new IllegalStateException("Photo integrity check failed: "+row.getString("id"));
+                exportText(output,"\"}");
+            }
+        }
+        exportText(output,"]}"); output.flush();
+    }
+    private static void exportText(java.io.OutputStream output, String text) throws Exception {
+        output.write(text.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    }
     public synchronized JSONObject writePhoto(JSONObject metadata, byte[] bytes, boolean onlyMissing) throws Exception {
         String id=metadata.getString("id");
         JSONObject old=get("photos",id);

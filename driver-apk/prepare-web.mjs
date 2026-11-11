@@ -4,6 +4,7 @@ import path from 'node:path';
 import { build } from 'esbuild';
 import { nativeDriverSource, nativeViewerSource } from './native-source.mjs';
 import { applyPhotoRules } from './photo-rules.mjs';
+import { nativeExportSource } from './native-export-source.mjs';
 
 const base = path.dirname(fileURLToPath(import.meta.url));
 const root = path.dirname(base);
@@ -49,6 +50,11 @@ if (galleryStart < 0 || galleryEnd < 0) throw new Error('Cannot locate gallery d
 source = nativeSave + source.slice(0, galleryStart) + 'function saveToGallery(blob, filename) {\n  return saveNativeFile(blob, filename, true).catch(error => {\n    window.DriverStorageDiagnostics?.record("automatic_backup_failed", { error: error.message });\n    alert("Your task remains saved in the app, but its extra backup could not be saved. " + error.message);\n  });\n}\n' + source.slice(galleryEnd);
 source = nativeDriverSource(source, path.join(base,'native-storage.mjs').replaceAll('\\','/'));
 source = applyPhotoRules(source,path.join(base,'photo-rules.mjs').replaceAll('\\','/'));
+// Bound export memory: JSON/Base64 and bridge copies multiply the file size.
+if (!source.includes('const MAX_TASKS_PER_PART = 100;') || !source.includes('const MAX_ESTIMATED_BYTES_PER_PART = 100 * 1024 * 1024;')) throw new Error('Export limits integration point missing');
+source = source.replace('const MAX_TASKS_PER_PART = 100;', 'const MAX_TASKS_PER_PART = Number.MAX_SAFE_INTEGER;')
+  .replace('const MAX_ESTIMATED_BYTES_PER_PART = 100 * 1024 * 1024;', 'const MAX_ESTIMATED_BYTES_PER_PART = 20 * 1024 * 1024;');
+source = nativeExportSource(source);
 // Open thumbnails in an in-app, screen-fitting preview.
 const inlinePreview = "window.open('$" + "{p[i].previewURL}','_blank')";
 const savedPreview = 'window.open(photo.previewURL, "_blank")';

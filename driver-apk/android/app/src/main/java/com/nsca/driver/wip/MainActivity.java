@@ -9,6 +9,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(DriverFilesPlugin.class);
         registerPlugin(DriverUpdatesPlugin.class);
         registerPlugin(DriverStoragePlugin.class);
+        registerPlugin(DriverExportPlugin.class);
         registerPlugin(DriverCameraPlugin.class);
         super.onCreate(savedInstanceState);
         getBridge().getWebView().getSettings().setMediaPlaybackRequiresUserGesture(false);

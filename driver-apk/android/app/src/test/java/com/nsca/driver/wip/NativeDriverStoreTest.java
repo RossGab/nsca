@@ -71,4 +71,29 @@ public class NativeDriverStoreTest {
         try { store.resetMigration(); fail("Active data must never be reset"); } catch(IllegalStateException expected) {}
         assertNotNull(store.get("meta","migration-v1"));
     }
+
+    @Test public void streamedExportPreservesImportFormatWithoutMarkingTasks() throws Exception {
+        store.write("tasks",new JSONArray().put(task("export","LOCAL_COMPLETED").put("driverId","driver_001").put("deliveryData",new JSONObject().put("remarks","Test"))),false,false);
+        byte[] bytes=new byte[50003]; for(int i=0;i<bytes.length;i++) bytes[i]=(byte)i;
+        store.writePhoto(photo("export_5","export").put("photoIndex",5).put("mime","image/jpeg"),bytes,false);
+        java.io.ByteArrayOutputStream output=new java.io.ByteArrayOutputStream();
+        store.streamExport(output,new JSONArray().put("export"),"DRIVER_001","2026-11-11",1,2);
+        JSONObject result=new JSONObject(output.toString("UTF-8"));
+        assertEquals(1,result.getInt("totalTasks")); assertEquals(2,result.getInt("totalParts"));
+        assertTrue(result.getJSONArray("tasks").getJSONObject(0).getBoolean("exported"));
+        JSONObject image=result.getJSONArray("photos").getJSONObject(0);
+        assertEquals(5,image.getInt("photoIndex"));
+        assertEquals("Test",image.getJSONObject("deliveryData").getString("remarks"));
+        String data=image.getString("base64"); assertTrue(data.startsWith("data:image/jpeg;base64,"));
+        assertArrayEquals(bytes,android.util.Base64.decode(data.substring(data.indexOf(',')+1),android.util.Base64.DEFAULT));
+        assertFalse(store.get("tasks","export").optBoolean("exported"));
+    }
+    @Test public void streamedExportRejectsWrongOwnerAndCorruptPhotos() throws Exception {
+        store.write("tasks",new JSONArray().put(task("export","LOCAL_COMPLETED").put("driverId","driver_001")),false,false);
+        JSONObject row=store.writePhoto(photo("export_1","export"),new byte[]{1,2,3},false);
+        assertThrows(IllegalStateException.class,()->store.streamExport(new java.io.ByteArrayOutputStream(),new JSONArray().put("export"),"other","now",1,1));
+        try(java.io.FileOutputStream output=new java.io.FileOutputStream(new File(context.getFilesDir(),"driver-photos/"+row.getString("nativeFile")))){output.write(new byte[]{4,5,6});}
+        assertThrows(IllegalStateException.class,()->store.streamExport(new java.io.ByteArrayOutputStream(),new JSONArray().put("export"),"driver_001","now",1,1));
+        assertFalse(store.get("tasks","export").optBoolean("exported"));
+    }
 }
