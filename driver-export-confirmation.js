@@ -11,7 +11,7 @@ export function createReceiptChecker({ driverId, getTasks, saveTasks, readServer
     render(initialTasks.filter(eligible), { offline:!navigator.onLine });
     if (!navigator.onLine || isBusy()) return;
     running = true;
-    let failures = 0;
+    let failures = 0, newlyConfirmed = 0;
     try {
       const pending = initialTasks.filter(t => eligible(t) && t.offlineExport?.id && !confirmed(t));
       for (let start=0; start<pending.length; start+=10) {
@@ -35,12 +35,43 @@ export function createReceiptChecker({ driverId, getTasks, saveTasks, readServer
           }
         }
         if (isBusy()) break;
-        if (updates.length) await saveTasks(updates);
+        if (updates.length) { await saveTasks(updates); newlyConfirmed += updates.length; }
         render((await getTasks()).filter(eligible), { failures });
         await new Promise(resolve => setTimeout(resolve,0));
       }
     } finally {
       running = false;
+      if (newlyConfirmed) render((await getTasks()).filter(eligible), { failures, newlyConfirmed });
+    }
+  };
+}
+
+export function createReceiptNotice() {
+  let timer;
+  function notice(id) {
+    let element = document.getElementById(id);
+    if (!element) {
+      element = document.createElement('p'); element.id = id;
+      element.setAttribute('role','status');
+      element.style.cssText = 'padding:12px;border:1px solid #8b9aaa;border-radius:8px;font-size:14px';
+      document.getElementById('syncBtn').after(element);
+    }
+    return element;
+  }
+  return (tasks, state = {}) => {
+    const pending = tasks.filter(t => !t.offlineExport?.id || t.offlineExportConfirmed?.id !== t.offlineExport.id);
+    const banner = notice('exportReceiptSummary');
+    banner.hidden = !pending.length;
+    banner.textContent = 'Waiting for office upload: ' + pending.length + ' task' + (pending.length === 1 ? '' : 's') + '.';
+    if (state.offline && pending.length) banner.textContent += ' Connect to the internet to check office upload status.';
+    else if (state.failures && pending.length) banner.textContent += ' Could not check some tasks. Refresh to try again.';
+    if (state.newlyConfirmed) {
+      const toast = notice('exportReceiptNotification');
+      toast.textContent = 'Office upload confirmed for ' + state.newlyConfirmed + ' task' + (state.newlyConfirmed === 1 ? '' : 's') + '.';
+      if (pending.length) toast.textContent += ' ' + pending.length + ' still waiting for office upload.';
+      toast.hidden = false;
+      clearTimeout(timer);
+      timer = setTimeout(() => { toast.hidden = true; }, 8000);
     }
   };
 }

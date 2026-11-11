@@ -195,6 +195,37 @@ public final class NativeDriverStore extends SQLiteOpenHelper {
             db.setTransactionSuccessful();
         } finally { db.endTransaction(); }
     }
+    public synchronized JSONArray cleanupExpiredExports(String driverId, long now) throws Exception {
+        JSONArray removed=new JSONArray();
+        java.util.ArrayList<File> obsolete=new java.util.ArrayList<>();
+        SQLiteDatabase db=getWritableDatabase(); db.beginTransaction();
+        try {
+            java.text.SimpleDateFormat format=new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",java.util.Locale.US);
+            format.setTimeZone(java.util.TimeZone.getTimeZone("UTC")); format.setLenient(false);
+            JSONArray tasks=list("tasks",null);
+            for(int i=0;i<tasks.length();i++) {
+                JSONObject task=tasks.getJSONObject(i);
+                if(!task.optString("status").equals("LOCAL_COMPLETED") || !task.optBoolean("exported") ||
+                    !task.optString("driverId").trim().equalsIgnoreCase(driverId.trim()))continue;
+                JSONObject receipt=task.optJSONObject("offlineExport");
+                if(receipt!=null && !receipt.optString("id").isEmpty())continue;
+                long start=0;
+                try { start=format.parse(task.optString("localExportedAt")).getTime(); } catch(Exception ignored) {}
+                String key=task.getString("_key");
+                if(start<=0) { task.put("localExportedAt",format.format(new java.util.Date(now)));put(db,"tasks",key,task);continue; }
+                if(now-start<30L*86400000L)continue;
+                JSONArray photos=list("photos",key);
+                for(int p=0;p<photos.length();p++)obsolete.add(photoFile(photos.getJSONObject(p)));
+                db.delete("records","store=? AND task_key=?",new String[]{"photos",key});
+                db.delete("records","store=? AND id=?",new String[]{"tasks",key});
+                removed.put(key);
+            }
+            db.setTransactionSuccessful();
+        } finally { db.endTransaction(); }
+        // Remove files only after their metadata transaction has committed.
+        for(File file:obsolete)file.delete();
+        return removed;
+    }
     public synchronized JSONObject stats() throws Exception {
         try (Cursor check=getReadableDatabase().rawQuery("PRAGMA quick_check",null)) {
             if (!check.moveToFirst() || !check.getString(0).equals("ok")) throw new IllegalStateException("Native database integrity check failed");

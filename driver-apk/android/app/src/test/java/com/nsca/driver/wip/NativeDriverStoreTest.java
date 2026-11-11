@@ -96,4 +96,29 @@ public class NativeDriverStoreTest {
         assertThrows(IllegalStateException.class,()->store.streamExport(new java.io.ByteArrayOutputStream(),new JSONArray().put("export"),"driver_001","now",1,1));
         assertFalse(store.get("tasks","export").optBoolean("exported"));
     }
+
+    @Test public void exportedRetentionDeletesOnlyEligibleTasksAndTheirPhotos() throws Exception {
+        long now=1800000000000L;
+        java.text.SimpleDateFormat format=new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",java.util.Locale.US);
+        format.setTimeZone(java.util.TimeZone.getTimeZone("UTC"));
+        String expired=format.format(new java.util.Date(now-30L*86400000)), recent=format.format(new java.util.Date(now-29L*86400000));
+        JSONArray rows=new JSONArray();
+        for(String id:new String[]{"old","recent","legacy","unsent","other","receipt","confirmed"}) {
+            JSONObject row=task(id,"LOCAL_COMPLETED").put("driverId",id.equals("other")?"other":"driver_001").put("exported",!id.equals("unsent"));
+            if(!id.equals("legacy")) row.put("localExportedAt",id.equals("recent")?recent:expired);
+            if(id.equals("receipt") || id.equals("confirmed")) row.put("offlineExport",new JSONObject().put("id","receipt-id"));
+            if(id.equals("confirmed")) row.put("offlineExportConfirmed",new JSONObject().put("id","receipt-id"));
+            rows.put(row);
+        }
+        store.write("tasks",rows,false,false);
+        JSONObject evidence=store.writePhoto(photo("old_1","old"),new byte[]{1,2,3},false);
+        store.writePhoto(photo("receipt_1","receipt"),new byte[]{4,5,6},false);
+        JSONArray removed=store.cleanupExpiredExports("DRIVER_001",now);
+        assertEquals(1,removed.length()); assertEquals("old",removed.getString(0));
+        assertNull(store.get("tasks","old")); assertNull(store.get("photos","old_1"));
+        assertFalse(new File(context.getFilesDir(),"driver-photos/"+evidence.getString("nativeFile")).exists());
+        for(String id:new String[]{"recent","legacy","unsent","other","receipt","confirmed"}) assertNotNull(store.get("tasks",id));
+        assertNotNull(store.get("photos","receipt_1"));
+        assertEquals(format.format(new java.util.Date(now)),store.get("tasks","legacy").getString("localExportedAt"));
+    }
 }

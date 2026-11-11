@@ -26,7 +26,7 @@ async function downloadNextExportPart() {
         exportedAt: new Date().toISOString(), partNumber, totalParts: session.parts.length
       });
       // Only acknowledge this part after Android has finalized the saved file.
-      await saveTasksToIndexedDB(part.tasks.map(task => ({ ...task, exported: true })));
+      await saveTasksToIndexedDB(part.tasks.map(task => ({ ...task, exported: true, localExportedAt: task.localExportedAt || new Date().toISOString() })));
       session.exportedTasks += part.tasks.length;
       session.nextIndex++;
       await new Promise(resolve => setTimeout(resolve, 0));

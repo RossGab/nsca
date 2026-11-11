@@ -61,6 +61,13 @@ async function checkStorageQuota() {
 }
 
 `);
+  source=replaceRange(source,'async function cleanupExpiredExports()','function releaseExpiredExportState(',`
+async function cleanupExpiredExports() {
+  if (SYNC_RUNNING || EXPORT_RUNNING || PHOTO_CAPTURE_BUSY || CURRENT_TASK) return;
+  const result = await driverNative.request({operation:'cleanupExpiredExports',driverId:DRIVER_ID,now:Date.now()});
+  releaseExpiredExportState(result.removed || []);
+}
+`);
   source=replaceRange(source,'async function pruneOldTasks()','function syncDynamicFields(',`
 async function pruneOldTasks() {
   const tasks=await driverNative.tasks(), photos=await driverNative.photoDetails(null);

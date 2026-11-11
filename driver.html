@@ -622,7 +622,7 @@ img { width:100%;margin-top:8px;border-radius:6px; }
 <script src="./driver-photo-preview.js"></script>
 <script type="module">
 import { prepareExportReceipt } from "./offline-export-receipts.js";
-import { createReceiptChecker } from "./driver-export-confirmation.js";
+import { createReceiptChecker, createReceiptNotice } from "./driver-export-confirmation.js";
 import { escapeDeliveryHTML, deliveryFieldHTML } from "./delivery-fields.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
 import { getDatabase, ref, get, update, query, orderByChild, equalTo } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
@@ -645,7 +645,7 @@ import {
 import { getStorage, ref as sRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js";
 import { increment } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
   
-const VERSION = "V.R.0.0.16.1.4.26";
+const VERSION = "V.R.0.0.16.1.4.29";
 
 const checkExportUploadReceipts = createReceiptChecker({
   driverId: () => DRIVER_ID,
@@ -656,21 +656,7 @@ const checkExportUploadReceipts = createReceiptChecker({
     return snap.exists() ? snap.data() : null;
   },
   isBusy: () => SYNC_RUNNING || EXPORT_RUNNING || PHOTO_CAPTURE_BUSY || IS_DOWNLOADING,
-  render: (tasks, state) => {
-    let banner = document.getElementById('exportReceiptSummary');
-    if (!banner) {
-      banner = document.createElement('p'); banner.id = 'exportReceiptSummary';
-      banner.setAttribute('role','status');
-      banner.style.cssText = 'padding:12px;border:1px solid #8b9aaa;border-radius:8px;font-size:14px';
-      document.getElementById('syncBtn').after(banner);
-    }
-    banner.hidden = !tasks.length;
-    const count = tasks.filter(t => t.offlineExport?.id && t.offlineExportConfirmed?.id === t.offlineExport.id).length;
-    banner.textContent = count + ' upload confirmed | ' + (tasks.length-count) + ' awaiting admin upload';
-    if (state.offline) banner.textContent += ' (offline - showing last confirmation)';
-    else if (state.failures) banner.textContent += ' (some checks unavailable; refresh to retry)';
-    if (tasks.some(t => !t.offlineExport?.id)) banner.textContent += '. Older exports have no receipt and cannot be automatically confirmed.';
-  }
+  render: createReceiptNotice()
 });
 
 const BILLING_CACHE = {};
@@ -2984,6 +2970,52 @@ function toggleJobTypeFilter(show) {
   jobTypeFilterInitialized = true;
 }
 
+async function cleanupExpiredExports() {
+  if (SYNC_RUNNING || EXPORT_RUNNING || PHOTO_CAPTURE_BUSY || CURRENT_TASK) return;
+  const db = await openDB();
+  const removed = [];
+  try {
+    await new Promise((resolve,reject) => {
+      const tx = db.transaction([TASK_STORE, STORE], 'readwrite');
+      const tasks = tx.objectStore(TASK_STORE), photos = tx.objectStore(STORE);
+      const now = Date.now(), age = 30 * 86400000;
+      const request = tasks.openCursor();
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (cursor) {
+          const task = cursor.value;
+          if (task.status === 'LOCAL_COMPLETED' && task.exported && !task.offlineExport?.id &&
+              String(task.driverId || '').trim().toUpperCase() === String(DRIVER_ID || '').trim().toUpperCase()) {
+            const start = Date.parse(task.localExportedAt || '');
+            if (!Number.isFinite(start) || start <= 0) {
+              task.localExportedAt = new Date(now).toISOString(); cursor.update(task);
+            } else if (now - start >= age) { removed.push(task._key); cursor.delete(); }
+          }
+          cursor.continue();
+        } else if (removed.length) {
+          const keys = new Set(removed), photoRequest = photos.openCursor();
+          photoRequest.onsuccess = () => {
+            const photo = photoRequest.result;
+            if (photo) { if (keys.has(photo.value.taskKey)) photo.delete(); photo.continue(); }
+          };
+        }
+      };
+      tx.oncomplete = resolve;
+      tx.onabort = tx.onerror = () => reject(tx.error || new Error('Export cleanup failed'));
+    });
+  } finally { db.close(); }
+  releaseExpiredExportState(removed);
+}
+function releaseExpiredExportState(keys) {
+  if (!keys.length) return;
+  const forms = loadFormCache();
+  for (const key of keys) {
+    for (const photo of Object.values(PHOTO_BUFFER[key] || {})) if (photo.previewURL) URL.revokeObjectURL(photo.previewURL);
+    delete PHOTO_BUFFER[key]; delete BILLING_CACHE[key]; delete forms[key];
+  }
+  saveFormCache(forms);
+}
+
 async function pruneOldTasks() {
   const db = await openDB();
   try {
@@ -4617,6 +4649,7 @@ async function migrateIndexedDBTasks() {
     normalized.finalized =
       oldTask.finalized || false;
 
+    normalized.localExportedAt = oldTask.localExportedAt || null;
     normalized.offlineExport = oldTask.offlineExport || null;
     normalized.offlineExportConfirmed = oldTask.offlineExportConfirmed || null;
     normalized.exported =
@@ -5160,6 +5193,7 @@ async function loadTasks() {
     // ===============================
     // 1️⃣ ALWAYS READ INDEXEDDB FIRST
     // ===============================
+    await cleanupExpiredExports();
     let cached;
     try { cached = await getTasksFromIndexedDB(); }
     catch (error) {
@@ -8188,7 +8222,7 @@ async function downloadNextExportPart() {
     setTimeout(() => URL.revokeObjectURL(url), 60_000);
     await new Promise(resolve => setTimeout(resolve, 500));
 
-    await saveTasksToIndexedDB(part.tasks.map(task => ({ ...task, exported: true })));
+    await saveTasksToIndexedDB(part.tasks.map(task => ({ ...task, exported: true, localExportedAt: task.localExportedAt || new Date().toISOString() })));
     session.exportedTasks += part.tasks.length;
     session.nextIndex++;
     session.busy = false;
