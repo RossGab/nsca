@@ -16,6 +16,17 @@ import java.io.ByteArrayOutputStream;
 @CapacitorPlugin(name = "DriverUpdates")
 public class DriverUpdatesPlugin extends Plugin {
     @PluginMethod
+    public void installedVersion(PluginCall call) {
+        try {
+            PackageInfo info = getContext().getPackageManager().getPackageInfo(getContext().getPackageName(), 0);
+            JSObject result = new JSObject();
+            result.put("installedName", info.versionName);
+            result.put("installedCode", info.versionCode);
+            call.resolve(result);
+        } catch (Exception error) { call.reject("Could not read installed app version", error); }
+    }
+
+    @PluginMethod
     public void check(PluginCall call) {
         getBridge().execute(() -> {
             HttpURLConnection connection = null;

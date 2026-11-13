@@ -40,6 +40,12 @@ async function saveNativeFile(blob, name, automatic = false) {
   else await DriverFiles.save(options);
 }
 `;
+// Read Android's installed version locally, including when the device is offline.
+const versionDeclaration = /const VERSION = "[^"]+";/;
+if (!versionDeclaration.test(source)) throw new Error('App version integration point missing');
+source = source.replace(versionDeclaration, `const VERSION = await registerPlugin('DriverUpdates').installedVersion()
+  .then(info => 'APK ' + info.installedName)
+  .catch(() => 'APK version unavailable');`);
 const exportStart = source.indexOf('    const url = URL.createObjectURL(blob);', source.indexOf('async function downloadNextExportPart()'));
 const exportEnd = source.indexOf('    await saveTasksToIndexedDB(part.tasks.map', exportStart);
 if (exportStart < 0 || exportEnd < 0) throw new Error('Cannot locate export download; review native save integration');

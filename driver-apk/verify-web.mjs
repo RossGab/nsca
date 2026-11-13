@@ -18,6 +18,8 @@ for (const match of html.matchAll(/(?:src|href)="\.\/([^"?#]+)(?:[?#][^"]*)?"/g)
   await access(new URL('www/' + match[1], import.meta.url));
 }
 const app = await read('www/driver-app.js');
+assert(app.includes('.installedVersion()'), 'APK must read the installed Android version');
+assert(!/const VERSION = "[^"]*-WIP"/.test(app), 'APK must not display the web WIP version');
 const camera = await read('www/driver-camera.js');
 assert(app.includes('DriverCamera'), 'APK must use the native camera plugin');
 assert(app.includes('nativeCameraPath'), 'Native camera files must bypass browser image decoding');
