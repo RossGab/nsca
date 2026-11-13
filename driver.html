@@ -8079,7 +8079,7 @@ async function exportTasksToFile() {
 
 function buildExportParts(completed, photosByTask) {
   const MAX_TASKS_PER_PART = 100;
-  const MAX_ESTIMATED_BYTES_PER_PART = 100 * 1024 * 1024;
+  const MAX_ESTIMATED_BYTES_PER_PART = 20 * 1024 * 1024;
   const parts = [];
   let part = { tasks: [], photos: [], estimatedBytes: 0 };
 

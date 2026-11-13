@@ -51,9 +51,8 @@ source = nativeSave + source.slice(0, galleryStart) + 'function saveToGallery(bl
 source = nativeDriverSource(source, path.join(base,'native-storage.mjs').replaceAll('\\','/'));
 source = applyPhotoRules(source,path.join(base,'photo-rules.mjs').replaceAll('\\','/'));
 // Bound export memory: JSON/Base64 and bridge copies multiply the file size.
-if (!source.includes('const MAX_TASKS_PER_PART = 100;') || !source.includes('const MAX_ESTIMATED_BYTES_PER_PART = 100 * 1024 * 1024;')) throw new Error('Export limits integration point missing');
-source = source.replace('const MAX_TASKS_PER_PART = 100;', 'const MAX_TASKS_PER_PART = Number.MAX_SAFE_INTEGER;')
-  .replace('const MAX_ESTIMATED_BYTES_PER_PART = 100 * 1024 * 1024;', 'const MAX_ESTIMATED_BYTES_PER_PART = 20 * 1024 * 1024;');
+if (!source.includes('const MAX_TASKS_PER_PART = 100;') || !source.includes('const MAX_ESTIMATED_BYTES_PER_PART = 20 * 1024 * 1024;')) throw new Error('Export limits integration point missing');
+source = source.replace('const MAX_TASKS_PER_PART = 100;', 'const MAX_TASKS_PER_PART = Number.MAX_SAFE_INTEGER;');
 source = nativeExportSource(source);
 // Open thumbnails in an in-app, screen-fitting preview.
 const inlinePreview = "window.open('$" + "{p[i].previewURL}','_blank')";
