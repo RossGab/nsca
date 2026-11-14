@@ -14,7 +14,13 @@
   min-height: 82px;
   padding: 26px 64px 12px 12px;
   border-radius: 10px;
-  background: #032b17 url('./driver-holiday-header.png') right center / auto 100% no-repeat;
+  background-color: #032b17;
+  background-image:
+    linear-gradient(to right, #032b17, transparent 25%),
+    url('./driver-holiday-header.png');
+  background-position: right bottom;
+  background-size: 246px 82px;
+  background-repeat: no-repeat;
 }
 .driver-holiday-header #appVersion {
   background: transparent;
