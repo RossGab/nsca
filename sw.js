@@ -1,10 +1,13 @@
-const CACHE_VERSION = "v49-photo-quality-export-100mb";
+const CACHE_VERSION = "v50-christmas-header";
 const CACHE_NAME = `field-task-app-${CACHE_VERSION}`;
 
 const BASE_PATH = "/nsca/";
 const DRIVER_URL = BASE_PATH + "driver.html";
 
 const CORE_ASSETS = [
+  BASE_PATH + "driver-holiday.css",
+  BASE_PATH + "driver-holiday.js",
+  BASE_PATH + "driver-holiday-header.png",
   DRIVER_URL,
   BASE_PATH + "offline-export-receipts.js",
   BASE_PATH + "driver-export-confirmation.js",

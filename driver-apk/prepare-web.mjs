@@ -11,6 +11,7 @@ const root = path.dirname(base);
 const web = path.join(base, 'www');
 await mkdir(web, { recursive: true });
 const files = ['admin-dialog.js', 'storage-diagnostics.js', 'driver-health-wip.js', 'driver-camera.js', 'delivery-fields.js', 'driver-storage-viewer.html', 'admin-dark-mode.js', 'admin-dark-mode.css', 'logo.jpg', 'icon-192.png', 'icon-512.png'];
+files.push('driver-holiday.css', 'driver-holiday.js', 'driver-holiday-header.png');
 for (const file of files) await copyFile(path.join(root, file), path.join(web, file));
 await copyFile(path.join(base,'apk-camera.js'),path.join(web,'driver-camera.js'));
 const vendor = path.join(web, 'vendor');
