@@ -645,7 +645,7 @@ import {
 import { getStorage, ref as sRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js";
 import { increment } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
   
-const VERSION = "V.R.0.0.16.1.4.29";
+const VERSION = "V.R.0.0.16.1.4.30";
 
 const checkExportUploadReceipts = createReceiptChecker({
   driverId: () => DRIVER_ID,
@@ -3375,7 +3375,7 @@ function compressImage(file, gps, takenAt) {
       canvas.toBlob(
         blob => finish(blob?.size ? null : new Error("Photo compression failed. Please retry."), blob),
         "image/jpeg",
-        0.90 // High quality with light JPEG compression
+        0.85 // Match the APK's JPEG quality setting
       );
       } catch (error) { finish(error); }
     };
@@ -8079,7 +8079,7 @@ async function exportTasksToFile() {
 
 function buildExportParts(completed, photosByTask) {
   const MAX_TASKS_PER_PART = 100;
-  const MAX_ESTIMATED_BYTES_PER_PART = 20 * 1024 * 1024;
+  const MAX_ESTIMATED_BYTES_PER_PART = 100 * 1024 * 1024;
   const parts = [];
   let part = { tasks: [], photos: [], estimatedBytes: 0 };
 
