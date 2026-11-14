@@ -1,14 +1,21 @@
 .driver-holiday-header {
   position: relative;
   box-sizing: border-box;
-  min-height: 82px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin-bottom: 12px;
-  padding: 30px 24% 12px 12px;
-  border-radius: 10px;
-  background: #032b17 url('./driver-holiday-header.png') right center / 100% 100% no-repeat;
   color: #fff;
 }
-.driver-holiday-copy { min-width: 0; }
+.driver-holiday-copy {
+  flex: 1;
+  min-width: 0;
+  box-sizing: border-box;
+  min-height: 82px;
+  padding: 26px 64px 12px 12px;
+  border-radius: 10px;
+  background: #032b17 url('./driver-holiday-header.png') right center / auto 100% no-repeat;
+}
 .driver-holiday-header #appVersion {
   background: transparent;
   color: #fff;
@@ -20,9 +27,8 @@
 }
 .driver-holiday-greeting { font: 600 11px/1.4 Arial, sans-serif; }
 .driver-holiday-header #settingsBtn {
-  position: absolute;
-  top: 4px;
-  right: 4px;
+  position: static;
+  flex: 0 0 44px;
   display: grid;
   place-items: center;
   width: 44px;
@@ -31,7 +37,7 @@
   padding: 0;
   border: 0;
   border-radius: 8px;
-  background: #06341fe6;
+  background: #06341f;
   color: #fff;
   font-size: 25px;
   cursor: pointer;
@@ -39,11 +45,8 @@
 }
 .driver-holiday-header #settingsBtn:focus-visible { outline: 3px solid #ffdf80; outline-offset: 2px; }
 .driver-holiday-header #settingsBtn:disabled { opacity: .5; cursor: wait; }
-@media (min-width: 600px) {
-  .driver-holiday-header { background-size: auto 100%; background-color: #032b17; }
-}
 @media (max-width: 340px) {
-  .driver-holiday-header { padding-left: 10px; }
+  .driver-holiday-copy { padding-left: 10px; }
   .driver-holiday-header #appVersion { font-size: 11px; }
   .driver-holiday-greeting { font-size: 10px; }
 }
