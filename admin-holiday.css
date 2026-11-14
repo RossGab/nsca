@@ -1,0 +1,17 @@
+/* Seasonal decoration is confined to the dashboard header's reserved top strip. */
+.app-header.admin-holiday-header {
+  position: relative;
+  padding-top: 42px;
+}
+.admin-holiday-header::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 32px;
+  border-radius: 8px 8px 0 0;
+  background: url('./admin-holiday-garland.png') center top / 480px auto repeat-x;
+  opacity: .85;
+  pointer-events: none;
+}
