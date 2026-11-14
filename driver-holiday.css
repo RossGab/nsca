@@ -1,7 +1,7 @@
 .driver-holiday-header {
   position: relative;
   box-sizing: border-box;
-  min-height: 104px;
+  min-height: 82px;
   margin-bottom: 12px;
   padding: 30px 24% 12px 12px;
   border-radius: 10px;
@@ -9,7 +9,6 @@
   color: #fff;
 }
 .driver-holiday-copy { min-width: 0; }
-.driver-holiday-title { font: 700 21px/1.1 Arial, sans-serif; }
 .driver-holiday-header #appVersion {
   background: transparent;
   color: #fff;
@@ -45,7 +44,6 @@
 }
 @media (max-width: 340px) {
   .driver-holiday-header { padding-left: 10px; }
-  .driver-holiday-title { font-size: 19px; }
   .driver-holiday-header #appVersion { font-size: 11px; }
   .driver-holiday-greeting { font-size: 10px; }
 }

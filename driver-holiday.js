@@ -9,14 +9,11 @@
   header.setAttribute('aria-label', 'NSCA Driver');
   const copy = document.createElement('div');
   copy.className = 'driver-holiday-copy';
-  const title = document.createElement('div');
-  title.className = 'driver-holiday-title';
-  title.textContent = 'NSCA Driver';
   const greeting = document.createElement('div');
   greeting.className = 'driver-holiday-greeting';
   greeting.textContent = 'Safe deliveries this holiday season';
   (previousHeader || version).before(header);
-  copy.append(title, version, greeting);
+  copy.append(version, greeting);
   settings.setAttribute('aria-label', 'Open settings');
   settings.setAttribute('title', 'Settings');
   // Remove the web button's old fixed-position inline styling.

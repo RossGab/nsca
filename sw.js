@@ -1,4 +1,4 @@
-const CACHE_VERSION = "v50-christmas-header";
+const CACHE_VERSION = "v51-compact-christmas-header";
 const CACHE_NAME = `field-task-app-${CACHE_VERSION}`;
 
 const BASE_PATH = "/nsca/";
