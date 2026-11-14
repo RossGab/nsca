@@ -1,4 +1,4 @@
-const CACHE_VERSION = "v53-holiday-background-blend";
+const CACHE_VERSION = "v54-full-width-christmas-lights";
 const CACHE_NAME = `field-task-app-${CACHE_VERSION}`;
 
 const BASE_PATH = "/nsca/";

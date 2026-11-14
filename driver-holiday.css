@@ -8,6 +8,8 @@
   color: #fff;
 }
 .driver-holiday-copy {
+  position: relative;
+  isolation: isolate;
   flex: 1;
   min-width: 0;
   box-sizing: border-box;
@@ -21,6 +23,19 @@
   background-position: right bottom;
   background-size: 246px 82px;
   background-repeat: no-repeat;
+}
+/* Repeat only the treetop strip; keep the reindeer at its natural aspect ratio. */
+.driver-holiday-copy::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 26px;
+  border-radius: 10px 10px 0 0;
+  background: url('./driver-holiday-header.png') right top / 246px 82px repeat-x;
+  -webkit-mask-image: linear-gradient(#000 65%, transparent);
+  mask-image: linear-gradient(#000 65%, transparent);
+  pointer-events: none;
+  z-index: -1;
 }
 .driver-holiday-header #appVersion {
   background: transparent;
