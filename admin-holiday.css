@@ -1,8 +1,9 @@
 /* Seasonal decoration is confined to the dashboard header's reserved top strip. */
 .app-header.admin-holiday-header {
   position: relative;
-  padding-top: 42px;
+  padding-top: 48px;
 }
+html:not([data-admin-theme="dark"]) .app-header.admin-holiday-header { background: #fff8e7; }
 .admin-holiday-header::before {
   content: '';
   position: absolute;
@@ -12,6 +13,22 @@
   height: 32px;
   border-radius: 8px 8px 0 0;
   background: url('./admin-holiday-garland.png') center top / 480px auto repeat-x;
-  opacity: .85;
+  opacity: 1;
+  filter: saturate(1.3);
   pointer-events: none;
+}
+.admin-holiday-header .app-title { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.admin-holiday-header .app-version { margin-left: 0; }
+.admin-holiday-tree { width: 54px; height: 60px; object-fit: contain; flex: none; margin-left: 6px; }
+.admin-holiday-trim { position: absolute; inset: 0 0 auto; height: 42px; pointer-events: none; }
+.admin-holiday-bow { position: absolute; top: 2px; width: 30px; height: 27px; background: url('./admin-holiday-bow.svg') center / contain no-repeat; }
+.admin-holiday-bow:first-child { left: 16px; }
+.admin-holiday-bow:nth-child(2) { right: 16px; }
+.admin-holiday-bauble { position: absolute; top: 19px; width: 8px; height: 8px; margin-top: 12px; border-radius: 50%; background: #d6ac43; border: 1px solid #b58a27; }
+.admin-holiday-bauble::before { content: ''; position: absolute; left: 3px; bottom: 7px; width: 1px; height: 13px; background: #b58a27; }
+.admin-holiday-bauble:nth-child(3) { left: 27%; }
+.admin-holiday-bauble:nth-child(4) { left: 50%; }
+.admin-holiday-bauble:nth-child(5) { left: 72%; }
+@media (max-width: 760px) {
+  .admin-holiday-tree { width: 40px; height: 44px; margin-left: 2px; }
 }
