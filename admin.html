@@ -140,6 +140,16 @@ button {
   cursor:pointer;
 }
 
+#adminBAScopePanel .ba-scope-heading { display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:8px; }
+#adminBAScopePanel .ba-scope-title { margin:0;font-size:16px;font-weight:700; }
+#adminBAScopePanel .ba-scope-toolbar { display:flex;gap:6px; }
+#adminBAScopePanel .ba-scope-toolbar button { flex:0 0 auto;width:auto;padding:6px 10px;font-size:12px;font-weight:600;border:1px solid var(--nsca-border);background:transparent;color:var(--nsca-text); }
+#adminBAScopePanel .ba-scope-toolbar button:hover { background:var(--nsca-bg); }
+#adminBAScopePanel .ba-scope-footer { display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin-top:16px;padding-top:12px;border-top:1px solid var(--nsca-border); }
+#adminBAScopePanel .ba-scope-footer button { flex:0 0 auto;width:auto;padding:9px 16px;font-size:13px; }
+#adminBAScopePanel .ba-scope-save { background:var(--nsca-primary);color:#fff; }
+#adminBAScopePanel .ba-scope-cancel { background:transparent;color:var(--nsca-text);border:1px solid var(--nsca-border); }
+#adminBAScopePanel button:focus-visible { outline:3px solid var(--nsca-accent);outline-offset:2px; }
 .assign { background:#007bff; color:#fff; }
 .openBtn { background:orange; color:#fff; }
 .doneBtn { background:green; color:#fff; }
@@ -427,7 +437,7 @@ button {
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.52</span><img class="admin-holiday-tree" src="./admin-holiday-tree.svg" alt="" aria-hidden="true"></h1>
+      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.53</span><img class="admin-holiday-tree" src="./admin-holiday-tree.svg" alt="" aria-hidden="true"></h1>
     </div>
   </div>
 
@@ -500,18 +510,20 @@ button {
 <!-- 🔍 SEARCH (Open & Completed only) -->
 <div id="adminBAScopePanel" style="display:none;background:#fff;padding:14px;
      border-radius:8px;margin-bottom:12px;box-shadow:0 0 4px rgba(0,0,0,.1);">
-  <div style="font-size:16px;font-weight:bold;margin-bottom:6px;">Admin BA Scope</div>
+  <div class="ba-scope-heading">
+    <div class="ba-scope-title">Admin BA Scope</div>
+    <div class="ba-scope-toolbar">
+      <button type="button" onclick="setAdminBAScopeCheckboxes(true)">Select All</button>
+      <button type="button" onclick="setAdminBAScopeCheckboxes(false)">Clear All</button>
+    </div>
+  </div>
   <div style="font-size:13px;color:#566;margin-bottom:10px;">
     Only tasks belonging to the selected BAs will be queried and cached on this browser.
   </div>
-  <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;">
-    <button type="button" style="width:auto;" onclick="setAdminBAScopeCheckboxes(true)">Select All</button>
-    <button type="button" style="width:auto;background:#687786;" onclick="setAdminBAScopeCheckboxes(false)">Clear All</button>
-  </div>
   <div id="adminBAScopeOptions" style="display:flex;flex-wrap:wrap;gap:10px;"></div>
-  <div style="display:flex;gap:8px;margin-top:12px;">
-    <button type="button" onclick="saveAdminBAScope()">Save BA Scope</button>
-    <button type="button" style="background:#687786" onclick="closeAdminBAScope()">Cancel</button>
+  <div class="ba-scope-footer">
+    <button type="button" class="ba-scope-save" onclick="saveAdminBAScope()">Save BA Scope</button>
+    <button type="button" class="ba-scope-cancel" onclick="closeAdminBAScope()">Cancel</button>
   </div>
   <div id="adminBAScopeStatus" style="margin-top:8px;font-size:13px;color:#b00020;"></div>
 </div>
