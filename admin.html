@@ -427,7 +427,7 @@ button {
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.51</span><img class="admin-holiday-tree" src="./admin-holiday-tree.svg" alt="" aria-hidden="true"></h1>
+      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.52</span><img class="admin-holiday-tree" src="./admin-holiday-tree.svg" alt="" aria-hidden="true"></h1>
     </div>
   </div>
 
@@ -503,6 +503,10 @@ button {
   <div style="font-size:16px;font-weight:bold;margin-bottom:6px;">Admin BA Scope</div>
   <div style="font-size:13px;color:#566;margin-bottom:10px;">
     Only tasks belonging to the selected BAs will be queried and cached on this browser.
+  </div>
+  <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;">
+    <button type="button" style="width:auto;" onclick="setAdminBAScopeCheckboxes(true)">Select All</button>
+    <button type="button" style="width:auto;background:#687786;" onclick="setAdminBAScopeCheckboxes(false)">Clear All</button>
   </div>
   <div id="adminBAScopeOptions" style="display:flex;flex-wrap:wrap;gap:10px;"></div>
   <div style="display:flex;gap:8px;margin-top:12px;">
@@ -1340,6 +1344,13 @@ async function renderAdminBAScopeOptions() {
     status.textContent = "Failed to load the configured BA list.";
   }
 }
+
+window.setAdminBAScopeCheckboxes = function(checked) {
+  document.querySelectorAll('#adminBAScopeOptions input[type="checkbox"]').forEach(input => {
+    input.checked = checked;
+  });
+  document.getElementById("adminBAScopeStatus").textContent = "";
+};
 
 window.openAdminBAScope = async function() {
   const panel = document.getElementById("adminBAScopePanel");
