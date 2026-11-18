@@ -443,7 +443,7 @@ button {
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.54</span><img class="admin-holiday-tree" src="./admin-holiday-tree.svg" alt="" aria-hidden="true"></h1>
+      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.55</span><img class="admin-holiday-tree" src="./admin-holiday-tree.svg" alt="" aria-hidden="true"></h1>
     </div>
   </div>
 
@@ -1190,6 +1190,7 @@ let FILTER_JOBTYPE = new Set();
 let TASK_FILTER_MODE = "ba";
 let DRIVER_SUMMARY_SORT = { key: "completed", direction: "desc" };
 let DRIVER_SUMMARY_VIEW = "graphs";
+let APP_USAGE_SORT = { key: "driverId", direction: "asc" };
 let APP_USAGE_STATUS_DATA = {};
 let APP_USAGE_LOADING = false;
 let APP_USAGE_LOADED = false;
@@ -3630,6 +3631,38 @@ function driverSummaryViewSwitcher() {
     </div>`;
 }
 
+function sortAppUsageRows(rows) {
+  const { key, direction } = APP_USAGE_SORT;
+  const multiplier = direction === 'asc' ? 1 : -1;
+  const appLabel = app => app === 'apk' ? 'Android APK' : app === 'web' ? 'Web app' : 'Unknown';
+  const reportRank = row => row.app === 'unknown' ? 2 : row.recent ? 0 : 1;
+  return [...rows].sort((a, b) => {
+    // Missing report details always stay below real values, in either direction.
+    if (key === 'lastSeen' && (!a.lastSeen || !b.lastSeen)) {
+      if (!!a.lastSeen !== !!b.lastSeen) return a.lastSeen ? -1 : 1;
+    }
+    if (key === 'version' && (a.version === 'Unknown' || b.version === 'Unknown')) {
+      if ((a.version === 'Unknown') !== (b.version === 'Unknown')) return a.version === 'Unknown' ? 1 : -1;
+    }
+    let comparison;
+    if (key === 'lastSeen') comparison = (a.lastSeen || 0) - (b.lastSeen || 0);
+    else if (key === 'report') comparison = reportRank(a) - reportRank(b);
+    else {
+      const left = key === 'app' ? appLabel(a.app) : String(a[key] || '');
+      const right = key === 'app' ? appLabel(b.app) : String(b[key] || '');
+      comparison = left.localeCompare(right, undefined, { numeric: true, sensitivity: 'base' });
+    }
+    return comparison * multiplier || a.driverId.localeCompare(b.driverId, undefined, { numeric: true, sensitivity: 'base' }) || a.app.localeCompare(b.app);
+  });
+}
+window.sortDriverAppUsage = function(key) {
+  if (!['driverId', 'app', 'version', 'lastSeen', 'report'].includes(key)) return;
+  APP_USAGE_SORT = APP_USAGE_SORT.key === key
+    ? { key, direction: APP_USAGE_SORT.direction === 'asc' ? 'desc' : 'asc' }
+    : { key, direction: key === 'lastSeen' ? 'desc' : 'asc' };
+  renderDriverTaskSummary(window.__FIRESTORE_TASKS__ || []);
+};
+
 function appUsageTime(value) {
   return value ? new Date(value).toLocaleString('en-GB', { timeZone: 'Asia/Manila', hour12: false }) + ' PH' : 'Not reported';
 }
@@ -3637,8 +3670,14 @@ function appUsageTime(value) {
 function renderDriverAppUsage(tasks) {
   const ids = [...new Set(tasks.map(task => String(task.driverId || task.agentId || '').trim()).filter(Boolean))]
     .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
-  const rows = ids.flatMap(driverId => selectDriverAppUsage(APP_USAGE_STATUS_DATA[driverId]).map(entry => ({ driverId, ...entry })));
+  const rows = sortAppUsageRows(ids.flatMap(driverId => selectDriverAppUsage(APP_USAGE_STATUS_DATA[driverId]).map(entry => ({ driverId, ...entry }))));
   const unavailable = !APP_USAGE_CHECKED_AT && (APP_USAGE_LOADING || APP_USAGE_ERROR);
+  const sortHeading = (label, key) => {
+    const active = APP_USAGE_SORT.key === key;
+    const direction = active ? (APP_USAGE_SORT.direction === 'asc' ? 'ascending' : 'descending') : 'none';
+    const arrow = active ? (APP_USAGE_SORT.direction === 'asc' ? ' &#9650;' : ' &#9660;') : '';
+    return `<th aria-sort="${direction}"><button type="button" class="driver-summary-sort" onclick="sortDriverAppUsage('${key}')">${label}${arrow}</button></th>`;
+  };
   taskList.innerHTML = `
     ${driverSummaryViewSwitcher()}
     <section class="summary-chart-card">
@@ -3648,7 +3687,7 @@ function renderDriverAppUsage(tasks) {
       <p class="summary-chart-note">Drivers in the current task filters. Web and Android are shown separately when reported within 72 hours. If neither is recent, only the latest app is shown. Times show online reports, not offline activity.</p>
       <p class="summary-chart-note" role="status">${APP_USAGE_ERROR ? escapeAdminHtml(APP_USAGE_ERROR) : APP_USAGE_CHECKED_AT ? 'Last checked: ' + appUsageTime(APP_USAGE_CHECKED_AT) : 'Checking app reports...'}</p>
       <div class="driver-summary-wrap"><table class="driver-summary-table app-usage-table">
-        <thead><tr><th>Driver</th><th>App</th><th>Version</th><th>Last reported</th><th>Report</th></tr></thead>
+        <thead><tr>${sortHeading("Driver", "driverId")}${sortHeading("App", "app")}${sortHeading("Version", "version")}${sortHeading("Last reported", "lastSeen")}${sortHeading("Report", "report")}</tr></thead>
         <tbody>${unavailable ? `<tr><td colspan="5">${APP_USAGE_LOADING ? 'Checking app reports...' : 'Reports unavailable. Press Refresh to try again.'}</td></tr>` : rows.length ? rows.map(row => `
           <tr><td>${escapeAdminHtml(row.driverId)}${DRIVER_CACHE[row.driverId]?.name ? '<div class="small">' + escapeAdminHtml(DRIVER_CACHE[row.driverId].name) + '</div>' : ''}</td>
             <td><span class="app-usage-badge app-usage-${row.app}">${row.app === 'apk' ? 'Android APK' : row.app === 'web' ? 'Web app' : 'Unknown'}</span></td>
