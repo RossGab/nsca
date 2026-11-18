@@ -12,6 +12,7 @@ on:
       - 'driver-storage-viewer.html'
       - 'delivery-fields.js'
       - 'driver-delivery-config.js'
+      - 'driver-app-usage.js'
       - 'admin-dialog.js'
       - 'admin-dark-mode.js'
       - 'admin-dark-mode.css'

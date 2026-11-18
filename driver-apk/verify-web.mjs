@@ -19,6 +19,8 @@ for (const match of html.matchAll(/(?:src|href)="\.\/([^"?#]+)(?:[?#][^"]*)?"/g)
 }
 const app = await read('www/driver-app.js');
 assert(app.includes('.installedVersion()'), 'APK must read the installed Android version');
+assert(app.includes('APP_PLATFORM = "apk"'), 'APK app-usage reporting must identify Android rather than web');
+assert(app.includes('appUsage/${entry.app}'), 'App usage must be written below the separate app branch');
 assert(!/const VERSION = "[^"]*-WIP"/.test(app), 'APK must not display the web WIP version');
 const camera = await read('www/driver-camera.js');
 assert(app.includes('DriverCamera'), 'APK must use the native camera plugin');

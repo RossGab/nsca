@@ -90,7 +90,13 @@ h2 { text-align:center; }
 .driver-summary-driver { font-weight:700; }
 .driver-summary-sort { padding:0; border:0; background:transparent; color:inherit; font:inherit; font-weight:700; text-transform:inherit; cursor:pointer; white-space:nowrap; }
 .driver-summary-sort:hover { background:transparent; color:#0877d1; }
-.driver-summary-switcher { display:flex; gap:8px; margin:0 0 10px; }
+.app-usage-heading { display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px; }
+.app-usage-heading h3 { margin:0; }
+.app-usage-refresh { flex:0 0 auto;padding:8px 14px;font-size:13px;background:var(--nsca-primary);color:white; }
+.app-usage-badge { display:inline-block;padding:4px 8px;border-radius:5px;font-size:12px;font-weight:600;white-space:nowrap; }
+.app-usage-web { background:#e3efff;color:#18539a; }.app-usage-apk { background:#def2e3;color:#21643a; }.app-usage-unknown { background:#e8ebef;color:#455468; }
+.app-usage-table td { vertical-align:top; }.app-usage-table th { white-space:nowrap; }
+.driver-summary-switcher { display:flex;flex-wrap:wrap; gap:8px; margin:0 0 10px; }
 .driver-summary-switcher button { flex:0 0 auto; min-width:100px; padding:9px 14px; background:#dfe7ef; color:#263746; }
 .driver-summary-switcher button.active { background:#0877d1; color:#fff; }
 .driver-heatmap-controls { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-bottom:10px; padding:10px; background:#fff; border-radius:10px; box-shadow:0 0 4px rgba(0,0,0,.1); }
@@ -437,7 +443,7 @@ button {
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.53</span><img class="admin-holiday-tree" src="./admin-holiday-tree.svg" alt="" aria-hidden="true"></h1>
+      <h1 class="app-title">Admin Dashboard <span class="app-version">V.R.0.1.54</span><img class="admin-holiday-tree" src="./admin-holiday-tree.svg" alt="" aria-hidden="true"></h1>
     </div>
   </div>
 
@@ -656,6 +662,7 @@ button {
 </div>
 
 <script type="module">
+import { selectDriverAppUsage } from "./driver-app-usage.js";
 import { getAuth, signOut } from
 "https://www.gstatic.com/firebasejs/12.9.0/firebase-auth.js";
 import { initializeApp } from
@@ -1183,6 +1190,11 @@ let FILTER_JOBTYPE = new Set();
 let TASK_FILTER_MODE = "ba";
 let DRIVER_SUMMARY_SORT = { key: "completed", direction: "desc" };
 let DRIVER_SUMMARY_VIEW = "graphs";
+let APP_USAGE_STATUS_DATA = {};
+let APP_USAGE_LOADING = false;
+let APP_USAGE_LOADED = false;
+let APP_USAGE_ERROR = '';
+let APP_USAGE_CHECKED_AT = null;
 let DRIVER_HEATMAP_ANCHOR = "";
 let DRIVER_HEATMAP_RESULT = null;
 let DRIVER_HEATMAP_REQUEST_KEY = "";
@@ -3563,6 +3575,11 @@ function renderDriverTaskSummary(tasks) {
     return `<button class="driver-summary-sort" type="button" onclick="sortDriverTaskSummary('${sortKey}')">${label}${arrow}</button>`;
   };
 
+  if (DRIVER_SUMMARY_VIEW === "appUsage") {
+    if (!APP_USAGE_LOADED && !APP_USAGE_LOADING) void refreshDriverAppUsage();
+    renderDriverAppUsage(filteredTasks);
+    return;
+  }
   if (DRIVER_SUMMARY_VIEW === "graphs") {
     renderDriverSummaryGraphs(filteredTasks, rows);
     return;
@@ -3609,8 +3626,68 @@ function driverSummaryViewSwitcher() {
       <button type="button" class="${DRIVER_SUMMARY_VIEW === "list" ? "active" : ""}" onclick="setDriverSummaryView('list')">📋 List</button>
       <button type="button" class="${DRIVER_SUMMARY_VIEW === "graphs" ? "active" : ""}" onclick="setDriverSummaryView('graphs')">📊 Graphs</button>
       <button type="button" class="${DRIVER_SUMMARY_VIEW === "heatmap" ? "active" : ""}" onclick="setDriverSummaryView('heatmap')">🟩 Heatmap</button>
+      <button type="button" class="${DRIVER_SUMMARY_VIEW === "appUsage" ? "active" : ""}" onclick="setDriverSummaryView('appUsage')">App Usage</button>
     </div>`;
 }
+
+function appUsageTime(value) {
+  return value ? new Date(value).toLocaleString('en-GB', { timeZone: 'Asia/Manila', hour12: false }) + ' PH' : 'Not reported';
+}
+
+function renderDriverAppUsage(tasks) {
+  const ids = [...new Set(tasks.map(task => String(task.driverId || task.agentId || '').trim()).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+  const rows = ids.flatMap(driverId => selectDriverAppUsage(APP_USAGE_STATUS_DATA[driverId]).map(entry => ({ driverId, ...entry })));
+  const unavailable = !APP_USAGE_CHECKED_AT && (APP_USAGE_LOADING || APP_USAGE_ERROR);
+  taskList.innerHTML = `
+    ${driverSummaryViewSwitcher()}
+    <section class="summary-chart-card">
+      <div class="app-usage-heading"><h3>Driver App Usage</h3>
+        <button type="button" class="app-usage-refresh" onclick="refreshDriverAppUsage()" ${APP_USAGE_LOADING ? 'disabled' : ''}>${APP_USAGE_LOADING ? 'Checking...' : 'Refresh'}</button>
+      </div>
+      <p class="summary-chart-note">Drivers in the current task filters. Web and Android are shown separately when reported within 72 hours. If neither is recent, only the latest app is shown. Times show online reports, not offline activity.</p>
+      <p class="summary-chart-note" role="status">${APP_USAGE_ERROR ? escapeAdminHtml(APP_USAGE_ERROR) : APP_USAGE_CHECKED_AT ? 'Last checked: ' + appUsageTime(APP_USAGE_CHECKED_AT) : 'Checking app reports...'}</p>
+      <div class="driver-summary-wrap"><table class="driver-summary-table app-usage-table">
+        <thead><tr><th>Driver</th><th>App</th><th>Version</th><th>Last reported</th><th>Report</th></tr></thead>
+        <tbody>${unavailable ? `<tr><td colspan="5">${APP_USAGE_LOADING ? 'Checking app reports...' : 'Reports unavailable. Press Refresh to try again.'}</td></tr>` : rows.length ? rows.map(row => `
+          <tr><td>${escapeAdminHtml(row.driverId)}${DRIVER_CACHE[row.driverId]?.name ? '<div class="small">' + escapeAdminHtml(DRIVER_CACHE[row.driverId].name) + '</div>' : ''}</td>
+            <td><span class="app-usage-badge app-usage-${row.app}">${row.app === 'apk' ? 'Android APK' : row.app === 'web' ? 'Web app' : 'Unknown'}</span></td>
+            <td>${escapeAdminHtml(row.version)}</td><td>${appUsageTime(row.lastSeen)}</td>
+            <td>${row.app === 'unknown' ? 'Update app to report' : row.recent ? 'Within 72 hours' : 'Last used app (over 72 hours)'}</td></tr>`).join('')
+          : '<tr><td colspan="5">No drivers found in the current task filters.</td></tr>'}</tbody>
+      </table></div>
+    </section>`;
+  document.getElementById('adminPagination').innerHTML = '';
+}
+
+window.refreshDriverAppUsage = async function() {
+  if (APP_USAGE_LOADING) return;
+  APP_USAGE_LOADING = true;
+  APP_USAGE_ERROR = '';
+  if (CURRENT_STATUS === 'SUMMARY' && DRIVER_SUMMARY_VIEW === 'appUsage') renderDriverTaskSummary(window.__FIRESTORE_TASKS__ || []);
+  let timer;
+  try {
+    const snapshot = await Promise.race([
+      get(ref(rtdb, 'driverStatus')),
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Request timed out')), 10000); })
+    ]);
+    APP_USAGE_STATUS_DATA = snapshot.val() || {};
+    APP_USAGE_CHECKED_AT = Date.now();
+  } catch (error) {
+    APP_USAGE_ERROR = 'Could not refresh app usage. Showing the last available reports; connect and press Refresh.';
+    console.warn('App usage read failed:', error);
+  } finally {
+    clearTimeout(timer);
+    APP_USAGE_LOADING = false;
+    APP_USAGE_LOADED = true;
+    if (CURRENT_STATUS === 'SUMMARY' && DRIVER_SUMMARY_VIEW === 'appUsage') {
+      renderDriverTaskSummary(window.__FIRESTORE_TASKS__ || []);
+    }
+  }
+};
+setInterval(() => {
+  if (!document.hidden && CURRENT_STATUS === 'SUMMARY' && DRIVER_SUMMARY_VIEW === 'appUsage') void refreshDriverAppUsage();
+}, 60000);
 
 const DRIVER_HEATMAP_URL =
   "https://asia-southeast1-driva-pwa.cloudfunctions.net/prepareTaskReport";
@@ -3877,8 +3954,9 @@ function renderDriverSummaryGraphs(filteredTasks, rows) {
 }
 
 window.setDriverSummaryView = function (view) {
-  if (view !== "list" && view !== "graphs" && view !== "heatmap") return;
+  if (!["list", "graphs", "heatmap", "appUsage"].includes(view)) return;
   DRIVER_SUMMARY_VIEW = view;
+  if (view === "appUsage" && APP_USAGE_LOADED) void refreshDriverAppUsage();
   if (view === "heatmap" && !DRIVER_HEATMAP_ANCHOR) {
     const yesterday = heatmapDate(getTodayPH());
     yesterday.setUTCDate(yesterday.getUTCDate() - 1);

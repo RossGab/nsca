@@ -43,6 +43,8 @@ async function saveNativeFile(blob, name, automatic = false) {
 `;
 // Read Android's installed version locally, including when the device is offline.
 const versionDeclaration = /const VERSION = "[^"]+";/;
+if (!source.includes('const APP_PLATFORM = "web";')) throw new Error('App usage platform integration point missing');
+source = source.replace('const APP_PLATFORM = "web";', 'const APP_PLATFORM = "apk";');
 if (!versionDeclaration.test(source)) throw new Error('App version integration point missing');
 source = source.replace(versionDeclaration, `const VERSION = await registerPlugin('DriverUpdates').installedVersion()
   .then(info => 'APK ' + info.installedName)

@@ -1,10 +1,11 @@
-const CACHE_VERSION = "v58-delivery-readiness-okay";
+const CACHE_VERSION = "v59-driver-app-usage";
 const CACHE_NAME = `field-task-app-${CACHE_VERSION}`;
 
 const BASE_PATH = "/nsca/";
 const DRIVER_URL = BASE_PATH + "driver.html";
 
 const CORE_ASSETS = [
+  BASE_PATH + "driver-app-usage.js",
   BASE_PATH + "driver-delivery-config.js",
   BASE_PATH + "driver-holiday.css",
   BASE_PATH + "driver-holiday.js",
