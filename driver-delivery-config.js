@@ -21,9 +21,18 @@ export function createDeliveryConfigLoader({ storage, fetchConfig, fetchJobTypes
       return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
     } catch (error) { report('delivery_cache_read_failed', error); return {}; }
   }
-  function matchingKey(values, key) {
-    const matches = Object.keys(values).filter(name => deliveryJobKey(name) === key);
-    if (matches.length > 1) throw new Error('Multiple delivery configurations match this job type. Ask the administrator to check its configuration.');
+  function matchingKey(values, key, preferred, extract = entry => entry?.deliveryMethods) {
+    const matches = Object.keys(values).filter(name => deliveryJobKey(name) === key && usableDeliveryMethods(extract(values[name])));
+    // Old caches can contain both NOD and "NOD ". An exact valid match wins.
+    if (matches.includes(preferred)) return preferred;
+    if (matches.length > 1) {
+      const signatures = matches.map(name => JSON.stringify(extract(values[name]), (_, item) =>
+        item && typeof item === 'object' && !Array.isArray(item)
+          ? Object.fromEntries(Object.keys(item).sort().map(field => [field, item[field]])) : item));
+      if (!signatures.every(signature => signature === signatures[0])) {
+        throw new Error('Multiple delivery configurations match this job type. Ask the administrator to check its configuration.');
+      }
+    }
     return matches[0];
   }
   async function bounded(action) {
@@ -36,14 +45,18 @@ export function createDeliveryConfigLoader({ storage, fetchConfig, fetchJobTypes
   }
   async function load(value, { force = false, requirePersisted = false } = {}) {
     const key = deliveryJobKey(value);
+    const preferred = String(value || '').trim();
     if (!key) throw new Error('This task has no job type. Ask the administrator to check it.');
     const inMemory = memory.get(key);
     let cached = inMemory;
     if (!cached) {
       const saved = read();
-      const name = matchingKey(saved, key);
-      if (name && usableDeliveryMethods(methodsOf(saved[name]))) {
-        cached = { methods: methodsOf(saved[name]), persisted: true };
+      try {
+        const name = matchingKey(saved, key, preferred, methodsOf);
+        if (name) cached = { methods: methodsOf(saved[name]), persisted: true };
+      } catch (error) {
+        // Conflicting saved aliases must not prevent fetching a clean server copy.
+        report('delivery_cache_conflict', error);
       }
     }
     if (cached && !force && (inMemory || !online()) && (!requirePersisted || cached.persisted)) {
@@ -55,11 +68,11 @@ export function createDeliveryConfigLoader({ storage, fetchConfig, fetchJobTypes
         try {
           if (!online()) throw new Error('Connect to the internet to load delivery options for this job type.');
           const config = await bounded(async () => {
-            let result = await fetchConfig(String(value).trim());
+            let result = await fetchConfig(preferred);
             if (!usableDeliveryMethods(result?.deliveryMethods)) {
               // Match harmless spacing/case differences without modifying task identity.
               const all = await fetchJobTypes();
-              const name = matchingKey(all || {}, key);
+              const name = matchingKey(all || {}, key, preferred);
               result = name ? all[name] : null;
             }
             if (!usableDeliveryMethods(result?.deliveryMethods)) {

@@ -65,6 +65,23 @@ const aliasLoader = createDeliveryConfigLoader({ storage: fixture().storage,
   fetchConfig: async () => null, fetchJobTypes: async () => ({ 'Recon CRS': config }), online: () => true });
 assert.deepEqual((await aliasLoader.load('RECON CRS')).methods, methods);
 
+// Upgrade regression: legacy duplicate aliases must not block rendering or Retry.
+const otherConfig = { deliveryMethods: { Returned: { fields: {} } } };
+for (const online of [false, true]) {
+  f = fixture({ online, saved: { NOD: config, 'NOD ': otherConfig } });
+  assert.deepEqual((await f.loader.load('NOD')).methods, methods);
+}
+f = fixture({ saved: { NOD: { deliveryMethods: {} }, 'NOD ': config }, online: false });
+assert.deepEqual((await f.loader.load('NOD')).methods, methods);
+f = fixture({ saved: { 'Nod ': config, nod: config }, online: false });
+assert.deepEqual((await f.loader.load('NOD')).methods, methods);
+f = fixture({ saved: { 'Nod ': config, nod: otherConfig } });
+assert.deepEqual((await f.loader.load('NOD', { force: true })).methods, methods);
+assert.equal(f.calls(), 1, 'Conflicting cache must not prevent contacting server');
+assert.deepEqual(Object.keys(f.saved()), ['NOD'], 'Successful refresh repairs cached aliases');
+f = fixture({ saved: { 'Nod ': config, nod: otherConfig }, online: false });
+await assert.rejects(f.loader.load('NOD'), /Connect to the internet/);
+
 // Failed persistence must not be reported as ready for offline work (web or native).
 for (const failure of [{ storageError: true }, { flushError: true }]) {
   f = fixture(failure);
