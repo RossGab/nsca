@@ -625,6 +625,7 @@ img { width:100%;margin-top:8px;border-radius:6px; }
 import { prepareExportReceipt } from "./offline-export-receipts.js";
 import { createReceiptChecker, createReceiptNotice } from "./driver-export-confirmation.js";
 import { escapeDeliveryHTML, deliveryFieldHTML } from "./delivery-fields.js";
+import { createDeliveryConfigLoader } from "./driver-delivery-config.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
 import { getDatabase, ref, get, update, query, orderByChild, equalTo } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 import {
@@ -646,7 +647,7 @@ import {
 import { getStorage, ref as sRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js";
 import { increment } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
   
-const VERSION = "V.R.0.0.16.1.4.35";
+const VERSION = "V.R.0.0.16.1.4.36";
 
 const checkExportUploadReceipts = createReceiptChecker({
   driverId: () => DRIVER_ID,
@@ -663,7 +664,8 @@ const checkExportUploadReceipts = createReceiptChecker({
 const BILLING_CACHE = {};
 window.BILLING_CACHE = BILLING_CACHE;
 const DRIVER_UI_CACHE = {};
-const DRIVER_UI_STORAGE_KEY = "driverUIConfigCache";
+let deliveryConfigLoader;
+const deliveryRenderRequests = new WeakMap();
 const selectedJobTypes = new Set();
 const PHOTO_BUFFER = {};
 const submitLock = {};
@@ -2273,106 +2275,24 @@ let gpsWatchId = null;
 appVersion.innerText = `Driver: ${DRIVER_ID} | ${VERSION}`;
 startGPSTracking(DRIVER_ID);
 
-async function loadDriverUI(jobType) {
-  // 1️⃣ Memory cache
-  if (DRIVER_UI_CACHE[jobType]) {
-    return DRIVER_UI_CACHE[jobType];
+async function loadDriverUI(jobType, options = {}) {
+  if (!deliveryConfigLoader) {
+    deliveryConfigLoader = createDeliveryConfigLoader({
+      storage: {
+        getItem: key => localStorage.getItem(key),
+        setItem: (key, value) => localStorage.setItem(key, value),
+        flush: async () => { if (typeof localStorage.flush === "function") await localStorage.flush(); }
+      },
+      fetchConfig: async name => ({ deliveryMethods: (await get(ref(db, `config/driverUI/jobTypes/${name}/deliveryMethods`))).val() }),
+      fetchJobTypes: async () => (await get(ref(db, 'config/driverUI/jobTypes'))).val(),
+      report: (event, error) => storageDiagnostic.record(event, { error: error.message })
+    });
   }
-
-  // 2️⃣ LocalStorage cache
-  const stored = JSON.parse(
-    localStorage.getItem(DRIVER_UI_STORAGE_KEY) || "{}"
-  );
-
-  const cached = stored[jobType];
-
-  // 3️⃣ If offline → use cache if available
-  if (!navigator.onLine) {
-    if (cached) {
-      DRIVER_UI_CACHE[jobType] = cached.deliveryMethods || cached;
-      return DRIVER_UI_CACHE[jobType];
-    }
-    return {};
-  }
-
-  // 4️⃣ Fetch metadata (updatedAt) FIRST
-  const metaSnap = await get(
-    ref(db, `config/driverUI/jobTypes/${jobType}/updatedAt`)
-  );
-
-  const serverUpdatedAt = metaSnap.val();
-
-  // 5️⃣ Cache HIT + same version → reuse
-  if (
-    cached &&
-    cached.updatedAt &&
-    serverUpdatedAt &&
-    cached.updatedAt === serverUpdatedAt
-  ) {
-    DRIVER_UI_CACHE[jobType] = cached.deliveryMethods;
-    return DRIVER_UI_CACHE[jobType];
-  }
-
-  // 6️⃣ Fetch FULL config (changed or first load)
-  const snap = await get(
-    ref(db, `config/driverUI/jobTypes/${jobType}/deliveryMethods`)
-  );
-
-  const deliveryMethods = snap.val() || {};
-
-  // 7️⃣ Save fresh cache
-  const payload = {
-    updatedAt: serverUpdatedAt || new Date().toISOString(),
-    deliveryMethods
-  };
-
-  DRIVER_UI_CACHE[jobType] = deliveryMethods;
-  stored[jobType] = payload;
-
-  localStorage.setItem(
-    DRIVER_UI_STORAGE_KEY,
-    JSON.stringify(stored)
-  );
-
-  return deliveryMethods;
+  const result = await deliveryConfigLoader.load(jobType, options);
+  DRIVER_UI_CACHE[jobType] = result.methods;
+  return result.methods;
 }
 
-// async function loadDriverUI(jobType) {
-//   // 1️⃣ Memory cache
-//   if (DRIVER_UI_CACHE[jobType]) return DRIVER_UI_CACHE[jobType];
-
-//   // 2️⃣ LocalStorage cache (OFFLINE SAFE)
-//   const stored = JSON.parse(
-//     localStorage.getItem(DRIVER_UI_STORAGE_KEY) || "{}"
-//   );
-
-//   if (stored[jobType]) {
-//     DRIVER_UI_CACHE[jobType] = stored[jobType];
-//     return stored[jobType];
-//   }
-
-//   // 3️⃣ Online fetch ONLY if online
-//   if (!navigator.onLine) {
-//     return {}; // offline + no cache = empty
-//   }
-
-//   const snap = await get(
-//     ref(db, `config/driverUI/jobTypes/${jobType}/deliveryMethods`)
-//   );
-
-//   const data = snap.val() || {};
-
-//   // 4️⃣ Save to memory + localStorage
-//   DRIVER_UI_CACHE[jobType] = data;
-//   stored[jobType] = data;
-
-//   localStorage.setItem(
-//     DRIVER_UI_STORAGE_KEY,
-//     JSON.stringify(stored)
-//   );
-
-//   return data;
-// }
 document.getElementById("syncBtn").onclick = async () => {
 
   if (SYNC_RUNNING) {
@@ -4330,14 +4250,17 @@ async function uploadNow(
 }
 
 async function preloadDriverUIConfig(tasks) {
-  const types = new Set(
-    tasks.map(t => t.JOBTYPE).filter(Boolean)
-  );
-
-  await Promise.all(
-    [...types].map(t => loadDriverUI(t))
-  );
+  const types = [...new Set(tasks.map(task => task.JOBTYPE))];
+  const results = await Promise.allSettled(types.map(type =>
+    loadDriverUI(type, { force: true, requirePersisted: true })
+  ));
+  const failures = results.flatMap((result, index) => result.status === 'rejected'
+    ? [`${types[index] || '(missing job type)'}: ${result.reason.message}`] : []);
+  if (failures.length) {
+    throw new Error('Tasks remain on the server for download. Delivery options are not ready for offline work:\n\n' + failures.join('\n'));
+  }
 }
+
   
 initializeOfflineStorageProtection();
 setInterval(checkStorageQuota, 60_000); // every 60 seconds
@@ -5066,6 +4989,9 @@ async function downloadTasksForDriver() {
     // ==========================================
     // 3. SAVE LOCALLY FIRST
     // ==========================================
+
+    // Verify durable delivery settings before acknowledging any downloaded tasks.
+    await preloadDriverUIConfig(localTasks);
 
     await saveTasksToIndexedDB(
       localTasks
@@ -7358,7 +7284,7 @@ function renderOneTask(t) {
         </div>
       
         <!-- 🔥 DELIVERY METHOD HERE -->
-        <div id="delivery_${t._key}" style="margin-top:10px;"></div>
+        <div id="delivery_${t._key}" data-delivery-options style="margin-top:10px;"></div>
       
         <button type="button"
           data-submit-task="${escapeDeliveryHTML(t._key)}"
@@ -7431,13 +7357,7 @@ if (
   (status === "PENDING" || status === "CAPTURING" || status === "READY") &&
   !t.finalized
 ) {
-  renderDynamicDelivery(t).then(h => {
-    if (!document.body.contains(div)) return;
-    const target = div.querySelector(`#delivery_${t._key}`);
-    if (target && h) {
-      target.innerHTML = h;
-    }
-  });
+  mountDeliveryOptions(t, div.querySelector('[data-delivery-options]'));
 }
 }
 
@@ -7558,12 +7478,37 @@ function matchesSearch(task, term) {
   return words.every(word => searchText.includes(word));
 }
   
-async function renderDynamicDelivery(t) {
-  const methods = await loadDriverUI(t.JOBTYPE);
-  if (!methods || typeof methods !== "object") return "";
+async function mountDeliveryOptions(task, target, force = false) {
+  if (!target) return;
+  const request = {};
+  deliveryRenderRequests.set(target, request);
+  target.textContent = 'Loading delivery options...';
+  target.setAttribute('role', 'status');
+  try {
+    const html = await renderDynamicDelivery(task, { force });
+    if (!target.isConnected || deliveryRenderRequests.get(target) !== request) return;
+    target.removeAttribute('role');
+    target.innerHTML = html;
+    if (SYNC_RUNNING) target.querySelectorAll('input, button, textarea, select').forEach(el => { el.disabled = true; });
+  } catch (error) {
+    if (!target.isConnected || deliveryRenderRequests.get(target) !== request) return;
+    target.replaceChildren();
+    const message = document.createElement('p');
+    message.textContent = 'Delivery options unavailable. ' + error.message + ' Your task and photos are still saved.';
+    const retry = document.createElement('button');
+    retry.type = 'button';
+    retry.textContent = 'Retry delivery options';
+    retry.disabled = SYNC_RUNNING;
+    retry.addEventListener('click', () => mountDeliveryOptions(task, target, true));
+    target.append(message, retry);
+  }
+}
+
+async function renderDynamicDelivery(t, options = {}) {
+  const methods = await loadDriverUI(t.JOBTYPE, options);
 
   const methodNames = Object.keys(methods);
-  if (!methodNames.length) return "";
+  if (!methodNames.length) throw new Error("No delivery options are configured for this job type.");
 
   let html = `<div class="radio-group"><b>Delivery Method</b>`;
 

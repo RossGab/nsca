@@ -1,10 +1,11 @@
-const CACHE_VERSION = "v54-full-width-christmas-lights";
+const CACHE_VERSION = "v55-offline-delivery-options";
 const CACHE_NAME = `field-task-app-${CACHE_VERSION}`;
 
 const BASE_PATH = "/nsca/";
 const DRIVER_URL = BASE_PATH + "driver.html";
 
 const CORE_ASSETS = [
+  BASE_PATH + "driver-delivery-config.js",
   BASE_PATH + "driver-holiday.css",
   BASE_PATH + "driver-holiday.js",
   BASE_PATH + "driver-holiday-header.png",
