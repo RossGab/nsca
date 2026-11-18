@@ -14,6 +14,12 @@
 <style>
 body { font-family: Arial, sans-serif; background:#f4f4f4; padding:10px; }
 #appVersion { background:#222;color:#fff;padding:8px;text-align:center;margin-bottom:6px; }
+#deliveryReadinessBanner { display:flex;align-items:center;gap:10px;justify-content:space-between;margin-bottom:10px;padding:10px 12px;border:1px solid #c9d7e5;border-radius:8px;background:#edf3f8;color:#243b53;font-size:13px;line-height:1.4; }
+#deliveryReadinessBanner[hidden],#deliveryReadinessRetry[hidden],#deliveryReadinessOkay[hidden] { display:none; }
+#deliveryReadinessBanner[data-state="ready"] { background:#edf8ef;border-color:#9bcea6;color:#20582e; }
+#deliveryReadinessBanner[data-state="blocked"] { background:#fff5df;border-color:#e3bb65;color:#6e4700; }
+#deliveryReadinessRetry,#deliveryReadinessOkay { flex:0 0 auto;width:auto;margin:0;padding:8px 12px;background:#825a0b;color:#fff;font-size:13px; }
+#deliveryReadinessOkay { background:#20582e; }
 #offlineBanner { background:#c0392b;color:#fff;padding:6px;text-align:center;margin-bottom:10px;display:none; }
 #searchBox { width:100%;padding:10px;margin-bottom:10px;border-radius:6px;border:1px solid #ccc;font-size:14px; }
 .task { background:#fff;padding:12px;margin-bottom:10px;border-radius:8px;border-left:5px solid orange; }
@@ -296,6 +302,7 @@ img { width:100%;margin-top:8px;border-radius:6px; }
 </button>
 
 <div id="appVersion"></div>
+<div id="deliveryReadinessBanner" role="status" hidden><span id="deliveryReadinessText"></span><button id="deliveryReadinessRetry" type="button" hidden>Retry</button><button id="deliveryReadinessOkay" type="button" hidden>Okay</button></div>
 <div id="appHealthMount"></div>
 <div id="gpsStatus"
   style="background:#fff;padding:6px;text-align:center;
@@ -627,7 +634,7 @@ img { width:100%;margin-top:8px;border-radius:6px; }
 import { prepareExportReceipt } from "./offline-export-receipts.js";
 import { createReceiptChecker, createReceiptNotice } from "./driver-export-confirmation.js";
 import { escapeDeliveryHTML, deliveryFieldHTML } from "./delivery-fields.js";
-import { createDeliveryConfigLoader } from "./driver-delivery-config.js";
+import { createDeliveryConfigLoader, createDeliveryReadinessController } from "./driver-delivery-config.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
 import { getDatabase, ref, get, update, query, orderByChild, equalTo } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 import {
@@ -649,7 +656,7 @@ import {
 import { getStorage, ref as sRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js";
 import { increment } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
   
-const VERSION = "V.R.0.0.16.1.4.37-WIP";
+const VERSION = "V.R.0.0.16.1.4.39-WIP";
 
 const checkExportUploadReceipts = createReceiptChecker({
   driverId: () => DRIVER_ID,
@@ -667,6 +674,7 @@ const BILLING_CACHE = {};
 window.BILLING_CACHE = BILLING_CACHE;
 const DRIVER_UI_CACHE = {};
 let deliveryConfigLoader;
+let deliveryReadinessController;
 const deliveryRenderRequests = new WeakMap();
 const selectedJobTypes = new Set();
 const PHOTO_BUFFER = {};
@@ -3372,6 +3380,8 @@ window.startPhoto = async function(index, taskKey) {
     return;
   }
 
+  if (!(await ensureTaskDeliveryReady(taskKey))) return;
+
   releasePhotoPreviews();
   taskList.querySelectorAll("img").forEach(img => { if (img.src.startsWith("blob:")) img.removeAttribute("src"); });
   try { localStorage.setItem(CAPTURE_RECOVERY_KEY, JSON.stringify({ taskKey, photoIndex: index, startedAt: new Date().toISOString() })); } catch (_) {}
@@ -3502,6 +3512,8 @@ async function processCapturedPhoto(file) {
     );
     return;
   }
+
+  if (!(await ensureTaskDeliveryReady(taskKey))) return;
 
   syncDynamicFields(taskKey);
 
@@ -4249,6 +4261,30 @@ async function uploadNow(
 
   return true;
 }
+
+function getDeliveryReadinessController() {
+  if (!deliveryReadinessController) {
+    deliveryReadinessController = createDeliveryReadinessController({
+      document, getTasks: getTasksFromIndexedDB, loadConfig: loadDriverUI,
+      isActionable: task => String(task.driverId || '').trim().toUpperCase() === String(DRIVER_ID).trim().toUpperCase() &&
+        ['PENDING', 'CAPTURING', 'READY'].includes(resolveStatus(task)) && !task.finalized,
+      isBusy: () => SYNC_RUNNING || EXPORT_RUNNING || PHOTO_CAPTURE_BUSY || CURRENT_TASK || IS_DOWNLOADING || LOAD_IN_PROGRESS,
+      renderAvailable: task => {
+        const target = document.getElementById('delivery_' + task._key);
+        if (target?.dataset.deliveryState === 'unavailable') mountDeliveryOptions(task, target);
+      },
+      report: (event, details) => storageDiagnostic.record(event, details), notify: message => alert(message)
+    });
+  }
+  return deliveryReadinessController;
+}
+function checkSavedDeliveryReadiness(tasks) { return getDeliveryReadinessController().check(tasks); }
+function ensureTaskDeliveryReady(taskKey) { return getDeliveryReadinessController().ensure(taskKey); }
+function scheduleDeliveryReadinessCheck() { getDeliveryReadinessController().schedule(); }
+window.addEventListener('online', scheduleDeliveryReadinessCheck);
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) scheduleDeliveryReadinessCheck();
+});
 
 async function preloadDriverUIConfig(tasks) {
   const types = [...new Set(tasks.map(task => task.JOBTYPE))];
@@ -5131,6 +5167,8 @@ async function loadTasks() {
       cached = await getTasksFromIndexedDB();
     }
     // 🔥 Calculate upload queue once
+    await checkSavedDeliveryReadiness(cached);
+
     void checkExportUploadReceipts(cached).catch(error => console.warn("Upload confirmation unavailable", error));
     UPLOAD_QUEUE_COUNT = cached.filter(t =>
       String(t.driverId || "").trim().toUpperCase() ===
@@ -7483,16 +7521,20 @@ async function mountDeliveryOptions(task, target, force = false) {
   if (!target) return;
   const request = {};
   deliveryRenderRequests.set(target, request);
+  target.dataset.deliveryState = 'loading';
   target.textContent = 'Loading delivery options...';
   target.setAttribute('role', 'status');
   try {
     const html = await renderDynamicDelivery(task, { force });
     if (!target.isConnected || deliveryRenderRequests.get(target) !== request) return;
+    target.dataset.deliveryState = 'ready';
     target.removeAttribute('role');
     target.innerHTML = html;
+    if (force) scheduleDeliveryReadinessCheck();
     if (SYNC_RUNNING) target.querySelectorAll('input, button, textarea, select').forEach(el => { el.disabled = true; });
   } catch (error) {
     if (!target.isConnected || deliveryRenderRequests.get(target) !== request) return;
+    target.dataset.deliveryState = 'unavailable';
     target.replaceChildren();
     const message = document.createElement('p');
     message.textContent = 'Delivery options unavailable. ' + error.message + ' Your task and photos are still saved.';

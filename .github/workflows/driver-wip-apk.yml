@@ -11,6 +11,7 @@ on:
       - 'storage-diagnostics.js'
       - 'driver-storage-viewer.html'
       - 'delivery-fields.js'
+      - 'driver-delivery-config.js'
       - 'admin-dialog.js'
       - 'admin-dark-mode.js'
       - 'admin-dark-mode.css'

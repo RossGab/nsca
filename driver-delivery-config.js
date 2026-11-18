@@ -49,8 +49,10 @@ export function createDeliveryConfigLoader({ storage, fetchConfig, fetchJobTypes
     if (!key) throw new Error('This task has no job type. Ask the administrator to check it.');
     const inMemory = memory.get(key);
     let cached = inMemory;
-    if (!cached) {
+    if (!cached || requirePersisted) {
       const saved = read();
+      // Readiness must verify actual saved data, not an old in-memory flag.
+      if (requirePersisted) cached = null;
       try {
         const name = matchingKey(saved, key, preferred, methodsOf);
         if (name) cached = { methods: methodsOf(saved[name]), persisted: true };
@@ -113,4 +115,113 @@ export function createDeliveryConfigLoader({ storage, fetchConfig, fetchJobTypes
     return result;
   }
   return { load };
+}
+
+// One check per job type, regardless of whether there are 5 or 500 tasks.
+export async function checkDeliveryReadiness(tasks, loadConfig) {
+  const groups = new Map();
+  for (const task of tasks) {
+    const key = deliveryJobKey(task.JOBTYPE);
+    if (!groups.has(key)) groups.set(key, { jobType: task.JOBTYPE, taskKeys: [] });
+    groups.get(key).taskKeys.push(task._key);
+  }
+  const results = await Promise.all([...groups.values()].map(async group => {
+    try {
+      const methods = await loadConfig(group.jobType, { requirePersisted: true });
+      if (!usableDeliveryMethods(methods)) throw new Error('Delivery options are missing.');
+      return null;
+    } catch (error) {
+      return { ...group, reason: error.message || 'Delivery options could not be checked.' };
+    }
+  }));
+  const failures = results.filter(Boolean);
+  return { ready: failures.length === 0, taskCount: tasks.length, typeCount: groups.size, failures };
+}
+
+export function createDeliveryReadinessController({ document, getTasks, loadConfig, isActionable,
+  isBusy, renderAvailable, report = () => {}, notify = () => {}, online = () => navigator.onLine }) {
+  let pending, timer, automaticAttempts = 0, acknowledged = null, readyFingerprint = null;
+  const banner = document.getElementById('deliveryReadinessBanner');
+  const label = document.getElementById('deliveryReadinessText');
+  const retry = document.getElementById('deliveryReadinessRetry');
+  const okay = document.getElementById('deliveryReadinessOkay');
+  async function check(savedTasks) {
+    if (pending) return pending;
+    clearTimeout(timer);
+    banner.hidden = acknowledged !== null && banner.dataset.state === 'ready';
+    banner.dataset.state = 'checking';
+    label.textContent = 'Checking delivery options for saved tasks...';
+    retry.hidden = true;
+    okay.hidden = true;
+    const work = (async () => {
+      try {
+        const tasks = (savedTasks || await getTasks()).filter(isActionable);
+        const result = await checkDeliveryReadiness(tasks, loadConfig);
+        banner.dataset.state = result.ready ? 'ready' : 'blocked';
+        if (result.ready) {
+          readyFingerprint = JSON.stringify(tasks.map(task => [task._key, deliveryJobKey(task.JOBTYPE)]).sort());
+          banner.hidden = acknowledged === readyFingerprint;
+          okay.hidden = false;
+        } else {
+          acknowledged = null;
+          banner.hidden = false;
+        }
+        if (!result.taskCount) label.textContent = 'No unfinished tasks to prepare.';
+        else if (result.ready) label.textContent = `Delivery options ready offline for all ${result.taskCount} saved tasks.`;
+        else {
+          const names = result.failures.map(item => item.jobType || 'task without a job type').join(', ');
+          label.textContent = `Not ready for offline work. Delivery options need attention: ${names}. Connect and tap Retry. If it still fails, contact the administrator.`;
+          retry.hidden = false;
+        }
+        const failedKeys = new Set(result.failures.flatMap(group => group.taskKeys));
+        for (const task of tasks) {
+          if (!failedKeys.has(task._key)) renderAvailable(task);
+        }
+        report('delivery_readiness_checked', { taskCount: result.taskCount, jobTypes: result.typeCount, failed: result.failures.length });
+        if (result.ready) automaticAttempts = 0;
+        else if (online() && automaticAttempts < 3) {
+          timer = setTimeout(schedule, [5000, 15000, 30000][automaticAttempts++]);
+        }
+        return result;
+      } catch (error) {
+        acknowledged = null;
+        banner.hidden = false;
+        okay.hidden = true;
+        banner.dataset.state = 'blocked';
+        label.textContent = 'Could not verify saved delivery options. Tap Retry before starting work. Your saved tasks and photos are kept.';
+        retry.hidden = false;
+        report('delivery_readiness_failed', { error: error.message });
+        return { ready: false, failures: [] };
+      }
+    })();
+    pending = work;
+    try { return await work; }
+    finally { if (pending === work) pending = null; }
+  }
+  async function ensure(taskKey) {
+    try {
+      const task = (await getTasks()).find(item => item._key === taskKey && isActionable(item));
+      if (!task) throw new Error('The saved task is not available for work.');
+      const methods = await loadConfig(task.JOBTYPE, { requirePersisted: true });
+      if (!usableDeliveryMethods(methods)) throw new Error('Delivery options are missing.');
+      return true;
+    } catch (error) {
+      await check();
+      banner.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      notify('This task is not ready: its delivery options are unavailable. Connect and tap Retry above before starting work. Your existing photos and entries are kept.');
+      return false;
+    }
+  }
+  function schedule() {
+    clearTimeout(timer);
+    if (isBusy()) { timer = setTimeout(schedule, 2000); return; }
+    void check();
+  }
+  retry.addEventListener('click', () => { automaticAttempts = 0; schedule(); });
+  okay.addEventListener('click', () => {
+    if (banner.dataset.state !== 'ready') return;
+    acknowledged = readyFingerprint;
+    banner.hidden = true;
+  });
+  return { check, ensure, schedule, dispose: () => clearTimeout(timer) };
 }

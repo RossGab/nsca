@@ -1,4 +1,4 @@
-const CACHE_VERSION = "v56-delivery-cache-alias-recovery";
+const CACHE_VERSION = "v58-delivery-readiness-okay";
 const CACHE_NAME = `field-task-app-${CACHE_VERSION}`;
 
 const BASE_PATH = "/nsca/";
