@@ -68,6 +68,9 @@ public final class NativeDriverStore extends SQLiteOpenHelper {
                 String id = row.getString(store.equals("tasks") ? "_key" : "key");
                 JSONObject old = get(store, id);
                 if (onlyMissing && old != null) continue;
+                String incomingStatus = row.optString("status", "");
+                if (old != null && old.optString("status").equals("LOCAL_COMPLETED") &&
+                    (incomingStatus.equals("PENDING") || incomingStatus.equals("CAPTURING") || incomingStatus.equals("READY"))) continue;
                 JSONObject next = merge && old != null ? new JSONObject(old.toString()) : new JSONObject();
                 for (var keys=row.keys(); keys.hasNext();) { String key=keys.next(); next.put(key,row.get(key)); }
                 if (store.equals("tasks") && merge) {
@@ -206,6 +209,21 @@ public final class NativeDriverStore extends SQLiteOpenHelper {
             put(db, "tasks", taskKey, task);
             db.setTransactionSuccessful();
             return new JSONObject().put("task", task).put("alreadyCompleted", false);
+        } finally { db.endTransaction(); }
+    }
+    public synchronized void saveTaskDraft(String taskKey, JSONObject deliveryData) throws Exception {
+        SQLiteDatabase db = getWritableDatabase();
+        db.beginTransaction();
+        try {
+            JSONObject task = get("tasks", taskKey);
+            if (task != null && !task.optBoolean("finalized") && !task.optBoolean("exported")) {
+                String status = task.optString("status", "PENDING");
+                if (status.equals("PENDING") || status.equals("CAPTURING") || status.equals("READY")) {
+                    task.put("deliveryData", deliveryData);
+                    put(db, "tasks", taskKey, task);
+                }
+            }
+            db.setTransactionSuccessful();
         } finally { db.endTransaction(); }
     }
     public synchronized void markBackupDone(String taskKey) throws Exception {

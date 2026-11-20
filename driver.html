@@ -657,7 +657,7 @@ import { getStorage, ref as sRef, uploadBytes, getDownloadURL } from "https://ww
 import { increment } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
   
 const APP_PLATFORM = "web";
-const VERSION = "V.R.0.0.16.1.4.42";
+const VERSION = "V.R.0.0.16.1.4.43";
 
 const checkExportUploadReceipts = createReceiptChecker({
   driverId: () => DRIVER_ID,
@@ -1036,7 +1036,9 @@ async function saveTasksToIndexedDB(tasks) {
       r.onerror = () => resolve({});
     });
   
-    store.put({
+    // A stale download/migration must never undo locally completed work.
+  if (existing.status === 'LOCAL_COMPLETED' && ['PENDING', 'CAPTURING', 'READY'].includes(t.status)) continue;
+  store.put({
       ...existing,
       ...t,
       localFirstStoredAt: Number.isFinite(existing.localFirstStoredAt) && existing.localFirstStoredAt > 0
@@ -1060,6 +1062,7 @@ function getBrowserSubmitStore() {
 async function getTaskFromIndexedDB(taskKey) { return getBrowserSubmitStore().getTask(taskKey); }
 async function completeLocalTask(taskKey, deliveryData) { return getBrowserSubmitStore().complete(taskKey, DRIVER_ID, deliveryData); }
 async function markRecoveryBackupDone(taskKey) { return getBrowserSubmitStore().markBackupDone(taskKey); }
+async function saveTaskDraft(taskKey, deliveryData) { return getBrowserSubmitStore().saveDraft(taskKey, deliveryData); }
 
 async function getTasksFromIndexedDB() {
   const db = await openDB();
@@ -3048,16 +3051,11 @@ function syncDynamicFields(taskKey) {
   saveFormCache(all);
 
   // 🔥 SAVE TO INDEXEDDB (SOURCE OF TRUTH)
-  (async () => {
-    const tasks = await getTasksFromIndexedDB();
-    const existing = tasks.find(t => t._key === taskKey) || {};
-  
-    await saveTasksToIndexedDB([{
-      ...existing,
-      _key: taskKey,
-      deliveryData: BILLING_CACHE[taskKey] || {}
-    }]);
-  })();
+  const draft = JSON.parse(JSON.stringify(BILLING_CACHE[taskKey] || {}));
+  void saveTaskDraft(taskKey, draft).catch(error => {
+    storageDiagnostic.record('task_draft_save_failed', { taskKey, error: String(error) });
+    setStorageWarning('draft', 'Some task entries could not be saved. Keep the app open and retry before leaving.');
+  });
 }
 
 function loadFormCache() {

@@ -58,7 +58,16 @@ export function createBrowserSubmitStore({ openDB, taskStore, photoStore, keyRan
     const tasks = tx.objectStore(taskStore), request = tasks.get(key);
     request.onsuccess = () => { if (request.result) tasks.put({ ...request.result, recoveryBackupPending: false }); };
   });
-  return { getTask, complete, markBackupDone };
+  const saveDraft = (key, deliveryData) => transaction([taskStore], 'readwrite', tx => {
+    const tasks = tx.objectStore(taskStore), request = tasks.get(key);
+    request.onsuccess = () => {
+      const task = request.result;
+      if (task && !task.finalized && !task.exported && ['PENDING', 'CAPTURING', 'READY'].includes(task.status || 'PENDING')) {
+        tasks.put({ ...task, deliveryData });
+      }
+    };
+  });
+  return { getTask, complete, markBackupDone, saveDraft };
 }
 
 // Pending work is recorded on the saved task, so closing the app cannot lose a backup request.

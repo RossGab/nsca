@@ -9,6 +9,25 @@ for (const file of ['driver.html', 'driver-wip.html']) {
   const source = await readFile(new URL('../' + file, import.meta.url), 'utf8');
   const start = source.indexOf('  window.submitTask = async function');
   const code = source.slice(start, source.indexOf('// Use one delegated listener', start));
+  const draftStart = source.indexOf('function syncDynamicFields(taskKey)');
+  const draftCode = source.slice(draftStart, source.indexOf('function loadFormCache()', draftStart));
+  let draft;
+  const draftContext = {
+    document: { getElementById: () => ({ querySelectorAll: () => [
+      { getAttribute: () => 'note', type: 'text', value: 'Latest entry' }
+    ] }) },
+    BILLING_CACHE: { one: { deliveryType: 'Delivered', note: 'Old entry' } },
+    loadFormCache: () => ({}), saveFormCache() {},
+    saveTaskDraft: async (key, fields) => { draft = { key, fields }; },
+    getTasksFromIndexedDB: () => assert.fail('Draft save must not read a stale whole-task snapshot'),
+    saveTasksToIndexedDB: () => assert.fail('Draft save must not write a stale task status'),
+    storageDiagnostic: { record() {} }, setStorageWarning() {}
+  };
+  vm.createContext(draftContext); vm.runInContext(draftCode, draftContext);
+  draftContext.syncDynamicFields('one');
+  assert.equal(draft.key, 'one');
+  assert.equal(draft.fields.note, 'Latest entry');
+  assert.equal(draft.fields.status, undefined);
   function fixture({ failCommit = false, commitGate } = {}) {
     const task = { _key: 'one', driverId: 'driver_001', dateKey: '20261120', status: 'PENDING', CUSTOMERNAME: 'Keep customer' };
     const calls = [], alerts = [];

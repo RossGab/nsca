@@ -1,4 +1,4 @@
-const CACHE_VERSION = "v61-fast-local-submit";
+const CACHE_VERSION = "v62-preserve-local-completion";
 const CACHE_NAME = `field-task-app-${CACHE_VERSION}`;
 
 const BASE_PATH = "/nsca/";

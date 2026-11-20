@@ -58,6 +58,21 @@ public class NativeDriverStoreTest {
         assertThrows(Exception.class, () -> store.completeTask("one", "driver_001", new JSONObject()));
         assertEquals("PENDING", store.get("tasks", "one").getString("status"));
     }
+    @Test public void lateDraftAndStalePendingWritesCannotReopenCompletedTask() throws Exception {
+        store.write("tasks", new JSONArray().put(task("one", "PENDING").put("driverId", "driver_001")), true, false);
+        store.writePhoto(photo("one_1", "one"), new byte[]{1,2,3}, false);
+        store.saveTaskDraft("one", new JSONObject().put("note", "Draft"));
+        JSONObject stalePending = store.get("tasks", "one");
+        store.completeTask("one", "driver_001", new JSONObject().put("note", "Submitted entry"));
+        store.saveTaskDraft("one", new JSONObject().put("note", "Late draft"));
+        store.write("tasks", new JSONArray().put(stalePending), true, false);
+        store.close(); store = new NativeDriverStore(context);
+        JSONObject saved = store.get("tasks", "one");
+        assertEquals("LOCAL_COMPLETED", saved.getString("status"));
+        assertEquals("Submitted entry", saved.getJSONObject("deliveryData").getString("note"));
+        assertTrue(store.get("photos", "one_1").getBoolean("submitIntent"));
+        assertTrue(store.completeTask("one", "driver_001", new JSONObject()).getBoolean("alreadyCompleted"));
+    }
     @Test public void recordsSurviveReopeningAndMergePreservesTaskFields() throws Exception {
         store.write("tasks",new JSONArray().put(task("one","PENDING").put("customerName","Original")),true,false);
         long first=store.get("tasks","one").getLong("localFirstStoredAt");

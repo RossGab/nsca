@@ -29,6 +29,7 @@ async function completeLocalTask(taskKey, deliveryData) {
   return driverNative.request({operation:'completeTask',taskKey,driverId:DRIVER_ID,deliveryData});
 }
 async function markRecoveryBackupDone(taskKey) { await driverNative.request({operation:'markBackupDone',taskKey}); }
+async function saveTaskDraft(taskKey, deliveryData) { await driverNative.request({operation:'saveTaskDraft',taskKey,deliveryData}); }
 `);
   source=replaceRange(source,'async function deletePhotoFromDB(','async function archiveTransferredLocalTask(',`
 async function deletePhotoFromDB(id) { await driverNative.request({operation:'delete',store:'photos',id}); }
