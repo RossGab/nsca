@@ -177,6 +177,44 @@ public final class NativeDriverStore extends SQLiteOpenHelper {
         getWritableDatabase().delete("records","store=? AND id=?",new String[]{store,id});
         if (store.equals("photos") && old != null) photoFile(old).delete();
     }
+    public synchronized JSONObject completeTask(String taskKey, String driverId, JSONObject deliveryData) throws Exception {
+        SQLiteDatabase db = getWritableDatabase();
+        db.beginTransaction();
+        try {
+            JSONObject task = get("tasks", taskKey);
+            if (task == null || !task.optString("driverId").trim().equalsIgnoreCase(driverId.trim()))
+                throw new IllegalStateException("Saved task was not found for this driver");
+            if (task.optString("status").equals("LOCAL_COMPLETED")) {
+                db.setTransactionSuccessful();
+                return new JSONObject().put("task", task).put("alreadyCompleted", true);
+            }
+            String status = task.optString("status", "PENDING");
+            if (task.optBoolean("finalized") || task.optBoolean("exported") ||
+                !(status.equals("PENDING") || status.equals("CAPTURING") || status.equals("READY")))
+                throw new IllegalStateException("This task can no longer be submitted");
+            JSONArray rows = list("photos", taskKey);
+            if (rows.length() == 0) throw new IllegalStateException("Please take at least 1 photo");
+            for (int i = 0; i < rows.length(); i++) {
+                JSONObject photo = rows.getJSONObject(i);
+                if (photo.getLong("blobSize") <= 0) throw new IllegalStateException("A saved photo is empty");
+                photoBytes(photo); // Verify the existing file/hash locally; no Base64 bridge transfer.
+                photo.put("submitIntent", true);
+                put(db, "photos", photo.getString("id"), photo);
+            }
+            task.put("status", "LOCAL_COMPLETED").put("deliveryData", deliveryData)
+                .put("recoveryBackupPending", true);
+            put(db, "tasks", taskKey, task);
+            db.setTransactionSuccessful();
+            return new JSONObject().put("task", task).put("alreadyCompleted", false);
+        } finally { db.endTransaction(); }
+    }
+    public synchronized void markBackupDone(String taskKey) throws Exception {
+        JSONObject task = get("tasks", taskKey);
+        if (task != null) {
+            task.put("recoveryBackupPending", false);
+            write("tasks", new JSONArray().put(task), true, false);
+        }
+    }
     public synchronized void submitPhotos(String taskKey) throws Exception {
         SQLiteDatabase db=getWritableDatabase(); db.beginTransaction();
         try {

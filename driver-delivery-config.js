@@ -138,7 +138,7 @@ export async function checkDeliveryReadiness(tasks, loadConfig) {
   return { ready: failures.length === 0, taskCount: tasks.length, typeCount: groups.size, failures };
 }
 
-export function createDeliveryReadinessController({ document, getTasks, loadConfig, isActionable,
+export function createDeliveryReadinessController({ document, getTasks, getTask, loadConfig, isActionable,
   isBusy, renderAvailable, report = () => {}, notify = () => {}, online = () => navigator.onLine }) {
   let pending, timer, automaticAttempts = 0, acknowledged = null, readyFingerprint = null;
   const banner = document.getElementById('deliveryReadinessBanner');
@@ -198,10 +198,10 @@ export function createDeliveryReadinessController({ document, getTasks, loadConf
     try { return await work; }
     finally { if (pending === work) pending = null; }
   }
-  async function ensure(taskKey) {
+  async function ensure(taskKey, selectedTask) {
     try {
-      const task = (await getTasks()).find(item => item._key === taskKey && isActionable(item));
-      if (!task) throw new Error('The saved task is not available for work.');
+      const task = selectedTask || (getTask ? await getTask(taskKey) : (await getTasks()).find(item => item._key === taskKey));
+      if (!task || task._key !== taskKey || !isActionable(task)) throw new Error('The saved task is not available for work.');
       const methods = await loadConfig(task.JOBTYPE, { requirePersisted: true });
       if (!usableDeliveryMethods(methods)) throw new Error('Delivery options are missing.');
       return true;

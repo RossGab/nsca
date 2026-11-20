@@ -632,6 +632,7 @@ img { width:100%;margin-top:8px;border-radius:6px; }
 import { prepareExportReceipt } from "./offline-export-receipts.js";
 import { createReceiptChecker, createReceiptNotice } from "./driver-export-confirmation.js";
 import { escapeDeliveryHTML, deliveryFieldHTML } from "./delivery-fields.js";
+import { createBrowserSubmitStore, createRecoveryBackupQueue } from "./driver-local-submit.js";
 import { createAppUsageReporter } from "./driver-app-usage.js";
 import { createDeliveryConfigLoader, createDeliveryReadinessController } from "./driver-delivery-config.js";
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
@@ -656,7 +657,7 @@ import { getStorage, ref as sRef, uploadBytes, getDownloadURL } from "https://ww
 import { increment } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
   
 const APP_PLATFORM = "web";
-const VERSION = "V.R.0.0.16.1.4.40";
+const VERSION = "V.R.0.0.16.1.4.42";
 
 const checkExportUploadReceipts = createReceiptChecker({
   driverId: () => DRIVER_ID,
@@ -1051,6 +1052,14 @@ async function saveTasksToIndexedDB(tasks) {
     throw error;
   }
 }
+
+let browserSubmitStore;
+function getBrowserSubmitStore() {
+  return browserSubmitStore ||= createBrowserSubmitStore({ openDB, taskStore: TASK_STORE, photoStore: STORE, keyRange: IDBKeyRange });
+}
+async function getTaskFromIndexedDB(taskKey) { return getBrowserSubmitStore().getTask(taskKey); }
+async function completeLocalTask(taskKey, deliveryData) { return getBrowserSubmitStore().complete(taskKey, DRIVER_ID, deliveryData); }
+async function markRecoveryBackupDone(taskKey) { return getBrowserSubmitStore().markBackupDone(taskKey); }
 
 async function getTasksFromIndexedDB() {
   const db = await openDB();
@@ -3344,6 +3353,7 @@ function compressImage(file, gps, takenAt) {
   let CURRENT_TASK = null;
 let CURRENT_PHOTO_INDEX = null;
 let PHOTO_CAPTURE_BUSY = false;
+let PHOTO_CAPTURE_STARTING = false;
 function setPhotoProgress(message) {
   let status = document.getElementById("photoCaptureStatus");
   if (!status) {
@@ -3356,7 +3366,7 @@ function setPhotoProgress(message) {
   status.textContent = message;
   status.hidden = !message;
   document.querySelectorAll("button[data-photo-capture],button[data-submit-task]").forEach(button => {
-    if (PHOTO_CAPTURE_BUSY) {
+    if (PHOTO_CAPTURE_BUSY || PHOTO_CAPTURE_STARTING) {
       if (!button.hasAttribute("data-photo-lock")) button.dataset.photoLock = String(button.disabled);
       button.disabled = true;
     } else if (button.hasAttribute("data-photo-lock")) {
@@ -3378,29 +3388,31 @@ window.retakeDriverPhoto = async function(index, taskKey) {
   } catch (error) { alert(error.message || 'Unable to retake photo. Please retry.'); }
 };
 window.startPhoto = async function(index, taskKey) {
-  if (PHOTO_CAPTURE_BUSY || CURRENT_TASK) return;
-
-  // 🔒 DO NOT START A NEW TASK DURING SYNC
+  if (PHOTO_CAPTURE_STARTING || PHOTO_CAPTURE_BUSY || CURRENT_TASK) return;
   if (SYNC_RUNNING) {
-    alert(
-      "⏳ Sync is still in progress.\n\n" +
-      "Please wait until synchronization is complete."
-    );
+    alert('Sync is still in progress. Please wait until synchronization is complete.');
     return;
   }
 
-  if (!(await ensureTaskDeliveryReady(taskKey))) return;
-
-  releasePhotoPreviews();
-  taskList.querySelectorAll("img").forEach(img => { if (img.src.startsWith("blob:")) img.removeAttribute("src"); });
-  try { localStorage.setItem(CAPTURE_RECOVERY_KEY, JSON.stringify({ taskKey, photoIndex: index, startedAt: new Date().toISOString() })); } catch (_) {}
-  CURRENT_TASK = taskKey;
-  CURRENT_PHOTO_INDEX = index;
-
-  cameraInput.value = "";
-  storageDiagnostic.record("photo_camera_open_requested", { taskKey, photoIndex: index, version: VERSION });
-  storageDiagnostic.flush();
+  // Acquire before the first await: rapid taps must not queue camera launches.
+  PHOTO_CAPTURE_STARTING = true;
   try {
+    setPhotoProgress('Checking delivery options...');
+    if (!(await ensureTaskDeliveryReady(taskKey))) return;
+    // Sync may have started while the readiness check was pending.
+    if (SYNC_RUNNING) {
+      alert('Sync is still in progress. Please wait until synchronization is complete.');
+      return;
+    }
+    releasePhotoPreviews();
+    taskList.querySelectorAll('img').forEach(img => { if (img.src.startsWith('blob:')) img.removeAttribute('src'); });
+    try { localStorage.setItem(CAPTURE_RECOVERY_KEY, JSON.stringify({ taskKey, photoIndex: index, startedAt: new Date().toISOString() })); } catch (_) {}
+    CURRENT_TASK = taskKey;
+    CURRENT_PHOTO_INDEX = index;
+    cameraInput.value = '';
+    setPhotoProgress('Opening camera...');
+    storageDiagnostic.record('photo_camera_open_requested', { taskKey, photoIndex: index, version: VERSION });
+    storageDiagnostic.flush();
     const capture = await window.captureDriverPhoto();
     if (capture?.native) {
       cameraInput.click();
@@ -3410,12 +3422,15 @@ window.startPhoto = async function(index, taskKey) {
       cameraInput.oncancel();
     }
   } catch (error) {
-    storageDiagnostic.record("photo_camera_open_failed", { taskKey, error: String(error) });
+    storageDiagnostic.record('photo_camera_open_failed', { taskKey, error: String(error) });
     storageDiagnostic.flush();
     clearCaptureRecovery();
     CURRENT_TASK = CURRENT_PHOTO_INDEX = null;
     applyFiltersOnly();
-    alert("Unable to open the camera. Please retry.");
+    alert('Unable to open the camera. Please retry.');
+  } finally {
+    PHOTO_CAPTURE_STARTING = false;
+    if (!PHOTO_CAPTURE_BUSY) setPhotoProgress('');
   }
 };
 
@@ -3491,279 +3506,50 @@ async function processCapturedPhoto(file) {
 };
 
   window.submitTask = async function(taskKey) {
-  if (PHOTO_CAPTURE_BUSY) { alert("Please wait until the photo is saved."); return; }
-
-  let btn = Array.from(
-    document.querySelectorAll("button[data-submit-task]")
-  ).find(candidate => candidate.dataset.submitTask === taskKey) || null;
-  let ownsSubmitLock = false;
-
-  try {
-
-  // Give immediate feedback before validation or IndexedDB access begins.
-  if (submitLock[taskKey]) {
-    alert("⏳ This task is already being submitted. Please wait.");
-    return;
-  }
+  if (PHOTO_CAPTURE_STARTING || PHOTO_CAPTURE_BUSY) { alert('Please wait until the photo is saved.'); return; }
+  const btn = [...document.querySelectorAll('button[data-submit-task]')].find(button => button.dataset.submitTask === taskKey);
+  if (submitLock[taskKey]) return;
   submitLock[taskKey] = true;
-  ownsSubmitLock = true;
-
-  if (btn) {
-    btn.disabled = true;
-    btn.innerText = "⏳ Submitting...";
-  }
-
-  // 🔒 DO NOT COMPLETE ANOTHER TASK DURING SYNC
-  if (SYNC_RUNNING) {
-    alert(
-      "⏳ Sync is still in progress.\n\n" +
-      "Please wait until synchronization is complete."
-    );
-    return;
-  }
-
-  if (!(await ensureTaskDeliveryReady(taskKey))) return;
-
-  syncDynamicFields(taskKey);
-
-  if (!(await validateDynamic(taskKey))) return;
-
-  const photos = Object.fromEntries((await readPhotoDetails(taskKey, true)).map(p => [p.photoIndex, p]));
-
-  if (!photos || Object.keys(photos).length === 0) {
-    alert("Please take at least 1 photo.");
-    submitLock[taskKey] = false;
-    if (btn) {
-      btn.disabled = false;
-      btn.innerText = "✅ Submit Task";
+  let committed = false;
+  try {
+    if (btn) { btn.disabled = true; btn.innerText = 'Checking task...'; }
+    if (SYNC_RUNNING) { alert('Sync is running. Please wait for it to finish.'); return; }
+    const task = await getTaskFromIndexedDB(taskKey);
+    if (!task) throw new Error('Saved task not found.');
+    let result;
+    if (task.status === 'LOCAL_COMPLETED') result = { task, alreadyCompleted: true };
+    else {
+      if (!(await ensureTaskDeliveryReady(taskKey, task))) return;
+      syncDynamicFields(taskKey);
+      if (!(await validateDynamic(taskKey, task))) return;
+      if (SYNC_RUNNING) { alert('Sync is running. Please wait for it to finish.'); return; }
+      if (btn) btn.innerText = 'Saving task on device...';
+      const deliveryData = JSON.parse(JSON.stringify(BILLING_CACHE[taskKey] || {}));
+      result = await completeLocalTask(taskKey, deliveryData);
     }
-    return;
-  }
-
-  // ==============================
-  // ✅ ALWAYS QUEUE (ONLINE OR OFFLINE)
-  // ==============================
-
-  const latestData =
-  BILLING_CACHE[taskKey] || {};
-
-  const currentTasks =
-     await getTasksFromIndexedDB();
-   
-   const originalTask =
-     currentTasks.find(
-       t => t._key === taskKey
-     ) || {};
-
-  await saveTasksToIndexedDB([{
-    _key: taskKey,
-    status: "LOCAL_COMPLETED",
-    driverId: DRIVER_ID,
-    dateKey: dateFilter.value.replace(/-/g, ""),
-    deliveryData: latestData // 🔥 IMPORTANT
-  }]);
-
-  // ==============================
-   // 💾 AUTO-DOWNLOAD LOCAL COMPLETED JSON
-   // ==============================
-   try {
-   
-     const taskPhotos =
-        Object.entries(
-          photos || {}
-        );
-      
-      const backupPhotos = [];
-      
-      for (const [photoIndex, photo] of taskPhotos) {
-   
-       const base64 =
-         await blobToBase64(
-           photo.blob
-         );
-   
-       backupPhotos.push({
-   
-         id:
-           `${taskKey}_${photoIndex}`,
-         
-         taskKey,
-         
-         photoIndex:
-           Number(photoIndex),
-   
-         takenAt:
-           photo.takenAt,
-   
-         gps:
-           photo.gps || null,
-   
-         base64
-       });
-     }
-   
-    const taskData = {
-
-        // 🔥 KEEP THE COMPLETE ORIGINAL TASK
-        ...originalTask,
-      
-        // 🔥 LOCAL COMPLETION STATE
-        _key:
-          taskKey,
-      
-        status:
-          "LOCAL_COMPLETED",
-      
-        driverId:
-          DRIVER_ID,
-      
-        dateKey:
-          dateFilter.value.replace(
-            /-/g,
-            ""
-          ),
-      
-        deliveryData:
-          latestData,
-      
-        photos:
-          backupPhotos
-      };
-   
-     const jsonBlob =
-       new Blob(
-         [
-           JSON.stringify(
-             taskData,
-             null,
-             2
-           )
-         ],
-         {
-           type:
-             "application/json"
-         }
-       );
-   
-     const filename =
-       `LOCAL_COMPLETED_${taskKey}.json`;
-   
-     saveToGallery(
-       jsonBlob,
-       filename
-     );
-   
-     console.log(
-       "✅ LOCAL_COMPLETED recovery backup downloaded:",
-       {
-         filename,
-         taskKey,
-         dateKey:
-           taskData.dateKey,
-         photos:
-           backupPhotos.length
-       }
-     );
-   
-   } catch (err) {
-   
-     console.error(
-       "❌ Failed to create LOCAL_COMPLETED JSON:",
-       err
-     );
-   
-   }
-
-   // ==========================================
-// 🗺 UPDATE IN-MEMORY TASK STATUS
-// ==========================================
-
-const mapTask =
-  CURRENT_RENDER_LIST.find(
-    t => t._key === taskKey
-  );
-
-if (mapTask) {
-
-  mapTask.status =
-    "LOCAL_COMPLETED";
-
-}
-
-updateTaskMapMarkerAfterLocalSubmit(
-  taskKey
-);
-    
-  let cached;
-    try { cached = await getTasksFromIndexedDB(); }
-    catch (error) {
-      storageDiagnostic.record("task_read_retry", { error: String(error) });
-      showMessage("Storage unavailable. Retrying saved tasks...");
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      cached = await getTasksFromIndexedDB();
-    }
-  UPLOAD_QUEUE_COUNT = cached.filter(t =>
-    t.status === "LOCAL_COMPLETED" &&
-    !t.exported &&
-    String(t.driverId).toUpperCase() === DRIVER_ID.toUpperCase()
-  ).length;
-  
-  updateUploadCounter();
-
-  // 🔓 MARK ALL INDEXEDDB PHOTOS FOR THIS TASK AS SUBMITTED
-    const dbi = await openDB();
-    
-    await new Promise((resolve, reject) => {
-      const tx = dbi.transaction(STORE, "readwrite");
-      const store = tx.objectStore(STORE);
-    
-      const req = store.openCursor();
-      req.onsuccess = () => {
-        const cursor = req.result;
-        if (!cursor) return;
-        if (cursor.value.taskKey === taskKey) cursor.update({ ...cursor.value, submitIntent: true });
-        cursor.continue();
-      };
-
-      tx.oncomplete = resolve;
-      tx.onerror = reject;
-    });
-  
-  // 🧠 Photos already saved to IndexedDB at capture time
-  for (const p of Object.values(PHOTO_BUFFER[taskKey] || {})) {
-    if (p.previewURL) URL.revokeObjectURL(p.previewURL);
-  }
-  delete PHOTO_BUFFER[taskKey];
-  ACTIVE_CAPTURE_TASK = null;
-
-  const completedFormCache = loadFormCache();
-  delete completedFormCache[taskKey];
-  saveFormCache(completedFormCache);
-  
-  removeTaskFromUI(taskKey);
-  
-  
-  return;
+    committed = true;
+    storageDiagnostic.record('task_completed_locally', { taskKey, alreadyCompleted: result.alreadyCompleted });
+    if (!result.alreadyCompleted && !result.task.exported) UPLOAD_QUEUE_COUNT++;
+    const mapTask = CURRENT_RENDER_LIST.find(item => item._key === taskKey);
+    if (mapTask) mapTask.status = 'LOCAL_COMPLETED';
+    updateTaskMapMarkerAfterLocalSubmit(taskKey);
+    for (const photo of Object.values(PHOTO_BUFFER[taskKey] || {})) if (photo.previewURL) URL.revokeObjectURL(photo.previewURL);
+    delete PHOTO_BUFFER[taskKey];
+    ACTIVE_CAPTURE_TASK = null;
+    const forms = loadFormCache(); delete forms[taskKey]; saveFormCache(forms);
+    if (result.task.recoveryBackupPending) getRecoveryBackupQueue().enqueue(taskKey);
+    removeTaskFromUI(taskKey);
+    updateUploadCounter();
   } catch (error) {
-    console.error("Submit task failed:", { taskKey, error });
-
-    alert(
-      "❌ TASK WAS NOT SUBMITTED\n\n" +
-      "Task: " + taskKey + "\n\n" +
-      "Reason: " + (error?.message || String(error)) + "\n\n" +
-      "Your task and captured photos remain saved on this device. Please try again."
-    );
+    storageDiagnostic.record('task_submit_failed', { taskKey, committed, error: String(error) });
+    alert(committed
+      ? 'The task is saved on this device, but the screen could not refresh. Reopen the task list. Your saved work is kept.'
+      : 'Task was not submitted. ' + (error.message || String(error)) + ' Your task, photos and entries are kept. Please retry.');
   } finally {
-    if (ownsSubmitLock) {
-      submitLock[taskKey] = false;
-    }
-
-    if (btn && document.body.contains(btn)) {
-      btn.disabled = false;
-      btn.innerText = "✅ Submit Task";
-    }
+    submitLock[taskKey] = false;
+    if (btn && document.body.contains(btn)) { btn.disabled = false; btn.innerText = 'Submit Task'; }
   }
-  }
+};
 
 // Use one delegated listener for dynamically rendered task cards. This avoids
 // relying on inline onclick handlers on older or restricted mobile browsers.
@@ -3826,6 +3612,33 @@ function updateTaskMapMarkerAfterLocalSubmit(taskKey) {
 }
 
 /* ===== CAMERA ===== */
+
+let recoveryBackupQueue;
+function getRecoveryBackupQueue() {
+  return recoveryBackupQueue ||= createRecoveryBackupQueue({
+    readTask: getTaskFromIndexedDB, writeBackup: writeRecoveryBackup, markDone: markRecoveryBackupDone,
+    isBusy: () => PHOTO_CAPTURE_STARTING || PHOTO_CAPTURE_BUSY || CURRENT_TASK || SYNC_RUNNING || EXPORT_RUNNING || IS_DOWNLOADING || LOAD_IN_PROGRESS || Object.values(submitLock).some(Boolean),
+    report: (event, details) => {
+      storageDiagnostic.record(event, details);
+      if (event === 'recovery_backup_pending') setStorageWarning('backup', 'Completed work is saved in the app. An extra recovery backup is pending; it will retry when the app reopens.');
+      if (event === 'recovery_backups_saved') setStorageWarning('backup', '');
+    }
+  });
+}
+async function writeRecoveryBackup(task) {
+  const photos = await readPhotoDetails(task._key, true);
+  const backupPhotos = [];
+  for (const photo of photos) {
+    if (!photo?.blob?.size) throw new Error('A saved photo could not be read for backup.');
+    backupPhotos.push({ id: photo.id, taskKey: task._key, photoIndex: photo.photoIndex,
+      takenAt: photo.takenAt, gps: photo.gps || null, base64: await blobToBase64(photo.blob) });
+  }
+  if (!backupPhotos.length) throw new Error('No saved photos were found for backup.');
+  const blob = new Blob([JSON.stringify({ ...task, photos: backupPhotos })], { type: 'application/json' });
+  const filename = `LOCAL_COMPLETED_${task._key}.json`;
+  await saveRecoveryBackup(blob, filename);
+}
+async function saveRecoveryBackup(blob, filename) { await saveToGallery(blob, filename); }
 
 function saveToGallery(blob, filename) {
   const url = URL.createObjectURL(blob);
@@ -4274,7 +4087,7 @@ async function uploadNow(
 function getDeliveryReadinessController() {
   if (!deliveryReadinessController) {
     deliveryReadinessController = createDeliveryReadinessController({
-      document, getTasks: getTasksFromIndexedDB, loadConfig: loadDriverUI,
+      document, getTasks: getTasksFromIndexedDB, getTask: getTaskFromIndexedDB, loadConfig: loadDriverUI,
       isActionable: task => String(task.driverId || '').trim().toUpperCase() === String(DRIVER_ID).trim().toUpperCase() &&
         ['PENDING', 'CAPTURING', 'READY'].includes(resolveStatus(task)) && !task.finalized,
       isBusy: () => SYNC_RUNNING || EXPORT_RUNNING || PHOTO_CAPTURE_BUSY || CURRENT_TASK || IS_DOWNLOADING || LOAD_IN_PROGRESS,
@@ -4288,7 +4101,7 @@ function getDeliveryReadinessController() {
   return deliveryReadinessController;
 }
 function checkSavedDeliveryReadiness(tasks) { return getDeliveryReadinessController().check(tasks); }
-function ensureTaskDeliveryReady(taskKey) { return getDeliveryReadinessController().ensure(taskKey); }
+function ensureTaskDeliveryReady(taskKey, task) { return getDeliveryReadinessController().ensure(taskKey, task); }
 function scheduleDeliveryReadinessCheck() { getDeliveryReadinessController().schedule(); }
 window.addEventListener('online', scheduleDeliveryReadinessCheck);
 document.addEventListener('visibilitychange', () => {
@@ -5176,6 +4989,7 @@ async function loadTasks() {
       cached = await getTasksFromIndexedDB();
     }
     // 🔥 Calculate upload queue once
+    getRecoveryBackupQueue().resume(cached.filter(task => String(task.driverId || '').trim().toUpperCase() === String(DRIVER_ID).trim().toUpperCase()));
     await checkSavedDeliveryReadiness(cached);
 
     void checkExportUploadReceipts(cached).catch(error => console.warn("Upload confirmation unavailable", error));
@@ -7685,12 +7499,11 @@ function dedupeTasks(tasks) {
   return [...map.values()];
 }
   
-async function validateDynamic(taskKey) {
+async function validateDynamic(taskKey, selectedTask) {
   syncDynamicFields(taskKey);
 
   // 🔥 SOURCE OF TRUTH = IndexedDB
-  const tasks = await getTasksFromIndexedDB();
-  const task = tasks.find(t => t._key === taskKey);
+  const task = selectedTask || await getTaskFromIndexedDB(taskKey);
 
   if (!task) {
     alert("Task not found for selected date.\n\nTry changing date or refreshing.");

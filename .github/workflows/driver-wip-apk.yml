@@ -13,6 +13,7 @@ on:
       - 'delivery-fields.js'
       - 'driver-delivery-config.js'
       - 'driver-app-usage.js'
+      - 'driver-local-submit.js'
       - 'admin-dialog.js'
       - 'admin-dark-mode.js'
       - 'admin-dark-mode.css'

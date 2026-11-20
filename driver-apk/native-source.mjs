@@ -23,6 +23,12 @@ async function saveTasksToIndexedDB(tasks) {
   storageDiagnostic.record('tasks_saved',{count:tasks.length,backend:'native'});
 }
 async function getTasksFromIndexedDB() { return driverNative.tasks(); }
+async function getTaskFromIndexedDB(taskKey) { return (await driverNative.request({operation:'get',store:'tasks',id:taskKey})).row || null; }
+async function completeLocalTask(taskKey, deliveryData) {
+  await driverPreferences.flush();
+  return driverNative.request({operation:'completeTask',taskKey,driverId:DRIVER_ID,deliveryData});
+}
+async function markRecoveryBackupDone(taskKey) { await driverNative.request({operation:'markBackupDone',taskKey}); }
 `);
   source=replaceRange(source,'async function deletePhotoFromDB(','async function archiveTransferredLocalTask(',`
 async function deletePhotoFromDB(id) { await driverNative.request({operation:'delete',store:'photos',id}); }
@@ -84,9 +90,6 @@ async function pruneOldTasks() {
   if(updated.length) await driverNative.request({operation:'write',store:'tasks',rows:updated});
   if(remove.length) await driverNative.request({operation:'prune',ids:remove});
 }
-`);
-  source=replaceRange(source,'    const dbi = await openDB();','  // 🧠 Photos already saved',`
-    await driverNative.request({operation:'submitPhotos',taskKey});
 `);
   source=replaceRange(source,'async function readExportPartPhotos(','async function downloadNextExportPart()',`
 async function readExportPartPhotos(photoDetails) {

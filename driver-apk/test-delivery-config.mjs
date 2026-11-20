@@ -173,7 +173,8 @@ for (const file of ['driver.html', 'driver-wip.html']) {
   // A blocked task must not launch the camera or release existing photo previews.
   const photoStart = source.indexOf('\nwindow.startPhoto = async function') + 1;
   const photoEnd = source.indexOf('cameraInput.oncancel =', photoStart);
-  const photoContext = { window: {}, PHOTO_CAPTURE_BUSY: false, CURRENT_TASK: null, SYNC_RUNNING: false,
+  const photoContext = { window: {}, PHOTO_CAPTURE_STARTING: false, PHOTO_CAPTURE_BUSY: false, CURRENT_TASK: null, SYNC_RUNNING: false,
+    setPhotoProgress() {},
     ensureTaskDeliveryReady: async () => false, releasePhotoPreviews: () => assert.fail('Must not touch photos before readiness') };
   vm.createContext(photoContext);
   vm.runInContext(source.slice(photoStart, photoEnd), photoContext);

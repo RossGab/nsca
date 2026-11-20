@@ -13,19 +13,33 @@ import com.getcapacitor.annotation.*;
 import java.io.*;
 import java.text.SimpleDateFormat;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @CapacitorPlugin(name = "DriverCamera", permissions = {
     @Permission(alias = "camera", strings = { Manifest.permission.CAMERA })
 })
 public class DriverCameraPlugin extends Plugin {
+    private final AtomicBoolean captureInFlight = new AtomicBoolean(false);
     @PluginMethod public void capture(PluginCall call) {
-        if (getPermissionState("camera") != PermissionState.GRANTED) {
-            requestPermissionForAlias("camera", call, "cameraPermission");
-        } else launch(call);
+        if (!captureInFlight.compareAndSet(false, true)) {
+            call.reject("The camera is already opening or taking a photo.");
+            return;
+        }
+        try {
+            if (getPermissionState("camera") != PermissionState.GRANTED) {
+                requestPermissionForAlias("camera", call, "cameraPermission");
+            } else launch(call);
+        } catch (Exception e) {
+            captureInFlight.set(false);
+            call.reject("Unable to open the phone camera.", e);
+        }
     }
     @PermissionCallback private void cameraPermission(PluginCall call) {
         if (getPermissionState("camera") == PermissionState.GRANTED) launch(call);
-        else call.reject("Allow camera access in Android settings to take a photo.");
+        else {
+            captureInFlight.set(false);
+            call.reject("Allow camera access in Android settings to take a photo.");
+        }
     }
     private void launch(PluginCall call) {
         try {
@@ -36,14 +50,19 @@ public class DriverCameraPlugin extends Plugin {
                 getContext().getPackageName() + ".fileprovider", file));
             intent.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_READ_URI_PERMISSION);
             startActivityForResult(call, intent, "captured");
-        } catch (Exception e) { call.reject("Unable to open the phone camera.", e); }
+        } catch (Exception e) {
+            captureInFlight.set(false);
+            call.reject("Unable to open the phone camera.", e);
+        }
     }
     @ActivityCallback private void captured(PluginCall call, ActivityResult result) {
-        if (call == null) return;
-        if (result.getResultCode() != Activity.RESULT_OK) {
-            try { cameraFile(call.getString("path")).delete(); } catch (Exception ignored) {}
-            call.resolve(new JSObject().put("cancelled", true));
-        } else call.resolve(new JSObject().put("path", call.getString("path")));
+        try {
+            if (call == null) return;
+            if (result.getResultCode() != Activity.RESULT_OK) {
+                try { cameraFile(call.getString("path")).delete(); } catch (Exception ignored) {}
+                call.resolve(new JSObject().put("cancelled", true));
+            } else call.resolve(new JSObject().put("path", call.getString("path")));
+        } finally { captureInFlight.set(false); }
     }
     private File cameraFile(String path) throws IOException {
         if (path == null) throw new IOException("Missing camera file");

@@ -21,6 +21,43 @@ public class NativeDriverStoreTest {
     @After public void teardown() { store.close(); }
     private JSONObject task(String id,String status) throws Exception { return new JSONObject().put("_key",id).put("dateKey","20261031").put("status",status); }
     private JSONObject photo(String id,String key) throws Exception { return new JSONObject().put("id",id).put("taskKey",key).put("photoIndex",1).put("submitIntent",false); }
+    @Test public void completionSavesTaskAndPhotoMarkersTogetherAndIsIdempotent() throws Exception {
+        store.write("tasks", new JSONArray().put(task("one", "PENDING").put("driverId", "driver_001").put("CUSTOMERNAME", "Keep customer")), true, false);
+        store.writePhoto(photo("one_1", "one"), new byte[]{1,2,3}, false);
+        JSONObject result = store.completeTask("one", "driver_001", new JSONObject().put("note", "Keep note"));
+        assertFalse(result.getBoolean("alreadyCompleted"));
+        JSONObject saved = store.get("tasks", "one");
+        assertEquals("LOCAL_COMPLETED", saved.getString("status"));
+        assertEquals("Keep customer", saved.getString("CUSTOMERNAME"));
+        assertEquals("Keep note", saved.getJSONObject("deliveryData").getString("note"));
+        assertTrue(saved.getBoolean("recoveryBackupPending"));
+        assertTrue(store.get("photos", "one_1").getBoolean("submitIntent"));
+        assertTrue(store.completeTask("one", "driver_001", new JSONObject().put("note", "Must not overwrite")).getBoolean("alreadyCompleted"));
+        assertEquals("Keep note", store.get("tasks", "one").getJSONObject("deliveryData").getString("note"));
+        store.close(); store = new NativeDriverStore(context);
+        assertTrue(store.get("tasks", "one").getBoolean("recoveryBackupPending"));
+        store.markBackupDone("one");
+        assertFalse(store.get("tasks", "one").getBoolean("recoveryBackupPending"));
+        store.markBackupDone("deleted");
+        assertNull(store.get("tasks", "deleted"));
+    }
+    @Test public void completionRejectsMissingOrCorruptPhotosAndRollsBackMarkers() throws Exception {
+        store.write("tasks", new JSONArray().put(task("one", "PENDING").put("driverId", "driver_001")), true, false);
+        assertThrows(Exception.class, () -> store.completeTask("one", "driver_001", new JSONObject()));
+        store.writePhoto(photo("one_1", "one"), new byte[]{1,2,3}, false);
+        JSONObject corrupt = store.writePhoto(photo("one_2", "one").put("photoIndex", 2), new byte[]{4,5,6}, false);
+        try (java.io.FileOutputStream output = new java.io.FileOutputStream(new File(context.getFilesDir(), "driver-photos/" + corrupt.getString("nativeFile")))) { output.write(new byte[]{7,8,9}); }
+        assertThrows(Exception.class, () -> store.completeTask("one", "driver_001", new JSONObject()));
+        assertEquals("PENDING", store.get("tasks", "one").getString("status"));
+        assertFalse(store.get("photos", "one_1").getBoolean("submitIntent"));
+        assertFalse(store.get("photos", "one_2").getBoolean("submitIntent"));
+    }
+    @Test public void completionCannotModifyAnotherDriversTask() throws Exception {
+        store.write("tasks", new JSONArray().put(task("one", "PENDING").put("driverId", "driver_002")), true, false);
+        store.writePhoto(photo("one_1", "one"), new byte[]{1,2,3}, false);
+        assertThrows(Exception.class, () -> store.completeTask("one", "driver_001", new JSONObject()));
+        assertEquals("PENDING", store.get("tasks", "one").getString("status"));
+    }
     @Test public void recordsSurviveReopeningAndMergePreservesTaskFields() throws Exception {
         store.write("tasks",new JSONArray().put(task("one","PENDING").put("customerName","Original")),true,false);
         long first=store.get("tasks","one").getLong("localFirstStoredAt");

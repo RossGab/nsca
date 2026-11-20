@@ -24,10 +24,7 @@ export function applyPhotoRules(source,path) {
   const end=source.indexOf('<!-- 🔥 DELIVERY METHOD HERE -->',start);
   if(start<0 || end<0)throw Error('Photo button integration point missing');
   source=source.slice(0,start)+'    const disableSubmit = PHOTO_CAPTURE_BUSY || !hasRequiredPhotos(t,p);\n    html += renderPhotoButtons(t,p,PHOTO_CAPTURE_BUSY,escapeDeliveryHTML);\n    html += `\n        '+source.slice(end);
-  const validation='  if (!photos || Object.keys(photos).length === 0) {\n    alert("Please take at least 1 photo.");';
-  // Normalize newlines before matching the original validation.
-  source=source.replaceAll('\r\n','\n');
-  if(!source.includes(validation))throw Error('Photo validation integration point missing');
-  source=source.replace(validation, '  const photoRuleTask = (await getTasksFromIndexedDB()).find(task => task._key === taskKey);\n  if (!photoRuleTask) throw new Error("Task could not be found. Refresh and try again.");\n  if (!hasRequiredPhotos(photoRuleTask,photos,true)) {\n    alert("Please take at least 1 photo.");');
+  // The atomic storage operation verifies at least one intact saved photo before completion.
+  if(!source.includes('result = await completeLocalTask(taskKey, deliveryData);')) throw Error('Photo completion validation integration point missing');
   return `import {photoPolicy,photoSlots,hasRequiredPhotos,renderPhotoButtons} from ${JSON.stringify(path)};\n`+source;
 }

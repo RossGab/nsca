@@ -20,6 +20,8 @@ public class DriverStoragePlugin extends Plugin {
                 String operation=call.getString("operation","");
                 String name=call.getString("store","tasks");
                 switch (operation) {
+                    case "completeTask": result = new JSObject(store.completeTask(call.getString("taskKey", ""), call.getString("driverId", ""), call.getObject("deliveryData", new JSObject())).toString()); break;
+                    case "markBackupDone": store.markBackupDone(call.getString("taskKey", "")); break;
                     case "cleanupExpiredExports": result.put("removed",store.cleanupExpiredExports(call.getString("driverId",""),call.getDouble("now",0.0).longValue())); break;
                     case "resetMigration": store.resetMigration(); break;
                     case "get": result.put("row",store.get(name,call.getString("id",""))); break;

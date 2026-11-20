@@ -64,6 +64,8 @@ if (!source.includes('const MAX_TASKS_PER_PART = 100;') || !source.includes('con
 source = source.replace('const MAX_TASKS_PER_PART = 100;', 'const MAX_TASKS_PER_PART = Number.MAX_SAFE_INTEGER;');
 source = source.replace('const MAX_ESTIMATED_BYTES_PER_PART = 100 * 1024 * 1024;', 'const MAX_ESTIMATED_BYTES_PER_PART = 20 * 1024 * 1024;');
 source = nativeExportSource(source);
+if (!source.includes('await saveToGallery(blob, filename);')) throw new Error('Recovery backup integration point missing');
+source = source.replace('await saveToGallery(blob, filename);', 'await saveNativeFile(blob, filename, true);');
 // Open thumbnails in an in-app, screen-fitting preview.
 const inlinePreview = "window.open('$" + "{p[i].previewURL}','_blank')";
 const savedPreview = 'window.open(photo.previewURL, "_blank")';

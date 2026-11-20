@@ -38,6 +38,7 @@ assert(!app.includes('Offline storage is not protected from automatic cleanup'))
 assert(app.includes('DriverFiles.saveAutomatic(options)'));
 assert(app.includes('saveNativeFile(blob, filename, true)'), 'Automatic submission/sync backups must bypass the file picker');
 assert(app.includes('DriverExport.savePart'), 'Sync option 2 must stream native export files');
+assert(app.includes('operation: "completeTask"'), 'APK Submit must use the native atomic completion operation');
 const start = app.indexOf('async function downloadNextExportPart()');
 const save = app.indexOf('await DriverExport.savePart(', start);
 const mark = app.indexOf('await saveTasksToIndexedDB(part.tasks.map', start);
