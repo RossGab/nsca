@@ -1,3 +1,4 @@
+const portalPage = /(?:^|\/)employee_portal\/(?:index\.html)?$/.test(location.pathname);
 const page = location.pathname.split("/").pop() || "index.html";
 const nav = document.querySelector(".tabs");
 const groups = [
@@ -7,7 +8,7 @@ const groups = [
     ["index.html#employees", "Employees"],
     ["attendance.html", "Attendance"],
     ["leave.html", "Leave requests"],
-    ["employee-portal.html", "Employee portal"]
+    ["../employee_portal/index.html", "Employee portal"]
   ]],
   ["Payroll tools", [
     ["index.html#special-pay", "Special pay"],
@@ -60,9 +61,10 @@ function renderNav() {
     for (const [href, label] of items) {
       const [target, hash = ""] = href.split("#");
       const link = document.createElement("a");
-      link.href = "./" + href;
+      const isPortalLink = href.startsWith("../employee_portal/");
+      link.href = portalPage && !isPortalLink ? "../pr/" + href : href;
       link.textContent = label;
-      const active = page === target && (target !== "index.html" || location.hash.slice(1) === hash ||
+      const active = isPortalLink ? portalPage : !portalPage && page === target && (target !== "index.html" || location.hash.slice(1) === hash ||
         (href === "index.html" && location.hash === "#driver-reconciliation") ||
         (hash === "employees" && location.hash.startsWith("#employee/")));
       if (active) {

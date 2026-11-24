@@ -1,6 +1,6 @@
-﻿import {initializeApp} from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+import {initializeApp} from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
 import {collection, getDocs, initializeFirestore, query, where} from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
-import {listContractAttachments, documentDecision, recordDocumentDecision, downloadAttachment} from "./portal-documents.js";
+import {listContractAttachments, documentDecision, recordDocumentDecision, downloadAttachment} from "../pr/portal-documents.js";
 
 const db = initializeFirestore(initializeApp({projectId: "driva-pwa", appId: "1:299138219722:web:623ff6b0a067ea822dfe33"}), {}, "drver-task");
 const byId = id => document.getElementById(id);
@@ -170,7 +170,7 @@ async function chooseEmployee() {
   const url = new URL(location.href);
   url.searchParams.set("employee", id);
   history.replaceState(null, "", url);
-  const leaveUrl = new URL("./leave.html#request", location.href);
+  const leaveUrl = new URL("../pr/leave.html#request", location.href);
   leaveUrl.searchParams.set("employee", id);
   byId("portalLeaveLink").href = leaveUrl;
   facts(byId("portalProfile"), [

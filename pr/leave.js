@@ -121,7 +121,7 @@ form.addEventListener("submit", async event => {
       createdAt: serverTimestamp(), updatedAt: serverTimestamp()
     });
     if (portalEmployee) {
-      const portal = new URL("./employee-portal.html#leave", location.href);
+      const portal = new URL("../employee_portal/index.html#leave", location.href);
       portal.searchParams.set("employee", employeeId);
       location.href = portal;
       return;
@@ -184,7 +184,7 @@ tbody.addEventListener("click", async event => {
 filter.addEventListener("change", renderRequests);
 window.addEventListener("hashchange", showView);
 if (portalEmployee) {
-  const back = new URL("./employee-portal.html#leave", location.href);
+  const back = new URL("../employee_portal/index.html#leave", location.href);
   back.searchParams.set("employee", portalEmployee);
   const link = byId("leaveInboxLink");
   link.href = back;
