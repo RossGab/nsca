@@ -297,3 +297,13 @@ a.primary-link:hover { background: #0b548a; }
 .portal-document { border: 1px solid #dce4ed; border-radius: 8px; padding: 14px; }
 .portal-document h3 { margin: 0 0 10px; overflow-wrap: anywhere; }
 .portal-document form { display: flex; align-items: end; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+
+.employee-self-service .topbar {
+  padding: 24px max(16px, calc((100% - 1040px) / 2));
+  background: #fff;
+  color: #14263a;
+  border-bottom: 1px solid #dfe7ef;
+  box-shadow: none;
+}
+.employee-self-service .topbar .eyebrow, .employee-self-service .topbar p { color: #526174; }
+.employee-self-service > main { width: min(1040px, calc(100% - 32px)); }

@@ -1,4 +1,3 @@
-const portalPage = /(?:^|\/)employee_portal\/(?:index\.html)?$/.test(location.pathname);
 const page = location.pathname.split("/").pop() || "index.html";
 const nav = document.querySelector(".tabs");
 const groups = [
@@ -22,7 +21,9 @@ const groups = [
   ]]
 ];
 
-if (nav) {
+const portalLeave = page === "leave.html" && new URLSearchParams(location.search).has("employee");
+
+if (nav && !portalLeave) {
   document.body.classList.add("payroll-shell");
   nav.id = "payrollNavigation";
   nav.setAttribute("aria-label", "Payroll navigation");
@@ -51,6 +52,11 @@ if (nav) {
 
 function renderNav() {
   if (!nav) return;
+  if (portalLeave) {
+    nav.remove();
+    document.body.classList.add("employee-self-service");
+    return;
+  }
   nav.replaceChildren();
   for (const [title, items] of groups) {
     const group = document.createElement("div");
@@ -61,10 +67,9 @@ function renderNav() {
     for (const [href, label] of items) {
       const [target, hash = ""] = href.split("#");
       const link = document.createElement("a");
-      const isPortalLink = href.startsWith("../employee_portal/");
-      link.href = portalPage && !isPortalLink ? "../pr/" + href : href;
+      link.href = href;
       link.textContent = label;
-      const active = isPortalLink ? portalPage : !portalPage && page === target && (target !== "index.html" || location.hash.slice(1) === hash ||
+      const active = page === target && (target !== "index.html" || location.hash.slice(1) === hash ||
         (href === "index.html" && location.hash === "#driver-reconciliation") ||
         (hash === "employees" && location.hash.startsWith("#employee/")));
       if (active) {
