@@ -1,0 +1,18 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /payroll-contracts/{employeeId} {
+      allow list: if canManageContracts();
+    }
+    match /payroll-contracts/{employeeId}/{fileId} {
+      allow get: if canManageContracts();
+      allow create: if canManageContracts()
+        && request.resource.size > 0
+        && request.resource.size <= 10 * 1024 * 1024
+        && request.resource.contentType.matches('application/(pdf|msword|vnd[.]openxmlformats-officedocument[.]wordprocessingml[.]document)|image/(jpeg|png|webp)');
+    }
+    function canManageContracts() {
+      return request.auth != null && request.auth.token.payrollContracts == true;
+    }
+  }
+}
