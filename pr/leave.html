@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Leave Requests</title>
+  <link rel="stylesheet" href="./styles.css?v=14">
+</head>
+<body>
+  <header class="topbar"><div><div class="eyebrow">NSCA HR &amp; Payroll</div><h1>Leave requests</h1><p>Submit leave and review requests before they reach payroll.</p></div></header>
+  <nav class="tabs"></nav>
+  <main class="leave-workspace">
+    <nav class="leave-navigation" aria-label="Leave workflows">
+      <a class="secondary-link" id="leaveInboxLink" href="#approvals">Approval inbox</a>
+      <a class="primary-link" id="leaveRequestLink" href="#request">New leave request</a>
+    </nav>
+    <p id="leaveMessage" class="message" role="status" hidden></p>
+    <section id="leaveRequest" class="card" hidden>
+      <div class="table-heading"><div><h2>New leave request</h2><p>Choose a sample employee and dates. The date range includes both endpoints.</p></div></div>
+      <form id="leaveForm" class="employee-form">
+        <div class="field"><label for="leaveEmployee">Employee</label><select id="leaveEmployee" required><option value="">Select an employee</option></select></div>
+        <div class="field"><label for="leaveType">Leave type</label><select id="leaveType"><option value="VACATION_LEAVE">Vacation leave</option><option value="SICK_LEAVE">Sick leave</option></select></div>
+        <div class="field"><label for="leaveFrom">First day</label><input id="leaveFrom" type="date" required></div>
+        <div class="field"><label for="leaveTo">Last day</label><input id="leaveTo" type="date" required></div>
+        <div class="field"><label for="leaveReason">Reason</label><textarea id="leaveReason" maxlength="500" rows="3"></textarea></div>
+        <div class="form-actions"><button class="primary" type="submit">Submit request</button></div>
+      </form>
+    </section>
+    <section id="leaveInbox" class="card table-card">
+      <div class="table-heading"><div><h2>Approval inbox</h2><p>Choose paid or unpaid leave when approving.</p></div><div class="field"><label for="leaveFilter">Status</label><select id="leaveFilter"><option value="PENDING">Pending</option><option value="APPROVED">Approved</option><option value="REJECTED">Rejected</option><option value="">All requests</option></select></div></div>
+      <div class="table-wrap"><table><thead><tr><th>Employee</th><th>Dates</th><th>Leave type</th><th>Reason</th><th>Status</th><th>Actions</th></tr></thead><tbody id="leaveRows"><tr><td colspan="6" class="empty">Loading requests...</td></tr></tbody></table></div>
+    </section>
+  </main>
+  <script type="module" src="./nav.js?v=6"></script>
+  <script type="module" src="./leave.js"></script>
+</body>
+</html>

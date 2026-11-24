@@ -5,7 +5,8 @@ const groups = [
     ["dashboard.html", "Dashboard"],
     ["index.html", "Payroll"],
     ["index.html#employees", "Employees"],
-    ["attendance.html", "Attendance & Leave"]
+    ["attendance.html", "Attendance"],
+    ["leave.html", "Leave requests"]
   ]],
   ["Payroll tools", [
     ["index.html#special-pay", "Special pay"],
