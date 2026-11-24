@@ -52,3 +52,28 @@ button.warning{background:#b86b00;color:#fff}button.success{background:#18733c;c
 @media print {
   .payroll-actions, .payroll-period-header h2 { display: none; }
 }
+
+.record-form { display: grid; gap: 18px; padding: 20px; }
+.form-group { min-inline-size: 0; border: 1px solid #dce4ed; border-radius: 10px; margin: 0; padding: 12px 16px 16px; }
+.form-group legend { padding: 0 6px; font-size: 14px; font-weight: 750; }
+.form-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.form-fields input, .form-fields select { min-width: 0; }
+.record-footer { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
+.record-footer > button:only-child { margin-left: auto; }
+#employeeRecordView, #form.record-form { max-width: 900px; }
+#contractAttachments { padding: 16px 20px; }
+#contractAttachments h3 { margin-top: 0; }
+#contractUpload { padding: 0; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
+#contractFiles { max-width: 100%; }
+.employee-search { flex: 1 1 250px; font-size: 13px; font-weight: 700; }
+a.primary-link { display: inline-flex; align-items: center; background: #1167a8; color: #fff; border-radius: 8px; text-decoration: none; font-weight: 750; padding: 10px 14px; }
+a.primary-link:hover { background: #0b548a; }
+.attendance-clock { padding: 10px 0; flex-wrap: wrap; }
+.attendance-tools { padding: 12px 0; margin-bottom: 10px; border-top: 1px solid #e5ebf1; border-bottom: 1px solid #e5ebf1; }
+.report-summary { margin-top: 14px; }
+.payslip-actions { display: flex; justify-content: flex-end; max-width: 760px; margin: 14px auto 0; }
+@media (max-width: 620px) {
+  .form-fields, #contractUpload { grid-template-columns: minmax(0, 1fr); }
+  .employee-search { flex-basis: auto; }
+}
+@media print { .output-actions { display: none; } }

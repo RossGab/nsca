@@ -22,7 +22,8 @@ function renderNav() {
     link.href = "./" + href;
     link.textContent = label;
     const active = page === target && (location.hash.slice(1) === hash ||
-      (href === "index.html" && location.hash === "#driver-reconciliation"));
+      (href === "index.html" && location.hash === "#driver-reconciliation") ||
+      (hash === "employees" && location.hash.startsWith("#employee/")));
     if (active) {
       link.className = "active";
       link.setAttribute("aria-current", "page");
