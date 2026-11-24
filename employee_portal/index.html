@@ -4,23 +4,29 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Employee portal</title>
-  <link rel="stylesheet" href="../pr/styles.css?v=17">
+  <link rel="stylesheet" href="../pr/styles.css?v=18">
 </head>
 <body class="employee-self-service">
-  <header class="topbar"><div><div class="eyebrow">NSCA HR &amp; Payroll</div><h1>Employee portal</h1></div></header>
+  <header class="topbar portal-header">
+    <div><div class="eyebrow">NSCA</div><h1>Employee portal</h1></div>
+    <div class="field portal-demo"><label for="portalEmployee">POC sample employee</label><select id="portalEmployee"><option value="">Select a sample record</option></select></div>
+  </header>
   <main class="employee-portal">
-    <section class="card portal-picker">
-      <div class="field"><label for="portalEmployee">Sample employee</label><select id="portalEmployee"><option value="">Select your sample record</option></select></div>
-      <p>This proof of concept uses sample records.</p>
-    </section>
+    <p id="portalWelcome" class="portal-welcome">Select a sample employee to open their workspace.</p>
     <p id="portalMessage" class="message" role="status" hidden></p>
     <div id="portalWorkspace" hidden>
+      <section class="portal-identity" aria-labelledby="portalName">
+        <span id="portalInitials" class="portal-initials" aria-hidden="true"></span>
+        <div><h2 id="portalName"></h2><p id="portalRole"></p></div>
+      </section>
       <nav class="portal-navigation" aria-label="Employee services">
         <a href="#profile">Employment</a><a href="#payslips">Payslips</a><a href="#leave">Leave</a><a href="#documents">Documents</a>
       </nav>
       <section class="card portal-panel" data-portal-panel="profile">
-        <div class="table-heading"><h2>Employment details</h2></div>
-        <dl id="portalProfile" class="portal-facts"></dl>
+        <div class="portal-profile">
+          <section><h2>Employment details</h2><dl id="portalProfile" class="portal-facts"></dl></section>
+          <section><h2>Pay and schedule</h2><dl id="portalCompensation" class="portal-facts"></dl></section>
+        </div>
       </section>
       <section class="card portal-panel" data-portal-panel="payslips" hidden>
         <div class="table-heading"><h2>My payslips</h2><div class="field"><label for="portalPeriod">Payroll period</label><select id="portalPeriod"></select></div></div>
@@ -36,6 +42,6 @@
       </section>
     </div>
   </main>
-  <script type="module" src="./employee-portal.js"></script>
+  <script type="module" src="./employee-portal.js?v=2"></script>
 </body>
 </html>

@@ -166,7 +166,12 @@ async function chooseEmployee() {
   const employee = employees.get(id);
   notice("");
   byId("portalWorkspace").hidden = !employee;
+  byId("portalWelcome").hidden = Boolean(employee);
   if (!employee) return;
+  const name = employee.name?.trim() || "Employee " + id;
+  byId("portalName").textContent = name;
+  byId("portalInitials").textContent = name.split(/\s+/).slice(0, 2).map(word => word[0]).join("").toUpperCase();
+  byId("portalRole").textContent = [employee.position, employee.department].filter(Boolean).join(" ? ") || "Employee " + id;
   const url = new URL(location.href);
   url.searchParams.set("employee", id);
   history.replaceState(null, "", url);
@@ -174,11 +179,15 @@ async function chooseEmployee() {
   leaveUrl.searchParams.set("employee", id);
   byId("portalLeaveLink").href = leaveUrl;
   facts(byId("portalProfile"), [
-    ["Employee ID", id], ["Name", employee.name], ["Department", employee.department || "—"],
-    ["Position", employee.position || "—"], ["Employment type", employee.employmentType],
-    ["Hire date", employee.startDate || "—"], ["Pay type", employee.payType],
-    ["Rate", employee.rate == null && employee.dailyRate == null ? "—" : money.format(employee.rate ?? employee.dailyRate)],
-    ["Shift start", employee.shiftStart || "—"], ["Scheduled hours per day", employee.shiftHours]
+    ["Employee ID", id], ["Department", employee.department || "?"],
+    ["Position", employee.position || "?"], ["Employment type", employee.employmentType],
+    ["Hire date", employee.startDate || "?"]
+  ]);
+  const payTypes = {DAILY: "Daily", MONTHLY: "Monthly", HOURLY: "Hourly"};
+  facts(byId("portalCompensation"), [
+    ["Pay type", payTypes[employee.payType] || (employee.dailyRate != null ? "Daily" : employee.payType)],
+    ["Rate", employee.rate == null && employee.dailyRate == null ? "?" : money.format(employee.rate ?? employee.dailyRate)],
+    ["Shift start", employee.shiftStart || "?"], ["Scheduled hours per day", employee.shiftHours]
   ]);
   payslips = [];
   period.replaceChildren(new Option("Loading payslips…", ""));

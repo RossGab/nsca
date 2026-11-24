@@ -307,3 +307,27 @@ a.primary-link:hover { background: #0b548a; }
 }
 .employee-self-service .topbar .eyebrow, .employee-self-service .topbar p { color: #526174; }
 .employee-self-service > main { width: min(1040px, calc(100% - 32px)); }
+
+.employee-self-service .portal-header { padding-block: 16px; }
+.portal-header h1 { font-size: clamp(20px, 3vw, 25px); margin-bottom: 0; }
+.portal-demo { width: min(245px, 100%); }
+.portal-demo select { width: 100%; }
+.portal-welcome { padding: 30px; text-align: center; color: #526174; }
+.portal-identity { display: flex; align-items: center; gap: 18px; padding: clamp(20px, 4vw, 36px); border-radius: 14px; background: linear-gradient(115deg, #112e49, #164e67); color: #fff; }
+.portal-identity h2 { font-size: clamp(22px, 4vw, 32px); overflow-wrap: anywhere; }
+.portal-identity p { margin: 4px 0 0; color: #d5e8f4; }
+.portal-initials { display: grid; place-items: center; flex: 0 0 52px; height: 52px; border-radius: 50%; background: #e2f4fa; color: #123b56; font-size: 19px; font-weight: 800; }
+.portal-navigation { gap: 4px; padding: 0 4px; border-bottom: 1px solid #d2dce7; }
+.portal-navigation a { border-radius: 0; border-bottom: 2px solid transparent; }
+.portal-navigation a[aria-current] { background: transparent; border-bottom-color: #1167a8; }
+.portal-profile { display: grid; grid-template-columns: 1fr 1fr; }
+.portal-profile > section { padding: clamp(16px, 3vw, 26px); }
+.portal-profile > section + section { border-left: 1px solid #e5ebf1; }
+.portal-profile .portal-facts { display: block; padding: 6px 0 0; }
+.portal-profile .portal-facts div { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; border-radius: 0; padding: 11px 0; background: transparent; border-bottom: 1px solid #e5ebf1; }
+.portal-profile .portal-facts div:last-child { border-bottom: 0; }
+.portal-profile .portal-facts dd { margin: 0; font-size: 14px; }
+@media (max-width: 640px) {
+  .portal-profile { grid-template-columns: 1fr; }
+  .portal-profile > section + section { border-left: 0; border-top: 1px solid #e5ebf1; }
+}
