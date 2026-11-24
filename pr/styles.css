@@ -28,3 +28,5 @@ button.warning{background:#b86b00;color:#fff}button.success{background:#18733c;c
 .payslip{max-width:760px;margin:14px auto;padding:28px}.payslip-head{display:flex;justify-content:space-between;gap:20px;padding-bottom:18px;border-bottom:2px solid #0b3157}.payslip-head p{margin:4px 0;color:#64748b}.payslip-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:1px;margin:22px 0;background:#dce4ed;border:1px solid #dce4ed}.payslip-grid div{display:flex;justify-content:space-between;padding:13px;background:#fff}.payslip-grid span{color:#64748b}.net-pay{display:flex;justify-content:space-between;padding:17px;border-radius:8px;background:#0b3157;color:#fff;font-size:20px}@media(max-width:550px){.payslip-grid{grid-template-columns:1fr}.payslip-head{flex-direction:column}}@media print{.tabs,.controls,.message{display:none!important}.payslip{border:0;max-width:none;margin:0}}
 
 #contractAttachments[hidden], #contractAttachments [hidden] { display: none; }
+
+#specialPayForm [hidden] { display: none; }

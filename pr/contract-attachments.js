@@ -1,144 +1,103 @@
-import { getApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
-import { getBlob, getStorage, listAll, ref, uploadBytes } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js";
-
-const maxBytes = 10 * 1024 * 1024;
-const types = {
-  pdf: "application/pdf", doc: "application/msword",
-  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp"
-};
+﻿const maxBytes = 10 * 1024 * 1024;
+const extensions = new Set(["pdf", "doc", "docx", "jpg", "jpeg", "png", "webp"]);
 const byId = id => document.getElementById(id);
 const panel = byId("contractAttachments");
-const login = byId("contractSignIn");
 const upload = byId("contractUpload");
 const filesInput = byId("contractFiles");
 const list = byId("contractFileList");
 const message = byId("contractMessage");
+const submit = upload.querySelector('[type="submit"]');
 let employeeId = "";
-let auth;
-let storage;
-let sessionVersion = 0;
+let selection = 0;
+let uploading = false;
+let database;
 
-function folder(id) {
-  return ref(storage, "payroll-contracts/" + encodeURIComponent(id));
+function openDatabase() {
+  if (!database) {
+    database = new Promise((resolve, reject) => {
+      const request = indexedDB.open("nsca-payroll-poc", 1);
+      request.onupgradeneeded = () => {
+        const store = request.result.createObjectStore("attachments", {autoIncrement: true});
+        store.createIndex("employeeId", "employeeId");
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    }).catch(error => {
+      database = undefined;
+      throw error;
+    });
+  }
+  return database;
 }
 
-async function refresh() {
-  const version = ++sessionVersion;
-  const id = employeeId;
-  const user = auth.currentUser;
+async function refresh(id, version) {
+  const db = await openDatabase();
+  const request = db.transaction("attachments").objectStore("attachments").index("employeeId").getAll(id);
+  const attachments = await new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  if (version !== selection) return;
   list.replaceChildren();
-  login.hidden = Boolean(user);
-  byId("contractSignOut").hidden = !user;
-  upload.hidden = true;
-  if (!id || !user) return;
-  try {
-    const { claims } = await user.getIdTokenResult();
-    if (version !== sessionVersion) return;
-    if (claims.payrollContracts !== true) {
-      message.textContent = "This account needs contract attachment access.";
-      return;
-    }
-    const result = await listAll(folder(id));
-    if (version !== sessionVersion) return;
-    filesInput.disabled = false;
-    upload.querySelector('[type="submit"]').disabled = false;
-    upload.hidden = false;
-    message.textContent = result.items.length ? "" : "No attachments yet.";
-    for (const item of result.items) {
-      const name = item.name.slice(item.name.indexOf("_") + 1);
-      const row = document.createElement("li");
-      const button = document.createElement("button");
-      button.type = "button";
-      button.textContent = name;
-      button.addEventListener("click", async () => {
-        button.disabled = true;
-        try {
-          const blob = await getBlob(item, maxBytes);
-          if (version !== sessionVersion) return;
-          const url = URL.createObjectURL(blob);
-          const link = document.createElement("a");
-          link.href = url;
-          link.download = name;
-          link.click();
-          setTimeout(() => URL.revokeObjectURL(url), 1000);
-        } catch (error) {
-          if (version === sessionVersion) message.textContent = "Download failed. " + error.message;
-        } finally {
-          button.disabled = false;
-        }
-      });
-      row.append(button);
-      list.append(row);
-    }
-  } catch (error) {
-    if (version === sessionVersion) message.textContent = "Could not load attachments. " + error.message;
+  message.textContent = attachments.length ? "" : "No attachments yet.";
+  for (const {file} of attachments) {
+    const row = document.createElement("li");
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = file.name;
+    button.addEventListener("click", () => {
+      const url = URL.createObjectURL(file);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = file.name;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    });
+    row.append(button);
+    list.append(row);
   }
 }
 
 export function selectContractEmployee(id) {
+  const version = ++selection;
   employeeId = id;
   panel.hidden = !id;
   byId("contractEmployee").textContent = id ? "Employee " + id : "";
-  message.textContent = "";
+  message.textContent = id ? "Loading attachments…" : "";
   upload.reset();
-  if (!auth && id) {
-    const app = getApp();
-    auth = getAuth(app);
-    storage = getStorage(app, "gs://driva-pwa.firebasestorage.app");
-    onAuthStateChanged(auth, refresh);
-  }
-  if (auth) refresh();
+  list.replaceChildren();
+  if (id) refresh(id, version).catch(error => {
+    if (version === selection) message.textContent = "Could not load attachments. " + error.message;
+  });
 }
-
-login.addEventListener("submit", async event => {
-  event.preventDefault();
-  try {
-    await signInWithEmailAndPassword(auth, byId("contractEmail").value.trim(), byId("contractPassword").value);
-    login.reset();
-  } catch {
-    message.textContent = "Sign-in failed. Check your payroll account credentials.";
-  }
-});
-
-byId("contractSignOut").addEventListener("click", async () => {
-  await signOut(auth);
-  message.textContent = "";
-});
 
 upload.addEventListener("submit", async event => {
   event.preventDefault();
   const id = employeeId;
-  const version = sessionVersion;
-  const files = [...filesInput.files].map(file => ({
-    file,
-    contentType: types[file.name.split(".").pop().toLowerCase()]
-  }));
-  if (!id || !files.length) return;
-  if (files.some(({ file, contentType }) => !contentType || !file.size || file.size > maxBytes)) {
+  const version = selection;
+  const files = [...filesInput.files];
+  if (!id || !files.length || uploading) return;
+  if (files.some(file => !extensions.has(file.name.split(".").pop().toLowerCase()) || !file.size || file.size > maxBytes)) {
     message.textContent = "Choose supported, nonempty files up to 10 MB each.";
     return;
   }
-  const submit = upload.querySelector('[type="submit"]');
-  submit.disabled = true;
-  filesInput.disabled = true;
-  let uploaded = 0;
+  uploading = submit.disabled = filesInput.disabled = true;
   try {
-    for (const { file, contentType } of files) {
-      if (version !== sessionVersion) return;
-      const name = file.name.replace(/[^\p{L}\p{N} ._()-]/gu, "_").slice(0, 120);
-      await uploadBytes(ref(folder(id), crypto.randomUUID() + "_" + name), file, { contentType });
-      uploaded++;
-    }
-    if (version === sessionVersion) {
+    const db = await openDatabase();
+    await new Promise((resolve, reject) => {
+      const transaction = db.transaction("attachments", "readwrite");
+      const store = transaction.objectStore("attachments");
+      transaction.oncomplete = resolve;
+      transaction.onabort = () => reject(transaction.error);
+      for (const file of files) store.add({employeeId: id, file});
+    });
+    if (version === selection) {
       upload.reset();
-      await refresh();
+      await refresh(id, version);
     }
   } catch (error) {
-    if (version === sessionVersion) {
-      await refresh();
-      if (employeeId === id) message.textContent = uploaded + " uploaded. Upload stopped. " + error.message;
-    }
+    if (version === selection) message.textContent = "Could not save or reload attachments. " + error.message;
+  } finally {
+    uploading = submit.disabled = filesInput.disabled = false;
   }
 });
