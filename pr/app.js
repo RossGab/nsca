@@ -7,8 +7,28 @@ const cfg={apiKey:"AIzaSyDFW61pnwLvh6HGKWt10zLYNr860fI8vkg",authDomain:"driva-pw
 const ids=["dateFrom","dateTo","loadBtn","refreshDriverDraft","saveDraftBtn","finalizeBtn","markPaidBtn","exportBtn","printBtn","searchBox","message","runStatus","periodLabel","payrollBody","employeeCount","workdayCount","grossTotal","netTotal","employeeForm","employeeFormTitle","employeeId","employeeName","employeeDepartment","employeePosition","employeeStartDate","employmentType","shiftStart","shiftHours","driverId","payType","employeeRate","employeeSss","employeePhilHealth","employeePagIbig","employeeTin","employeeActive","saveEmployeeBtn","cancelEmployeeBtn","employeeSearch","employeeBody","historyBody","refreshHistoryBtn"],ui=Object.fromEntries(ids.map(id=>[id,$(id)]));
 let employees=new Map(),rows=[],history=[],editing="",run=null;
 const esc=v=>String(v??"").replace(/[&<>'"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"})[c]),money=v=>peso.format(Number(v)||0),round=v=>Math.round((Number(v)||0)*100)/100,runId=()=>`${ui.dateFrom.value}_${ui.dateTo.value}`;
-function msg(text,type=""){ui.message.className=`message${type?` ${type}`:""}`;ui.message.textContent=text}function dateText(v){if(!v)return"—";const d=typeof v.toDate==="function"?v.toDate():new Date(v);return isNaN(d)?"—":d.toLocaleString("en-PH")}
-function showView(id){document.querySelectorAll(".view").forEach(v=>v.classList.toggle("hidden",v.id!==id));document.querySelectorAll(".tab").forEach(t=>t.classList.toggle("active",t.dataset.view===id));if(id==="employeesView")loadEmployees();if(id==="historyView")loadHistory()}document.querySelectorAll(".tab").forEach(t=>t.addEventListener("click",()=>showView(t.dataset.view)));
+function msg(text,type=""){ui.message.hidden=!text;ui.message.className=`message${type?` ${type}`:""}`;ui.message.textContent=text}function dateText(v){if(!v)return"—";const d=typeof v.toDate==="function"?v.toDate():new Date(v);return isNaN(d)?"—":d.toLocaleString("en-PH")}
+const workspaces = {
+  "": ["payrollView", "Payroll"],
+  "#employees": ["employeesView", "Employees"],
+  "#history": ["historyView", "Payroll history"],
+  "#special-pay": ["specialPayView", "Special pay"],
+  "#driver-reconciliation": ["driverReconciliationView", "Driver reconciliation"]
+};
+
+function showWorkspace() {
+  const [id, heading] = workspaces[location.hash] || workspaces[""];
+  document.querySelectorAll(".view").forEach(view => view.classList.toggle("hidden", view.id !== id));
+  $("workspaceHeading").textContent = heading;
+  if (id === "employeesView") loadEmployees();
+  if (id === "historyView") loadHistory();
+  if (id === "driverReconciliationView") renderDriverReconciliation();
+}
+
+window.addEventListener("hashchange", () => {
+  msg("");
+  showWorkspace();
+});
 async function loadEmployees(propagateError=false){ui.employeeBody.innerHTML='<tr><td colspan="8" class="empty">Loading employees...</td></tr>';try{const s=await getDocs(collection(db,"payrollEmployees"));employees=new Map();s.forEach(d=>{const x=d.data(),id=String(x.employeeId||d.id);employees.set(id.toUpperCase(),{...x,employeeId:id})});renderEmployees()}catch(e){if(propagateError)throw e;console.error(e);msg(`Unable to load employees: ${e.message||e}`,"error")}}
 function renderEmployees(){const term=ui.employeeSearch.value.toLowerCase(),list=[...employees.values()].filter(x=>`${x.employeeId} ${x.name} ${x.department} ${x.position}`.toLowerCase().includes(term)).sort((a,b)=>a.employeeId.localeCompare(b.employeeId));ui.employeeBody.innerHTML=list.length?list.map(x=>`<tr><td><strong>${esc(x.employeeId)}</strong></td><td>${esc(x.name)}</td><td>${esc(x.department||"—")}<small class="subtext">${esc(x.position||"—")}</small></td><td>${esc(x.employmentType||"REGULAR")}</td><td>${esc(x.payType||"DAILY")}</td><td class="number">${money(x.rate??x.dailyRate)}</td><td><span class="status-pill ${x.active===false?"inactive":"active"}">${x.active===false?"Inactive":"Active"}</span></td><td><div class="action-row"><button class="small-btn" data-edit="${esc(x.employeeId)}">Edit</button><button class="small-btn" data-toggle="${esc(x.employeeId)}">${x.active===false?"Activate":"Deactivate"}</button></div></td></tr>`).join(""):'<tr><td colspan="8" class="empty">No employees found.</td></tr>'}
 function resetForm(){selectContractEmployee("");editing="";ui.employeeForm.reset();ui.employeeActive.checked=true;ui.employeeId.readOnly=false;ui.employeeFormTitle.textContent="Add Employee";ui.saveEmployeeBtn.textContent="Save Employee";ui.cancelEmployeeBtn.classList.add("hidden")}
@@ -93,6 +113,9 @@ async function applyDriverEarnings(rows, input, from, to) {
 
 function renderDriverReconciliation() {
   const table = $("driverReconciliation");
+  $("driverReconciliationPeriod").textContent = run
+    ? run.id.replace("_", " to ") + " ? " + run.status.toLowerCase()
+    : "Generate or open a payroll run to review its driver tasks.";
   table.replaceChildren();
   for (const row of rows) {
     for (const task of row.driverTasks || []) {
@@ -250,7 +273,7 @@ async function markPaid() {
   }
 }
 async function loadHistory(){try{const s=await getDocs(collection(db,"payrollRuns"));history=[];s.forEach(d=>history.push({id:d.id,...d.data()}));history.sort((a,b)=>String(b.periodTo).localeCompare(String(a.periodTo)));ui.historyBody.innerHTML=history.length?history.map(x=>`<tr><td>${esc(x.periodFrom)} to ${esc(x.periodTo)}</td><td><span class="status-pill ${esc(x.status)}">${esc(x.status)}</span></td><td class="number">${x.totals?.employeeCount||0}</td><td class="number">${x.totals?.paidDays||0}</td><td class="number">${money(x.totals?.grossPay)}</td><td class="number gross">${money(x.totals?.netPay)}</td><td>${dateText(x.paidAt)}</td><td><button class="small-btn" data-view-run="${esc(x.id)}">View</button></td></tr>`).join(""):'<tr><td colspan="8" class="empty">No payroll history.</td></tr>'}catch(e){msg(`History could not be loaded: ${e.message||e}`,"error")}}
-function viewRun(id){const x=history.find(r=>r.id===id);if(!x)return;ui.dateFrom.value=x.periodFrom;ui.dateTo.value=x.periodTo;rows=x.rows||[];run=x;showView("payrollView");renderPayroll()}
+function viewRun(id){const x=history.find(r=>r.id===id);if(!x)return;ui.dateFrom.value=x.periodFrom;ui.dateTo.value=x.periodTo;rows=x.rows||[];run=x;location.hash="";showWorkspace();renderPayroll()}
 const csv=v=>`"${String(v??"").replace(/"/g,'""')}"`;function exportCsv(){const head=["Period From","Period To","Employee ID","Name","Department","Position","Pay Type","Rate","Paid Days","Basic Pay","Other Earnings","SSS","PhilHealth","Pag-IBIG","Withholding Tax","Other Deductions","Gross Pay","Net Pay","Status"],lines=[head.map(csv).join(",")];rows.forEach(x=>lines.push([ui.dateFrom.value,ui.dateTo.value,x.employeeId,x.name,x.department,x.position,x.payType,x.rate,x.paidDays,x.basicPay,Number(x.additions||0)+Number(x.attendancePremium||0)+Number(x.driverEarnings||0),x.sss,x.philHealth,x.pagIbig,x.withholdingTax,x.otherDeductions,x.grossPay,x.netPay,run?.status||"UNSAVED"].map(csv).join(",")));const blob=new Blob(["\ufeff"+lines.join("\r\n")],{type:"text/csv"}),url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download=`payroll_${runId()}.csv`;a.click();URL.revokeObjectURL(url)}
 ui.employeeForm.addEventListener("submit",saveEmployee);ui.cancelEmployeeBtn.addEventListener("click",resetForm);ui.employeeSearch.addEventListener("input",renderEmployees);ui.employeeBody.addEventListener("click",e=>{if(e.target.dataset.edit)editEmployee(e.target.dataset.edit);if(e.target.dataset.toggle)toggleEmployee(e.target.dataset.toggle)});ui.payrollBody.addEventListener("change",e=>{if(e.target.dataset.field)recalc(Number(e.target.dataset.row),e.target.dataset.field,e.target.value)});ui.loadBtn.addEventListener("click",generate);ui.saveDraftBtn.addEventListener("click",saveDraft);ui.finalizeBtn.addEventListener("click",finalize);ui.markPaidBtn.addEventListener("click",markPaid);ui.exportBtn.addEventListener("click",exportCsv);ui.printBtn.addEventListener("click",()=>print());ui.searchBox.addEventListener("input",renderPayroll);ui.refreshHistoryBtn.addEventListener("click",loadHistory);ui.historyBody.addEventListener("click",e=>{if(e.target.dataset.viewRun)viewRun(e.target.dataset.viewRun)});
-const today=new Date().toLocaleDateString("en-CA",{timeZone:"Asia/Manila"}),day=Number(today.slice(8));ui.dateFrom.value=`${today.slice(0,7)}-${day<=15?"01":"16"}`;ui.dateTo.value=day<=15?`${today.slice(0,7)}-15`:today;loadEmployees();if(location.hash==="#employees")showView("employeesView");if(location.hash==="#history")showView("historyView");
+const today=new Date().toLocaleDateString("en-CA",{timeZone:"Asia/Manila"}),day=Number(today.slice(8));ui.dateFrom.value=`${today.slice(0,7)}-${day<=15?"01":"16"}`;ui.dateTo.value=day<=15?`${today.slice(0,7)}-15`:today;showWorkspace();

@@ -30,3 +30,25 @@ button.warning{background:#b86b00;color:#fff}button.success{background:#18733c;c
 #contractAttachments[hidden], #contractAttachments [hidden] { display: none; }
 
 #specialPayForm [hidden] { display: none; }
+
+.payroll-period-header, .payroll-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 14px 16px;
+}
+.payroll-period-header h2, .payroll-period-header .run-status { margin: 0; }
+.period-controls { padding-top: 0; }
+.period-controls .check-field { align-self: center; font-weight: 500; }
+.payroll-actions { background: #f8fafc; border-top: 1px solid #e5ebf1; border-radius: 0 0 12px 12px; }
+.payroll-actions .action-row { flex-wrap: wrap; }
+.secondary-link { color: #0b5d98; font-weight: 700; padding: 8px 0; }
+.payroll-actions .secondary-link { align-self: center; margin-right: 8px; }
+#specialPayView { max-width: 900px; }
+#specialPayResult { grid-column: 1 / -1; font-size: 1.1rem; font-weight: 700; }
+#specialPayResult:empty { display: none; }
+@media print {
+  .payroll-actions, .payroll-period-header h2 { display: none; }
+}

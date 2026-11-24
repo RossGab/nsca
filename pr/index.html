@@ -1,15 +1,33 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>NSCA Payroll</title><link rel="stylesheet" href="./styles.css?v=7"></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>NSCA Payroll</title><link rel="stylesheet" href="./styles.css?v=8"></head>
 <body>
-<header class="topbar"><div><div class="eyebrow">NSCA HR &amp; Payroll System</div><h1>Payroll <span>V.R.0.3.0</span></h1><p>Generic semi-monthly payroll for all employee types.</p></div></header>
+<header class="topbar"><div><div class="eyebrow">NSCA HR &amp; Payroll System</div><h1 id="workspaceHeading">Payroll</h1></div></header>
 <nav class="tabs" aria-label="Payroll sections"><a href="./dashboard.html">Dashboard</a><button class="tab active" data-view="payrollView">Payroll</button><button class="tab" data-view="employeesView">Employees</button><a href="./attendance.html">Attendance &amp; Leave</a><button class="tab" data-view="historyView">History</button><a href="./payslips.html">Payslips</a><a href="./reports.html">Reports</a><a href="./settings.html">Settings</a></nav>
-<main><div id="message" class="message" role="status">Select an action to begin.</div>
+<main><div id="message" class="message" role="status" hidden></div>
 <section id="payrollView" class="view">
-  <section class="card controls"><div class="field"><label for="dateFrom">Pay period from</label><input id="dateFrom" type="date"></div><div class="field"><label for="dateTo">Pay period to</label><input id="dateTo" type="date"></div><label class="check-field"><input id="refreshDriverDraft" type="checkbox"> Refresh draft from source records</label><button id="loadBtn" class="primary">Generate</button><button id="saveDraftBtn" disabled>Save Draft</button><button id="finalizeBtn" class="warning" disabled>Finalize</button><button id="markPaidBtn" class="success" disabled>Mark Paid</button><button id="exportBtn" disabled>Export CSV</button><button id="printBtn" disabled>Print</button></section>
+  <section class="card payroll-period">
+    <div class="payroll-period-header"><h2>Pay period</h2><div id="runStatus" class="run-status">Unsaved payroll</div></div>
+    <div class="controls period-controls">
+      <div class="field"><label for="dateFrom">From</label><input id="dateFrom" type="date"></div>
+      <div class="field"><label for="dateTo">To</label><input id="dateTo" type="date"></div>
+      <button id="loadBtn" class="primary">Generate payroll</button>
+      <label class="check-field"><input id="refreshDriverDraft" type="checkbox"> Refresh draft from source records</label>
+    </div>
+    <div class="payroll-actions">
+      <div class="action-row"><button id="saveDraftBtn" disabled>Save draft</button><button id="finalizeBtn" class="warning" disabled>Finalize</button><button id="markPaidBtn" class="success" disabled>Mark paid</button></div>
+      <div class="action-row"><a class="secondary-link" href="#driver-reconciliation">Driver reconciliation</a><button id="exportBtn" disabled>Export CSV</button><button id="printBtn" disabled>Print</button></div>
+    </div>
+  </section>
 
-  <details class="card form-card">
-    <summary>13th-month and final-pay worksheet</summary>
+
+  <section class="summary"><div class="summary-card"><strong id="employeeCount">0</strong><span>Employees</span></div><div class="summary-card"><strong id="workdayCount">0</strong><span>Paid Days</span></div><div class="summary-card"><strong id="grossTotal">₱0.00</strong><span>Gross Payroll</span></div><div class="summary-card"><strong id="netTotal">₱0.00</strong><span>Net Payroll</span></div></section>
+  <section class="card table-card"><div class="table-heading"><div><h2>Payroll Details</h2><p id="periodLabel">Generate a payroll period to see results.</p></div><input id="searchBox" type="search" placeholder="Search employee..."></div><div class="table-wrap"><table><thead><tr><th>Employee</th><th>Compensation</th><th class="number">Paid Days</th><th class="number">Basic Pay</th><th class="number">Other Earnings</th><th class="number">Other Deductions</th><th class="number">Statutory</th><th class="number">Net Pay</th></tr></thead><tbody id="payrollBody"><tr><td colspan="8" class="empty">No payroll generated.</td></tr></tbody></table></div></section>
+
+</section>
+<section id="specialPayView" class="view hidden">
+  <section class="card form-card">
+    <div class="table-heading"><div><h2>13th-month and final pay</h2><p>Calculate an estimate from eligible earnings and adjustments.</p></div></div>
     <form id="specialPayForm" class="employee-form">
       <div class="field"><label for="specialMode">Calculation</label><select id="specialMode"><option value="thirteenth">13th-month pay</option><option value="final">Final pay</option></select></div>
       <div class="field"><label for="eligibleBasic">Eligible basic earnings</label><input id="eligibleBasic" type="number" min="0" step=".01" value="0" required></div>
@@ -19,18 +37,17 @@
       <div class="field" data-final-pay hidden><label for="leaveCredit">Leave conversion amount</label><input id="leaveCredit" type="number" min="0" step=".01" value="0" required></div>
       <div class="field" data-final-pay hidden><label for="finalAdditions">Other amounts owed</label><input id="finalAdditions" type="number" min="0" step=".01" value="0" required></div>
       <div class="field" data-final-pay hidden><label for="finalDeductions">Final-pay deductions</label><input id="finalDeductions" type="number" min="0" step=".01" value="0" required></div>
-      <div class="form-actions"><button type="submit">Calculate estimate</button></div>
+      <div class="form-actions"><button class="primary" type="submit">Calculate estimate</button></div>
       <output id="specialPayResult" role="status"></output>
     </form>
-  </details>
-  <div id="runStatus" class="run-status">Unsaved payroll</div>
-  <section class="summary"><div class="summary-card"><strong id="employeeCount">0</strong><span>Employees</span></div><div class="summary-card"><strong id="workdayCount">0</strong><span>Paid Days</span></div><div class="summary-card"><strong id="grossTotal">₱0.00</strong><span>Gross Payroll</span></div><div class="summary-card"><strong id="netTotal">₱0.00</strong><span>Net Payroll</span></div></section>
-  <section class="card table-card"><div class="table-heading"><div><h2>Payroll Details</h2><p id="periodLabel">Generate a payroll period to see results.</p></div><input id="searchBox" type="search" placeholder="Search employee..."></div><div class="table-wrap"><table><thead><tr><th>Employee</th><th>Compensation</th><th class="number">Paid Days</th><th class="number">Basic Pay</th><th class="number">Other Earnings</th><th class="number">Other Deductions</th><th class="number">Statutory</th><th class="number">Net Pay</th></tr></thead><tbody id="payrollBody"><tr><td colspan="8" class="empty">No payroll generated.</td></tr></tbody></table></div></section>
-  <details class="card form-card">
-    <summary>Driver-task reconciliation</summary>
-    <p id="driverReconciliationEmpty">No driver tasks in this payroll run.</p>
+  </section>
+</section>
+<section id="driverReconciliationView" class="view hidden">
+  <section class="card table-card">
+    <div class="table-heading"><div><h2>Driver-task reconciliation</h2><p id="driverReconciliationPeriod">Generate or open a payroll run to review its driver tasks.</p></div><a class="secondary-link" href="#">Back to payroll</a></div>
+    <p id="driverReconciliationEmpty" class="empty">No driver tasks to display.</p>
     <div class="table-wrap"><table><thead><tr><th>Employee</th><th>Driver</th><th>Task</th><th>Completion date</th><th>Pay type</th><th>Rate</th><th>Additional earnings</th></tr></thead><tbody id="driverReconciliation"></tbody></table></div>
-  </details>
+  </section>
 </section>
 <section id="employeesView" class="view hidden">
   <section class="card form-card"><div class="table-heading"><div><h2 id="employeeFormTitle">Add Employee</h2><p>Maintain employment, compensation, and government records.</p></div></div><form id="employeeForm" class="employee-form">
@@ -51,4 +68,4 @@
   <section class="card table-card"><div class="table-heading"><div><h2>Employees</h2><p>Inactive employees remain in payroll history.</p></div><input id="employeeSearch" type="search" placeholder="Search employee..."></div><div class="table-wrap"><table><thead><tr><th>Employee ID</th><th>Name</th><th>Department / Position</th><th>Employment</th><th>Pay Type</th><th class="number">Rate</th><th>Status</th><th>Actions</th></tr></thead><tbody id="employeeBody"><tr><td colspan="8" class="empty">Loading employees...</td></tr></tbody></table></div></section>
 </section>
 <section id="historyView" class="view hidden"><section class="card table-card"><div class="table-heading"><div><h2>Payroll History</h2><p>Saved payroll periods and their current status.</p></div><button id="refreshHistoryBtn">Refresh</button></div><div class="table-wrap"><table><thead><tr><th>Period</th><th>Status</th><th class="number">Employees</th><th class="number">Paid Days</th><th class="number">Gross Pay</th><th class="number">Net Pay</th><th>Paid At</th><th>Action</th></tr></thead><tbody id="historyBody"><tr><td colspan="8" class="empty">No payroll history loaded.</td></tr></tbody></table></div></section></section>
-</main><script type="module" src="./special-pay.js"></script><script type="module" src="./nav.js?v=1"></script><script type="module" src="./app.js?v=14"></script></body></html>
+</main><script type="module" src="./special-pay.js"></script><script type="module" src="./nav.js?v=2"></script><script type="module" src="./app.js?v=15"></script></body></html>
