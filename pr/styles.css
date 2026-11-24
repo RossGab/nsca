@@ -268,3 +268,32 @@ a.primary-link:hover { background: #0b548a; }
 .leave-navigation { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 14px; flex-wrap: wrap; }
 .leave-decisions { display: flex; flex-wrap: wrap; gap: 5px; min-width: 154px; }
 .leave-workspace td:nth-child(4) { max-width: 240px; overflow-wrap: anywhere; }
+
+.earnings-regular { --earnings-color: #1167a8; }
+.earnings-overtime { --earnings-color: #7352a6; }
+.earnings-premium { --earnings-color: #087a73; }
+.earnings-bonus { --earnings-color: #aa5b06; }
+.earnings-driver { --earnings-color: #637a26; }
+.earnings-other { --earnings-color: #64748b; }
+.earnings-key { display: flex; flex-wrap: wrap; gap: 7px 14px; padding: 0; margin: 14px 16px 0; list-style: none; font-size: 12px; color: #42526a; }
+.earnings-key li::before { content: ""; display: inline-block; width: 9px; height: 9px; margin-right: 5px; border-radius: 2px; background: var(--earnings-color); }
+.trend-stack { display: flex; flex-direction: column-reverse; width: min(70%, 40px); }
+.trend-segment { flex-basis: 0; min-height: 0; background: var(--earnings-color); }
+.forecast .trend-stack { outline: 1px dashed #315976; opacity: .62; }
+
+.employee-portal [hidden] { display: none; }
+.portal-picker { display: flex; flex-wrap: wrap; align-items: end; gap: 12px 20px; padding: 16px; }
+.portal-picker p { color: #526174; font-size: 13px; }
+.portal-navigation { display: flex; flex-wrap: wrap; gap: 6px; margin: 16px 0; }
+.portal-navigation a { padding: 9px 13px; border-radius: 7px; color: #214865; text-decoration: none; font-weight: 700; }
+.portal-navigation a[aria-current] { background: #dceeff; color: #123d61; }
+.portal-panel { overflow: hidden; }
+.portal-facts { margin: 0; padding: 16px; display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); }
+.portal-facts div { background: #f3f6fa; border-radius: 8px; padding: 12px; }
+.portal-facts dt { color: #526174; font-size: 12px; }
+.portal-facts dd { margin: 6px 0 0; font-weight: 700; overflow-wrap: anywhere; }
+.portal-net { margin: 0 16px 16px; }
+.portal-documents { display: grid; gap: 12px; padding: 16px; }
+.portal-document { border: 1px solid #dce4ed; border-radius: 8px; padding: 14px; }
+.portal-document h3 { margin: 0 0 10px; overflow-wrap: anywhere; }
+.portal-document form { display: flex; align-items: end; flex-wrap: wrap; gap: 8px; margin-top: 12px; }

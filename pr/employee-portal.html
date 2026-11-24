@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Employee portal</title>
+  <link rel="stylesheet" href="./styles.css?v=16">
+</head>
+<body>
+  <header class="topbar"><div><div class="eyebrow">NSCA HR &amp; Payroll</div><h1>Employee portal</h1></div></header>
+  <nav class="tabs"></nav>
+  <main class="employee-portal">
+    <section class="card portal-picker">
+      <div class="field"><label for="portalEmployee">Sample employee</label><select id="portalEmployee"><option value="">Select your sample record</option></select></div>
+      <p>This proof of concept uses sample records.</p>
+    </section>
+    <p id="portalMessage" class="message" role="status" hidden></p>
+    <div id="portalWorkspace" hidden>
+      <nav class="portal-navigation" aria-label="Employee services">
+        <a href="#profile">Employment</a><a href="#payslips">Payslips</a><a href="#leave">Leave</a><a href="#documents">Documents</a>
+      </nav>
+      <section class="card portal-panel" data-portal-panel="profile">
+        <div class="table-heading"><h2>Employment details</h2></div>
+        <dl id="portalProfile" class="portal-facts"></dl>
+      </section>
+      <section class="card portal-panel" data-portal-panel="payslips" hidden>
+        <div class="table-heading"><h2>My payslips</h2><div class="field"><label for="portalPeriod">Payroll period</label><select id="portalPeriod"></select></div></div>
+        <div id="portalPayslip"></div>
+      </section>
+      <section class="card portal-panel" data-portal-panel="leave" hidden>
+        <div class="table-heading"><div><h2>My leave</h2><p>Request vacation or sick leave and track approval.</p></div><a id="portalLeaveLink" class="primary-link" href="./leave.html#request">Request leave</a></div>
+        <div class="table-wrap"><table><thead><tr><th>Leave type</th><th>Dates</th><th>Status</th></tr></thead><tbody id="portalLeaveRows"></tbody></table></div>
+      </section>
+      <section class="card portal-panel" data-portal-panel="documents" hidden>
+        <div class="table-heading"><div><h2>My documents</h2><p>Download and review contract files added in this browser. Signatures and approvals are saved here as POC records.</p></div></div>
+        <div id="portalDocuments" class="portal-documents"></div>
+      </section>
+    </div>
+  </main>
+  <script type="module" src="./nav.js?v=7"></script>
+  <script type="module" src="./employee-portal.js"></script>
+</body>
+</html>

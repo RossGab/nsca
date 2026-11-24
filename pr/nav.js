@@ -6,7 +6,8 @@ const groups = [
     ["index.html", "Payroll"],
     ["index.html#employees", "Employees"],
     ["attendance.html", "Attendance"],
-    ["leave.html", "Leave requests"]
+    ["leave.html", "Leave requests"],
+    ["employee-portal.html", "Employee portal"]
   ]],
   ["Payroll tools", [
     ["index.html#special-pay", "Special pay"],

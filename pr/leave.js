@@ -1,4 +1,4 @@
-﻿import {initializeApp} from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+import {initializeApp} from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
 import {addDoc, collection, doc, getDocs, initializeFirestore, runTransaction, serverTimestamp} from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
 const app = initializeApp({projectId: "driva-pwa", appId: "1:299138219722:web:623ff6b0a067ea822dfe33"});
@@ -8,6 +8,7 @@ const form = byId("leaveForm");
 const filter = byId("leaveFilter");
 const tbody = byId("leaveRows");
 const message = byId("leaveMessage");
+const portalEmployee = new URLSearchParams(location.search).get("employee");
 const types = {VACATION_LEAVE: "Vacation leave", SICK_LEAVE: "Sick leave"};
 let employees = new Map();
 let requests = [];
@@ -30,7 +31,7 @@ function leaveDates(from, to) {
 }
 
 function showView() {
-  const submitting = location.hash === "#request";
+  const submitting = Boolean(portalEmployee) || location.hash === "#request";
   byId("leaveRequest").hidden = !submitting;
   byId("leaveInbox").hidden = submitting;
   byId(submitting ? "leaveRequestLink" : "leaveInboxLink").setAttribute("aria-current", "page");
@@ -91,6 +92,14 @@ async function start() {
     if (employee.active === false) continue;
     byId("leaveEmployee").add(new Option(employee.name + " (" + employee.employeeId + ")", employee.employeeId));
   }
+  if (portalEmployee) {
+    const employee = employees.get(portalEmployee.toUpperCase());
+    if (!employee || employee.active === false) throw new Error("This employee cannot submit a leave request.");
+    const employeeSelect = byId("leaveEmployee");
+    employeeSelect.value = employee.employeeId;
+    employeeSelect.disabled = true;
+    return;
+  }
   await refreshRequests();
 }
 
@@ -111,6 +120,12 @@ form.addEventListener("submit", async event => {
       employeeId, type, from, to, reason: byId("leaveReason").value.trim(), status: "PENDING",
       createdAt: serverTimestamp(), updatedAt: serverTimestamp()
     });
+    if (portalEmployee) {
+      const portal = new URL("./employee-portal.html#leave", location.href);
+      portal.searchParams.set("employee", employeeId);
+      location.href = portal;
+      return;
+    }
     form.reset();
     filter.value = "PENDING";
     location.hash = "approvals";
@@ -168,5 +183,13 @@ tbody.addEventListener("click", async event => {
 
 filter.addEventListener("change", renderRequests);
 window.addEventListener("hashchange", showView);
+if (portalEmployee) {
+  const back = new URL("./employee-portal.html#leave", location.href);
+  back.searchParams.set("employee", portalEmployee);
+  const link = byId("leaveInboxLink");
+  link.href = back;
+  link.textContent = "Back to my leave";
+  byId("leaveRequestLink").hidden = true;
+}
 showView();
 start().catch(error => status("Could not load leave requests. " + error.message, true));

@@ -1,4 +1,5 @@
-﻿const maxBytes = 10 * 1024 * 1024;
+import { openDatabase, listContractAttachments, downloadAttachment, documentDecision } from "./portal-documents.js";
+const maxBytes = 10 * 1024 * 1024;
 const extensions = new Set(["pdf", "doc", "docx", "jpg", "jpeg", "png", "webp"]);
 const byId = id => document.getElementById(id);
 const panel = byId("contractAttachments");
@@ -10,50 +11,27 @@ const submit = upload.querySelector('[type="submit"]');
 let employeeId = "";
 let selection = 0;
 let uploading = false;
-let database;
-
-function openDatabase() {
-  if (!database) {
-    database = new Promise((resolve, reject) => {
-      const request = indexedDB.open("nsca-payroll-poc", 1);
-      request.onupgradeneeded = () => {
-        const store = request.result.createObjectStore("attachments", {autoIncrement: true});
-        store.createIndex("employeeId", "employeeId");
-      };
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    }).catch(error => {
-      database = undefined;
-      throw error;
-    });
-  }
-  return database;
-}
 
 async function refresh(id, version) {
-  const db = await openDatabase();
-  const request = db.transaction("attachments").objectStore("attachments").index("employeeId").getAll(id);
-  const attachments = await new Promise((resolve, reject) => {
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
+  const attachments = await listContractAttachments(id);
+  const decisions = await Promise.all(attachments.map(attachment => documentDecision(attachment.id)));
   if (version !== selection) return;
   list.replaceChildren();
   message.textContent = attachments.length ? "" : "No attachments yet.";
-  for (const {file} of attachments) {
+  for (const [index, {file}] of attachments.entries()) {
     const row = document.createElement("li");
     const button = document.createElement("button");
     button.type = "button";
     button.textContent = file.name;
-    button.addEventListener("click", () => {
-      const url = URL.createObjectURL(file);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = file.name;
-      link.click();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-    });
+    button.addEventListener("click", () => downloadAttachment(file));
     row.append(button);
+    const decision = decisions[index];
+    if (decision) {
+      const status = document.createElement("small");
+      status.className = "subtext";
+      status.textContent = decision.action + " by " + decision.name;
+      row.append(status);
+    }
     list.append(row);
   }
 }

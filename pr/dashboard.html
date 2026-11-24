@@ -1,22 +1,27 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Payroll Dashboard</title><link rel="stylesheet" href="./styles.css?v=13"></head><body><header class="topbar"><div><div class="eyebrow">NSCA HR &amp; Payroll</div><h1>Dashboard</h1><p>Payroll activity and payout forecasts</p></div><a class="primary-link" href="./index.html">Open payroll</a></header><nav class="tabs"></nav><main><div id="message" class="message">Loading payroll overview...</div><section class="summary"><div class="summary-card"><strong id="activeEmployees">0</strong><span>Active Employees</span></div><div class="summary-card"><strong id="attendanceToday">0</strong><span>Present Today</span></div><div class="summary-card"><strong id="pendingLeaves">0</strong><span>Pending Leaves</span></div><div class="summary-card"><strong id="unpaidRuns">0</strong><span>Unpaid Payrolls</span></div></section><div class="dashboard-panels">
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Payroll Dashboard</title><link rel="stylesheet" href="./styles.css?v=15"></head><body><header class="topbar"><div><div class="eyebrow">NSCA HR &amp; Payroll</div><h1>Dashboard</h1><p>Payroll activity and payout forecasts</p></div><a class="primary-link" href="./index.html">Open payroll</a></header><nav class="tabs"></nav><main><div id="message" class="message">Loading payroll overview...</div><section class="summary"><div class="summary-card"><strong id="activeEmployees">0</strong><span>Active Employees</span></div><div class="summary-card"><strong id="attendanceToday">0</strong><span>Present Today</span></div><div class="summary-card"><strong id="pendingLeaves">0</strong><span>Pending Leaves</span></div><div class="summary-card"><strong id="unpaidRuns">0</strong><span>Unpaid Payrolls</span></div></section><div class="dashboard-panels">
 <section class="card table-card payroll-trend" aria-labelledby="trendHeading">
-  <div class="table-heading"><div><h2 id="trendHeading">Monthly payroll payouts</h2><p>Net pay by payment date ? Philippine pesos</p></div>
+  <div class="table-heading"><div><h2 id="trendHeading">Monthly payroll earnings</h2><p>Gross earnings by payment date ? Philippine pesos</p></div>
   <div class="trend-legend">
     <span>Paid</span><span>Forecast</span>
     <details class="forecast-help">
       <summary aria-label="How is the payroll forecast calculated?" title="How is the payroll forecast calculated?">?</summary>
       <div class="forecast-help-content">
         <h3>How the forecast is calculated</h3>
-        <p>Each forecast month uses the average net payout of up to three recent completed months with recorded payments.</p>
-        <p>If only the current month has payments, the forecast uses twice the average paid run that month, assuming two runs per month.</p>
+        <p>Each forecast month uses the average gross earnings for each category of up to three recent completed months with recorded payments.</p>
+        <p>If only the current month has payments, the forecast uses twice the average earnings per paid run for each category, assuming two runs per month.</p>
         <p>Runs count once they are marked Paid and have a payment date. Without qualifying payouts, the forecast is unavailable.</p>
       </div>
     </details>
   </div></div>
+  <ul class="earnings-key" aria-label="Earnings categories">
+    <li class="earnings-regular">Regular pay</li><li class="earnings-overtime">Overtime</li>
+    <li class="earnings-premium">Premiums</li><li class="earnings-bonus">Bonuses</li>
+    <li class="earnings-driver">Driver earnings</li><li class="earnings-other">Other / unclassified</li>
+  </ul>
   <p id="trendBasis" class="trend-basis">Loading payout history...</p>
   <div class="trend-scroll" role="region" aria-label="Monthly payroll chart" tabindex="0"><div id="trendChart" class="trend-chart"></div></div>
   <details class="trend-values"><summary>View monthly amounts</summary>
-    <div class="table-wrap"><table><thead><tr><th scope="col">Month</th><th scope="col">Type</th><th scope="col" class="number">Net pay</th></tr></thead><tbody id="trendRows"></tbody></table></div>
+    <div class="table-wrap"><table><thead><tr><th scope="col">Month</th><th scope="col">Type</th><th scope="col" class="number">Regular pay</th><th scope="col" class="number">Overtime</th><th scope="col" class="number">Premiums</th><th scope="col" class="number">Bonuses</th><th scope="col" class="number">Driver earnings</th><th scope="col" class="number">Other</th><th scope="col" class="number">Gross pay</th></tr></thead><tbody id="trendRows"></tbody></table></div>
   </details>
 </section><section class="card table-card recent-payroll"><div class="table-heading"><div><h2>Recent payroll</h2></div><button id="refresh">Refresh</button></div><div class="table-wrap"><table><thead><tr><th>Period</th><th>Status</th><th class="number">Employees</th><th class="number">Net Payroll</th></tr></thead><tbody id="recent"><tr><td colspan="4" class="empty">Loading...</td></tr></tbody></table></div><div class="recent-footer"><a class="secondary-link" href="./index.html#history">View payroll history</a></div></section>
-</div></main><script type="module" src="./nav.js?v=6"></script><script type="module" src="./dashboard.js?v=4"></script></body></html>
+</div></main><script type="module" src="./nav.js?v=7"></script><script type="module" src="./dashboard.js?v=5"></script></body></html>
