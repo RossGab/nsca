@@ -1,18 +1,18 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Payroll Settings</title><link rel="stylesheet" href="./styles.css?v=9"></head><body><header class="topbar"><div><div class="eyebrow">NSCA HR &amp; Payroll</div><h1>Settings</h1><p>Shared company, schedule, and payroll rules.</p></div></header><nav class="tabs"></nav><main><div id="message" class="message">Loading payroll settings...</div><section class="card form-card"><form id="form" class="record-form">
-<fieldset class="form-group"><legend>Company and work schedule</legend><div class="form-fields">
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Payroll Settings</title><link rel="stylesheet" href="./styles.css?v=13"></head><body><header class="topbar"><div><div class="eyebrow">NSCA HR &amp; Payroll</div><h1>Settings</h1><p>Shared company, schedule, and payroll rules.</p></div></header><nav class="tabs"></nav><main><div id="message" class="message">Loading payroll settings...</div><div class="settings-workspace"><nav class="card settings-links" aria-label="Settings sections"><a href="#company-rules">Company and schedule</a><a href="#attendance-rules">Paid attendance statuses</a><a href="#premium-rules">Overtime and premiums</a></nav><section class="card form-card"><form id="form" class="record-form">
+<fieldset id="company-rules" class="form-group"><legend>Company and work schedule</legend><div class="form-fields">
 <div class="field"><label for="companyName">Company name</label><input id="companyName" value="NSCA"></div>
 <div class="field"><label for="hoursPerDay">Hours per workday</label><input id="hoursPerDay" type="number" min="1" max="24" step=".5" value="8"></div>
 <div class="field"><label for="monthlyWorkdays">Monthly workdays divisor</label><input id="monthlyWorkdays" type="number" min="1" max="31" value="22"></div>
 <div class="field"><label for="payFrequency">Payroll frequency</label><select id="payFrequency"><option value="SEMI_MONTHLY">Semi-monthly</option></select></div></div></fieldset>
-<fieldset class="form-group"><legend>Paid attendance statuses</legend><div class="form-fields">
+<fieldset id="attendance-rules" class="form-group"><legend>Paid attendance statuses</legend><div class="form-fields">
 <label class="check-field"><input id="present" type="checkbox" checked> Present is paid</label>
 <label class="check-field"><input id="vacation" type="checkbox" checked> Vacation leave is paid</label>
 <label class="check-field"><input id="sick" type="checkbox" checked> Sick leave is paid</label>
 <label class="check-field"><input id="holiday" type="checkbox" checked> Holiday is paid</label>
 <label class="check-field"><input id="absent" type="checkbox"> Absent is paid</label>
 <label class="check-field"><input id="rest" type="checkbox"> Rest day is paid</label></div></fieldset>
-<fieldset class="form-group"><legend>Overtime and premiums</legend><div class="form-fields">
+<fieldset id="premium-rules" class="form-group"><legend>Overtime and premiums</legend><div class="form-fields">
 <div class="field"><label for="overtimePercent">Overtime pay (% of base hourly rate)</label><input id="overtimePercent" type="number" min="0" step="0.01" value="0" required></div>
 <div class="field"><label for="holidayPercent">Holiday premium (% added to base pay)</label><input id="holidayPercent" type="number" min="0" step="0.01" value="0" required></div>
 <div class="field"><label for="nightPercent">Night premium (% added to base pay)</label><input id="nightPercent" type="number" min="0" step="0.01" value="0" required></div></div></fieldset>
-<div class="record-footer"><button class="primary" type="submit">Save settings</button></div></form></section><div class="message">Government contribution tables are calculated by the statutory module. HR must verify applicable rates before production payroll.</div></main><script type="module" src="./nav.js?v=3"></script><script type="module" src="./settings.js?v=3"></script></body></html>
+<div class="record-footer"><button class="primary" type="submit">Save settings</button></div></form></section></div><div class="message">Government contribution tables are calculated by the statutory module. HR must verify applicable rates before production payroll.</div></main><script type="module" src="./nav.js?v=5"></script><script type="module" src="./settings.js?v=3"></script></body></html>
