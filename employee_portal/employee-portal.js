@@ -10,6 +10,7 @@ const employees = new Map();
 const money = new Intl.NumberFormat("en-PH", {style: "currency", currency: "PHP"});
 let payslips = [];
 let selection = 0;
+let hideRate = () => {};
 
 function element(tag, text) {
   const node = document.createElement(tag);
@@ -24,6 +25,7 @@ function notice(text) {
 }
 
 function showPanel() {
+  hideRate();
   const routes = ["profile", "payslips", "leave", "documents"];
   const route = routes.includes(location.hash.slice(1)) ? location.hash.slice(1) : "profile";
   for (const panel of document.querySelectorAll("[data-portal-panel]")) {
@@ -44,6 +46,34 @@ function facts(container, entries) {
   }
 }
 
+function rateControl(rate) {
+  if (rate == null) return "Unavailable";
+  const control = document.createElement("span");
+  const button = element("button", "Show rate");
+  const amount = element("span");
+  amount.id = "portalRateAmount";
+  amount.hidden = true;
+  button.type = "button";
+  button.className = "small-btn";
+  button.setAttribute("aria-controls", amount.id);
+  button.setAttribute("aria-expanded", "false");
+  hideRate = () => {
+    amount.hidden = true;
+    amount.textContent = "";
+    button.textContent = "Show rate";
+    button.setAttribute("aria-expanded", "false");
+  };
+  button.addEventListener("click", () => {
+    if (!amount.hidden) return hideRate();
+    amount.textContent = money.format(rate);
+    amount.hidden = false;
+    button.textContent = "Hide rate";
+    button.setAttribute("aria-expanded", "true");
+  });
+  control.append(button, " ", amount);
+  return control;
+}
+
 function renderPayslip() {
   const box = byId("portalPayslip");
   const selected = payslips.find(run => run.id === period.value);
@@ -58,7 +88,7 @@ function renderPayslip() {
   summary.className = "portal-statement-summary";
   const heading = document.createElement("div");
   heading.append(element("span", "Net pay"), element("strong", money.format(row.netPay ?? 0)));
-  summary.append(heading, element("span", selected.periodFrom + " to " + selected.periodTo));
+  summary.append(heading);
   if (row.netPay < 0) summary.append(element("span", "Needs payroll review"));
 
   const tables = document.createElement("div");
@@ -73,7 +103,7 @@ function renderPayslip() {
       ["Withholding tax", row.withholdingTax], ["Other deductions", row.otherDeductions]
     ], ["Total deductions", row.deductions])
   );
-  box.replaceChildren(summary, tables);
+  box.replaceChildren(tables, summary);
 }
 
 function statementTable(title, entries, total) {
@@ -191,6 +221,8 @@ async function loadDocuments(id, version) {
 }
 
 async function chooseEmployee() {
+  hideRate();
+  hideRate = () => {};
   const version = ++selection;
   const id = picker.value;
   const employee = employees.get(id);
@@ -216,7 +248,7 @@ async function chooseEmployee() {
   const payTypes = {DAILY: "Daily", MONTHLY: "Monthly", HOURLY: "Hourly"};
   facts(byId("portalCompensation"), [
     ["Pay type", payTypes[employee.payType] || (employee.dailyRate != null ? "Daily" : employee.payType)],
-    ["Rate", employee.rate == null && employee.dailyRate == null ? "?" : money.format(employee.rate ?? employee.dailyRate)],
+    ["Rate", rateControl(employee.rate ?? employee.dailyRate)],
     ["Shift start", employee.shiftStart || "?"], ["Scheduled hours per day", employee.shiftHours]
   ]);
   payslips = [];
@@ -246,5 +278,9 @@ async function start() {
 period.addEventListener("change", renderPayslip);
 picker.addEventListener("change", chooseEmployee);
 window.addEventListener("hashchange", showPanel);
+window.addEventListener("blur", () => hideRate());
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) hideRate();
+});
 showPanel();
 start().catch(error => notice("Could not start the employee portal. " + error.message));
