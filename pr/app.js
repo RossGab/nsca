@@ -1,5 +1,5 @@
 import { taskCompletion, driverCredits } from "./driver-earnings.js";
-import { selectContractEmployee } from "./contract-attachments.js?v=5";
+import { selectContractEmployee } from "./contract-attachments.js?v=6";
 import{initializeApp}from"https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
 import{collection,doc,getDoc,getDocs,initializeFirestore,query,runTransaction,serverTimestamp,setDoc,where}from"https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import{calculatePhilippineDeductions}from"./statutory.js?v=3";

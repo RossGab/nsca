@@ -3,14 +3,17 @@ let database;
 export function openDatabase() {
   if (!database) {
     database = new Promise((resolve, reject) => {
-      const request = indexedDB.open("nsca-payroll-poc", 2);
+      const request = indexedDB.open("nsca-payroll-poc", 3);
       request.onupgradeneeded = () => {
         const db = request.result;
         if (!db.objectStoreNames.contains("attachments")) {
           const store = db.createObjectStore("attachments", {autoIncrement: true});
           store.createIndex("employeeId", "employeeId");
         }
-        db.createObjectStore("documentDecisions", {keyPath: "id"});
+        if (!db.objectStoreNames.contains("documentDecisions")) {
+          db.createObjectStore("documentDecisions", {keyPath: "id"});
+        }
+        db.createObjectStore("profilePhotos");
       };
       request.onsuccess = () => {
         const db = request.result;
@@ -70,4 +73,23 @@ export function downloadAttachment(file) {
   link.download = file.name;
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+export async function loadProfilePhoto(employeeId) {
+  const db = await openDatabase();
+  const request = db.transaction("profilePhotos").objectStore("profilePhotos").get(employeeId);
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+export async function saveProfilePhoto(employeeId, file) {
+  const db = await openDatabase();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction("profilePhotos", "readwrite");
+    transaction.oncomplete = resolve;
+    transaction.onabort = () => reject(transaction.error);
+    transaction.objectStore("profilePhotos").put(file, employeeId);
+  });
 }

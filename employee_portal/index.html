@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Employee portal</title>
-  <link rel="stylesheet" href="../pr/styles.css?v=19">
+  <link rel="stylesheet" href="../pr/styles.css?v=20">
 </head>
 <body class="employee-self-service">
   <header class="topbar portal-header">
@@ -16,8 +16,15 @@
     <p id="portalMessage" class="message" role="status" hidden></p>
     <div id="portalWorkspace" hidden>
       <section class="portal-identity" aria-labelledby="portalName">
-        <span id="portalInitials" class="portal-initials" aria-hidden="true"></span>
+        <div class="portal-avatar">
+          <span id="portalInitials" class="portal-initials" aria-hidden="true"></span>
+          <img id="portalPhoto" alt="Profile photo" hidden>
+        </div>
         <div><h2 id="portalName"></h2><p id="portalRole"></p></div>
+        <div class="portal-photo-action">
+          <input type="file" id="portalPhotoFile" accept="image/jpeg,image/png,image/webp" hidden>
+          <button id="portalPhotoButton" type="button">Upload photo</button>
+        </div>
       </section>
       <nav class="portal-navigation" aria-label="Employee services">
         <a href="#profile">Employment</a><a href="#payslips">Payslips</a><a href="#leave">Leave</a><a href="#documents">Documents</a>
@@ -42,6 +49,6 @@
       </section>
     </div>
   </main>
-  <script type="module" src="./employee-portal.js?v=5"></script>
+  <script type="module" src="./employee-portal.js?v=7"></script>
 </body>
 </html>

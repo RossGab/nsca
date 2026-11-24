@@ -1,6 +1,6 @@
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
 import {collection, getDocs, initializeFirestore, query, where} from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
-import {listContractAttachments, documentDecision, recordDocumentDecision, downloadAttachment} from "../pr/portal-documents.js";
+import {listContractAttachments, documentDecision, recordDocumentDecision, downloadAttachment, loadProfilePhoto, saveProfilePhoto} from "../pr/portal-documents.js?v=2";
 
 const db = initializeFirestore(initializeApp({projectId: "driva-pwa", appId: "1:299138219722:web:623ff6b0a067ea822dfe33"}), {}, "drver-task");
 const byId = id => document.getElementById(id);
@@ -41,7 +41,9 @@ function facts(container, entries) {
   container.replaceChildren();
   for (const [label, value] of entries) {
     const item = document.createElement("div");
-    item.append(element("dt", label), element("dd", value ?? "—"));
+    const detail = document.createElement("dd");
+    detail.append(value ?? "\u2014");
+    item.append(element("dt", label), detail);
     container.append(item);
   }
 }
@@ -220,10 +222,58 @@ async function loadDocuments(id, version) {
   });
 }
 
+const photoInput = byId("portalPhotoFile");
+const photoButton = byId("portalPhotoButton");
+const photoImage = byId("portalPhoto");
+let photoUrl;
+
+function showProfilePhoto(file) {
+  if (photoUrl) URL.revokeObjectURL(photoUrl);
+  photoUrl = file ? URL.createObjectURL(file) : undefined;
+  photoImage.hidden = !photoUrl;
+  byId("portalInitials").hidden = Boolean(photoUrl);
+  if (photoUrl) photoImage.src = photoUrl;
+  else photoImage.removeAttribute("src");
+  photoButton.textContent = photoUrl ? "Change photo" : "Upload photo";
+}
+
+async function refreshProfilePhoto(id, version) {
+  const file = await loadProfilePhoto(id);
+  if (version === selection) showProfilePhoto(file);
+}
+
+photoButton.addEventListener("click", () => photoInput.click());
+photoInput.addEventListener("change", async () => {
+  const [file] = photoInput.files;
+  photoInput.value = "";
+  const id = picker.value;
+  const version = selection;
+  if (!file || !employees.has(id)) return;
+  if (!["image/jpeg", "image/png", "image/webp"].includes(file.type) || !file.size || file.size > 5 * 1024 * 1024) {
+    notice("Choose a JPEG, PNG, or WebP photo up to 5 MB.");
+    return;
+  }
+  photoButton.disabled = true;
+  try {
+    const bitmap = await createImageBitmap(file);
+    bitmap.close();
+    await saveProfilePhoto(id, file);
+    if (version === selection) {
+      showProfilePhoto(file);
+      notice("");
+    }
+  } catch (error) {
+    if (version === selection) notice("Could not save the photo. " + error.message);
+  } finally {
+    photoButton.disabled = false;
+  }
+});
+
 async function chooseEmployee() {
   hideRate();
   hideRate = () => {};
   const version = ++selection;
+  showProfilePhoto();
   const id = picker.value;
   const employee = employees.get(id);
   notice("");
@@ -256,9 +306,9 @@ async function chooseEmployee() {
   byId("portalPayslip").replaceChildren();
   byId("portalLeaveRows").replaceChildren();
   byId("portalDocuments").replaceChildren();
-  const results = await Promise.allSettled([loadPayslips(id, version), loadLeave(id, version), loadDocuments(id, version)]);
+  const results = await Promise.allSettled([loadPayslips(id, version), loadLeave(id, version), loadDocuments(id, version), refreshProfilePhoto(id, version)]);
   if (version === selection) {
-    const failed = results.flatMap((result, i) => result.status === "rejected" ? [ ["payslips", "leave requests", "documents"][i] ] : []);
+    const failed = results.flatMap((result, i) => result.status === "rejected" ? [ ["payslips", "leave requests", "documents", "profile photo"][i] ] : []);
     if (failed.length) notice("Could not load " + failed.join(", ") + ".");
   }
 }

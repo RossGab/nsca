@@ -1,4 +1,4 @@
-import { openDatabase, listContractAttachments, downloadAttachment, documentDecision } from "./portal-documents.js";
+import { openDatabase, listContractAttachments, downloadAttachment, documentDecision } from "./portal-documents.js?v=2";
 const maxBytes = 10 * 1024 * 1024;
 const extensions = new Set(["pdf", "doc", "docx", "jpg", "jpeg", "png", "webp"]);
 const byId = id => document.getElementById(id);
