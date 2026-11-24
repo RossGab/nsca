@@ -54,19 +54,49 @@ function renderPayslip() {
     return;
   }
   const row = selected.row;
-  const list = document.createElement("dl");
-  list.className = "portal-facts";
-  facts(list, [
-    ["Basic pay", money.format(row.basicPay || 0)], ["Overtime and premiums", money.format(row.attendancePremium || 0)],
-    ["Bonuses", money.format(row.bonusPay || 0)], ["Driver earnings", money.format(row.driverEarnings || 0)],
-    ["Other earnings", money.format(row.additions || 0)], ["Gross pay", money.format(row.grossPay || 0)],
-    ["SSS", money.format(row.sss || 0)], ["PhilHealth", money.format(row.philHealth || 0)],
-    ["Pag-IBIG", money.format(row.pagIbig || 0)], ["Withholding tax", money.format(row.withholdingTax || 0)],
-    ["Other deductions", money.format(row.otherDeductions || 0)], ["Total deductions", money.format(row.deductions || 0)]
-  ]);
-  const net = element("div", "Net pay " + money.format(row.netPay || 0));
-  net.className = "net-pay portal-net";
-  box.replaceChildren(list, net);
+  const summary = document.createElement("div");
+  summary.className = "portal-statement-summary";
+  const heading = document.createElement("div");
+  heading.append(element("span", "Net pay"), element("strong", money.format(row.netPay ?? 0)));
+  summary.append(heading, element("span", selected.periodFrom + " to " + selected.periodTo));
+  if (row.netPay < 0) summary.append(element("span", "Needs payroll review"));
+
+  const tables = document.createElement("div");
+  tables.className = "portal-statement-tables";
+  tables.append(
+    statementTable("Earnings", [
+      ["Basic pay", row.basicPay], ["Overtime and premiums", row.attendancePremium],
+      ["Bonuses", row.bonusPay], ["Driver earnings", row.driverEarnings], ["Other earnings", row.additions]
+    ], ["Gross pay", row.grossPay]),
+    statementTable("Deductions", [
+      ["SSS", row.sss], ["PhilHealth", row.philHealth], ["Pag-IBIG", row.pagIbig],
+      ["Withholding tax", row.withholdingTax], ["Other deductions", row.otherDeductions]
+    ], ["Total deductions", row.deductions])
+  );
+  box.replaceChildren(summary, tables);
+}
+
+function statementTable(title, entries, total) {
+  const table = document.createElement("table");
+  table.className = "portal-statement-table";
+  table.createCaption().textContent = title;
+  const header = table.createTHead().insertRow();
+  for (const label of ["Description", "Amount"]) {
+    const cell = element("th", label);
+    cell.scope = "col";
+    header.append(cell);
+  }
+  const addLine = (section, [label, amount]) => {
+    const line = section.insertRow();
+    const description = element("th", label);
+    description.scope = "row";
+    line.append(description);
+    line.insertCell().textContent = money.format(amount ?? 0);
+  };
+  const body = table.createTBody();
+  for (const entry of entries) addLine(body, entry);
+  addLine(table.createTFoot(), total);
+  return table;
 }
 
 async function loadPayslips(id, version) {

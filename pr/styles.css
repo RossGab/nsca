@@ -331,3 +331,14 @@ a.primary-link:hover { background: #0b548a; }
   .portal-profile { grid-template-columns: 1fr; }
   .portal-profile > section + section { border-left: 0; border-top: 1px solid #e5ebf1; }
 }
+
+.portal-statement-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 24px; padding: 16px 20px; background: #eaf4fd; color: #123b56; }
+.portal-statement-summary div { display: grid; gap: 4px; margin-right: auto; }
+.portal-statement-summary strong { font-size: 24px; font-variant-numeric: tabular-nums; }
+.portal-statement-tables { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 24px; padding: 20px; }
+.portal-statement-table { min-width: 0; }
+.portal-statement-table caption { text-align: left; padding-bottom: 10px; font-weight: 750; }
+.portal-statement-table tbody th { background: transparent; color: inherit; font-size: 13px; text-transform: none; letter-spacing: normal; font-weight: 500; }
+.portal-statement-table tr > :last-child { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.portal-statement-table tfoot th, .portal-statement-table tfoot td { background: #eaf4fd; color: #123b56; font-weight: 750; }
+@media (max-width: 640px) { .portal-statement-tables { grid-template-columns: minmax(0, 1fr); } }
