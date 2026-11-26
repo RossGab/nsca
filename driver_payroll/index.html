@@ -55,6 +55,11 @@
             <button id="flag" type="button">Report discrepancy for this day</button>
             <button id="resolveDiscrepancy" type="button" hidden>Resolve discrepancy</button>
           </div>
+          <form id="adminResolutionForm" hidden>
+            <div class="field"><label for="verifiedCount">Verified count</label><input id="verifiedCount" type="number" min="0" step="1" required></div>
+            <div class="field"><label for="resolutionReason">Reason for the decision</label><textarea id="resolutionReason" maxlength="400" required></textarea></div>
+            <button class="primary" type="submit">Save decision and return to driver</button>
+          </form>
           <form id="disputeForm" hidden>
             <div class="field"><label for="reportedCount">Expected count</label><input id="reportedCount" type="number" min="0" step="1" required></div>
             <div class="field"><label for="reason">Reason</label><textarea id="reason" maxlength="400" required></textarea></div>
@@ -70,6 +75,6 @@
       </details>
     </div>
   </main>
-  <script type="module" src="./confirmation.js?v=19"></script>
+  <script type="module" src="./confirmation.js?v=20"></script>
 </body>
 </html>

@@ -1,9 +1,27 @@
 let database;
 
+export function dailyCounts(record) {
+  const days = new Map();
+  for (const task of record?.tasks || []) {
+    const day = days.get(task.date) || {raw: 0, count: 0, confirmed: true};
+    day.raw++;
+    day.count++;
+    day.confirmed &&= Boolean(task.confirmed);
+    days.set(task.date, day);
+  }
+  for (const [date, adjustment] of Object.entries(record?.dayAdjustments || {})) {
+    const raw = days.get(date)?.raw || 0;
+    days.set(date, {raw, count: raw + adjustment.verifiedCount - adjustment.originalCount,
+      confirmed: adjustment.confirmed === true});
+  }
+  return days;
+}
+
 function summary(record) {
   return {
     driverId: record.driverId, from: record.from, to: record.to,
-    count: record.tasks?.length || 0,
+    count: [...dailyCounts(record).values()].reduce((sum, day) => sum + day.count, 0),
+    hasTasks: Boolean(record.tasks?.length || Object.keys(record.dayAdjustments || {}).length),
     openDiscrepancies: Object.values(record.dayDisputes || {}).filter(dispute => !dispute.resolvedAt).length,
     driverStatus: record.driver?.status, adminStatus: record.admin?.status
   };
@@ -88,7 +106,7 @@ export async function listPeriodDrivers(from, to) {
   const db = await openDatabase();
   return new Promise((resolve, reject) => {
     const request = db.transaction("summaries").objectStore("summaries").index("period").getAll([from, to]);
-    request.onsuccess = () => resolve(request.result.filter(driver => driver.count > 0));
+    request.onsuccess = () => resolve(request.result.filter(driver => driver.hasTasks ?? driver.count > 0));
     request.onerror = () => reject(request.error);
   });
 }

@@ -1,4 +1,4 @@
-import { listPeriodDrivers, readConfirmation, updateConfirmation } from "./local-confirmations.js?v=3";
+import { dailyCounts, listPeriodDrivers, readConfirmation, updateConfirmation } from "./local-confirmations.js?v=4";
 
 const confirmationStages = ["driver", "admin", "payroll"];
 const field = id => document.getElementById(id);
@@ -95,16 +95,16 @@ function openDayDisputes(record) {
 
 function earlierStagesMatch(record) {
   if (index === 0) return true;
-  const tasks = record?.tasks || [];
-  const count = tasks.length;
-  return count > 0 && tasks.every(task => task.confirmed) && confirmationStages.slice(0, index).every(role =>
+  const days = [...dailyCounts(record).values()];
+  const count = days.reduce((sum, day) => sum + day.count, 0);
+  return days.length > 0 && days.every(day => day.confirmed) && confirmationStages.slice(0, index).every(role =>
     record?.[role]?.status === "CONFIRMED" && record[role].count === count);
 }
 
 function render(record, model) {
   field("result").hidden = false;
   const tasks = record?.tasks || [];
-  field("taskCount").textContent = tasks.length;
+  field("taskCount").textContent = [...model.days.values()].reduce((sum, day) => sum + day.count, 0);
   renderTasks(tasks, model);
   field("cutoffLabel").textContent = model.driverId + " · " + model.from + " to " + model.to;
   for (const role of confirmationStages) {
@@ -120,7 +120,7 @@ function render(record, model) {
   field("reviewStatus").textContent = open ? open + (open === 1 ? " date has an open discrepancy" : " dates have open discrepancies") :
     waiting ? "Waiting for " + labels[waiting] + " confirmation" : "Manual count approved by payroll";
   field("confirm").disabled = open > 0 || !earlierStagesMatch(record) || record?.[stage]?.status === "CONFIRMED"
-    || (stage === "driver" && (!tasks.length || tasks.some(task => !task.confirmed)));
+    || (stage === "driver" && (!model.days.size || [...model.days.values()].some(day => !day.confirmed)));
   const history = field("confirmationHistory");
   history.replaceChildren();
   for (const event of (record?.history || []).slice().reverse()) {
@@ -146,13 +146,6 @@ function calendarDays(from, to) {
 }
 
 function renderCalendar(tasks, model) {
-  const dates = new Map();
-  for (const task of tasks) {
-    const counts = dates.get(task.date) || {completed: 0, confirmed: 0};
-    counts.completed++;
-    if (task.confirmed) counts.confirmed++;
-    dates.set(task.date, counts);
-  }
   const grid = field("taskCalendar");
   grid.replaceChildren();
   for (const date of calendarDays(model.from, model.to)) {
@@ -162,12 +155,14 @@ function renderCalendar(tasks, model) {
       grid.append(blank);
       continue;
     }
-    const {completed, confirmed} = dates.get(date) || {completed: 0, confirmed: 0};
+    const dayStatus = model.days.get(date);
+    const completed = dayStatus?.count || 0;
+    const confirmed = dayStatus?.confirmed ? completed : 0;
     const day = document.createElement("button");
     day.type = "button";
     const dispute = model.record?.dayDisputes?.[date];
     const disputed = Boolean(dispute && !dispute.resolvedAt);
-    const dayConfirmed = !disputed && completed > 0 && completed === confirmed;
+    const dayConfirmed = !disputed && dayStatus?.confirmed === true;
     day.className = "task-calendar-day";
     day.classList.toggle("is-confirmed", dayConfirmed);
     day.classList.toggle("is-disputed", disputed);
@@ -211,33 +206,45 @@ function renderTasks(tasks, model) {
 
 function renderDayConfirmation(model) {
   const tasks = model.tasksByDate.get(selectedDay) || [];
-  const total = tasks.length;
+  const day = model.days.get(selectedDay);
+  const total = day?.count || 0;
   const dispute = model.record?.dayDisputes?.[selectedDay];
   const open = Boolean(dispute && !dispute.resolvedAt);
-  const dayConfirmed = !open && total > 0 && tasks.every(task => task.confirmed);
+  const dayConfirmed = !open && day?.confirmed === true;
   field("dayConfirmation").hidden = !selectedDay;
   field("selectedDaySummary").textContent = selectedDay + ": " + total + " completed " + (total === 1 ? "task" : "tasks");
-  field("confirmDay").hidden = stage !== "driver" || !total;
+  field("confirmDay").hidden = stage !== "driver" || !day;
   field("confirmDay").disabled = dayConfirmed || open;
   field("confirmDay").textContent = dayConfirmed ? "Day confirmed" : "Confirm day";
   field("flag").hidden = open;
   field("flag").disabled = !earlierStagesMatch(model.record);
-  field("resolveDiscrepancy").hidden = !open || dispute.stage !== stage;
-  field("reviewNote").hidden = !open;
+  const adminReview = open && stage === "admin";
+  field("resolveDiscrepancy").hidden = !open || dispute.stage !== stage || stage === "admin";
+  field("adminResolutionForm").hidden = !adminReview;
+  field("adminResolutionForm").reset();
+  if (adminReview) field("verifiedCount").value = total;
+  const resolution = model.record?.dayAdjustments?.[selectedDay];
+  field("reviewNote").hidden = !open && !resolution;
   field("reviewNote").textContent = open ? labels[dispute.stage] + " reported a discrepancy for " +
-    selectedDay + ". Expected " + dispute.count + " tasks: " + dispute.reason : "";
+    selectedDay + ". Recorded " + total + ", expected " + dispute.count + " tasks. " + dispute.reason :
+    resolution ? "Task Admin verified " + resolution.verifiedCount + " tasks (originally " +
+      resolution.previousCount + "). " + resolution.reason + (dayConfirmed ? "" : " Waiting for driver reconfirmation.") : "";
   field("disputeForm").hidden = true;
   field("disputeForm").reset();
 }
 
-async function changeTasks(update) {
+async function changeTasks(update, dayChange) {
   if (stage !== "driver" || !current || busy) return;
   const model = current;
   busy = true;
   try {
     const record = await updateConfirmation(model.id, saved => ({
       ...saved, driverId: model.driverId, from: model.from, to: model.to,
-      tasks: update(saved?.tasks || [], saved), driver: null, admin: null, payroll: null
+      tasks: update(saved?.tasks || [], saved),
+      dayAdjustments: dayChange && saved?.dayAdjustments?.[dayChange.date]
+        ? {...saved.dayAdjustments, [dayChange.date]: {...saved.dayAdjustments[dayChange.date], confirmed: dayChange.confirmed}}
+        : saved?.dayAdjustments || {},
+      driver: null, admin: null, payroll: null
     }));
     if (current === model) {
       setRecord(model, record);
@@ -258,9 +265,10 @@ async function load() {
   const record = await readConfirmation(input.id);
   if (selection().id !== input.id) return;
   if (!current || current.id !== input.id) {
-    const dates = (record?.tasks || []).map(task => task.date);
+    const dates = [...dailyCounts(record).keys()];
     const latest = dates.reduce((max, date) => date > max ? date : max, input.from);
-    selectedDay = dates.includes(today) || (!dates.length && today >= input.from && today <= input.to) ? today : latest;
+    const open = stage === "admin" ? openDayDisputes(record)[0]?.date : null;
+    selectedDay = open || (dates.includes(today) || (!dates.length && today >= input.from && today <= input.to) ? today : latest);
   }
   setRecord(input, record);
 }
@@ -271,7 +279,7 @@ function setRecord(input, record) {
     if (!tasksByDate.has(task.date)) tasksByDate.set(task.date, []);
     tasksByDate.get(task.date).push(task);
   }
-  current = {...input, record, tasksByDate};
+  current = {...input, record, tasksByDate, days: dailyCounts(record)};
   render(record, current);
 }
 
@@ -299,9 +307,9 @@ async function saveAction(update, success) {
 function submitConfirmation() {
   saveAction((saved, model) => {
     if (openDayDisputes(saved).length) throw new Error("Resolve the open discrepancies before sending this cutoff.");
-    const tasks = saved?.tasks || [];
-    const count = tasks.length;
-    if (!count || tasks.some(task => !task.confirmed)) {
+    const days = [...dailyCounts(saved).values()];
+    const count = days.reduce((sum, day) => sum + day.count, 0);
+    if (!days.length || days.some(day => !day.confirmed)) {
       throw new Error("Confirm each day with completed tasks before sending the period.");
     }
     if (!earlierStagesMatch(saved) || (stage !== "driver" && saved?.driver?.updatedAt !== model.record?.driver?.updatedAt)) {
@@ -332,6 +340,8 @@ function reportDayDiscrepancy() {
       ...saved, driverId: model.driverId, from: model.from, to: model.to,
       driver: null, admin: null, payroll: null,
       tasks: (saved?.tasks || []).map(task => task.date === date ? {...task, confirmed: false} : task),
+      dayAdjustments: saved?.dayAdjustments?.[date]
+        ? {...saved.dayAdjustments, [date]: {...saved.dayAdjustments[date], confirmed: false}} : saved?.dayAdjustments || {},
       dayDisputes: {...saved?.dayDisputes, [date]: {stage, date, count, reason, time}},
       history: [...(saved?.history || []), {stage, date, dispute: true, count, time}]
     };
@@ -350,6 +360,30 @@ function resolveDayDiscrepancy() {
     return {...saved, dayDisputes: {...saved.dayDisputes, [date]: {...dispute, resolvedAt: time}},
       history: [...(saved.history || []), {stage, date, resolved: true, count: dispute.count, time}]};
   }, "Discrepancy resolved. The driver can confirm the day again.");
+}
+
+function saveAdminResolution() {
+  const date = selectedDay;
+  const verifiedCount = field("verifiedCount").valueAsNumber;
+  const reason = field("resolutionReason").value.trim();
+  if (stage !== "admin" || !date || !Number.isSafeInteger(verifiedCount) || verifiedCount < 0 || !reason) {
+    message("Enter a verified count of zero or more and a reason.", true);
+    return;
+  }
+  saveAction(saved => {
+    const dispute = saved?.dayDisputes?.[date];
+    if (!dispute || dispute.resolvedAt) throw new Error("This date no longer has an open discrepancy.");
+    const time = new Date().toISOString();
+    const day = dailyCounts(saved).get(date);
+    return {
+      ...saved, driver: null, admin: null, payroll: null,
+      dayDisputes: {...saved.dayDisputes, [date]: {...dispute, resolvedAt: time, resolvedBy: stage}},
+      dayAdjustments: {...saved.dayAdjustments, [date]: {
+        originalCount: day?.raw || 0, previousCount: day?.count || 0, verifiedCount, reason, confirmed: false
+      }},
+      history: [...(saved.history || []), {stage, date, resolved: true, count: verifiedCount, reason, time}]
+    };
+  }, "Verified count saved and returned to the driver.");
 }
 
 field("pageTitle").textContent = pageTitles[stage];
@@ -405,7 +439,7 @@ field("confirmDay").addEventListener("click", async () => {
   if (!current || !selectedDay || busy) return;
   const date = selectedDay;
   const reviewed = current.tasksByDate.get(date) || [];
-  if (!reviewed.length) return;
+  if (!current.days.has(date)) return;
   const ids = new Set(reviewed.map(task => task.id));
   await changeTasks((tasks, saved) => {
     const dispute = saved?.dayDisputes?.[date];
@@ -415,7 +449,7 @@ field("confirmDay").addEventListener("click", async () => {
       throw new Error("This day's task list changed. Review the updated count and confirm again.");
     }
     return tasks.map(task => task.date === date ? {...task, confirmed: true} : task);
-  });
+  }, {date, confirmed: true});
 });
 field("sampleTaskForm").addEventListener("submit", async event => {
   event.preventDefault();
@@ -432,9 +466,13 @@ field("sampleTaskForm").addEventListener("submit", async event => {
     }
     return [...tasks.map(task => task.date === date ? {...task, confirmed: false} : task),
       {id, date, confirmed: false}];
-  });
+  }, {date, confirmed: false});
 });
 field("confirm").addEventListener("click", submitConfirmation);
+field("adminResolutionForm").addEventListener("submit", event => {
+  event.preventDefault();
+  saveAdminResolution();
+});
 field("resolveDiscrepancy").addEventListener("click", resolveDayDiscrepancy);
 field("flag").addEventListener("click", () => {
   field("disputeForm").hidden = !field("disputeForm").hidden;
