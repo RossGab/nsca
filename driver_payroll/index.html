@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="./confirmation.css">
 </head>
 <body class="employee-self-service">
-  <header class="topbar"><div><div class="eyebrow">NSCA</div><h1 id="pageTitle">Driver payroll confirmation</h1></div><a id="backLink" href="../pr/index.html">Back to payroll</a></header>
+  <header class="topbar"><div><div class="eyebrow">NSCA</div><h1 id="pageTitle">Driver task count confirmation</h1></div><a id="backLink" href="../admin.html">Back to admin dashboard</a></header>
   <main class="driver-confirmation">
     <p class="poc-note">Proof of concept · Use sample driver records.</p>
     <form id="cutoffForm" class="card controls">
@@ -21,8 +21,7 @@
     <div id="result" hidden>
       <section class="summary confirmation-summary" aria-label="Confirmation status">
         <div class="summary-card"><span>Eligible completed tasks</span><strong id="taskCount"></strong></div>
-        <div class="summary-card"><span>Admin</span><strong id="adminStatus"></strong></div>
-        <div class="summary-card"><span>Driver</span><strong id="driverStatus"></strong></div>
+        <div class="summary-card"><span>Task admin confirmation</span><strong id="adminStatus"></strong></div>
       </section>
       <section class="card table-card">
         <div class="table-heading"><div><h2 id="listHeading">Completed tasks</h2><p id="cutoffLabel"></p></div></div>
@@ -43,6 +42,6 @@
       </section>
     </div>
   </main>
-  <script type="module" src="./confirmation.js"></script>
+  <script type="module" src="./confirmation.js?v=4"></script>
 </body>
 </html>

@@ -1,11 +1,10 @@
 import {initializeApp} from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
 import {collection, doc, getDoc, getDocs, initializeFirestore, runTransaction, serverTimestamp} from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
-import {confirmationId, confirmationMatches, eligibleDriverTasks, taskFingerprint} from "../pr/driver-confirmations.js";
+import {confirmationId, adminConfirmationMatches, eligibleDriverTasks, taskFingerprint} from "../pr/driver-confirmations.js?v=2";
 
 const db = initializeFirestore(initializeApp({projectId: "driva-pwa", appId: "1:299138219722:web:623ff6b0a067ea822dfe33"}), {}, "drver-task");
 const field = id => document.getElementById(id);
 const parameters = new URLSearchParams(location.search);
-const side = parameters.get("view") === "driver" ? "driver" : "admin";
 const drivers = new Map();
 let current;
 let busy = false;
@@ -38,17 +37,14 @@ function render(record, model) {
   field("taskCount").textContent = tasks.length;
   field("listHeading").textContent = "Completed tasks for " + driver.name;
   field("cutoffLabel").textContent = from + " to " + to;
-  for (const role of ["admin", "driver"]) field(role + "Status").textContent = status(record?.[role], fingerprint);
-  const ready = confirmationMatches(record, fingerprint, tasks.length);
-  const disputes = ["admin", "driver"].filter(role => record?.[role]?.status === "DISPUTED");
+  field("adminStatus").textContent = status(record?.admin, fingerprint);
+  const ready = adminConfirmationMatches(record, fingerprint, tasks.length);
+  const dispute = record?.admin?.status === "DISPUTED" ? record.admin : null;
   field("reviewStatus").textContent = closed ? "Payroll cutoff closed" : ready ? "Ready for payroll" :
-    disputes.length ? "Reconcile the discrepancy before payroll" : "Waiting for both confirmations";
+    dispute ? "Reconcile the discrepancy before payroll" : "Waiting for task admin confirmation";
   const note = field("reviewNote");
-  note.hidden = !disputes.length;
-  note.textContent = disputes.map(role => {
-    const entry = record[role];
-    return (role === "admin" ? "Admin" : "Driver") + " expected " + entry.count + " · " + entry.reason;
-  }).join(" · ");
+  note.hidden = !dispute;
+  note.textContent = dispute ? "Expected " + dispute.count + " tasks: " + dispute.reason : "";
   const table = field("taskRows");
   table.replaceChildren();
   for (const task of tasks) {
@@ -62,7 +58,7 @@ function render(record, model) {
     cell.className = "empty";
     cell.textContent = "No eligible completed tasks for this cutoff.";
   }
-  field("confirm").disabled = closed || status(record?.[side], fingerprint) === "Confirmed";
+  field("confirm").disabled = closed || status(record?.admin, fingerprint) === "Confirmed";
   field("flag").disabled = closed;
   field("disputeForm").hidden = true;
   field("disputeForm").reset();
@@ -117,12 +113,12 @@ async function submit(dispute) {
       const audit = doc(collection(db, "payrollAuditLogs"));
       transaction.set(model.ref, {
         driverId: model.driverId, from: model.from, to: model.to,
-        [side]: {status: dispute ? "DISPUTED" : "CONFIRMED", count: dispute ? reported : model.tasks.length,
+        admin: {status: dispute ? "DISPUTED" : "CONFIRMED", count: dispute ? reported : model.tasks.length,
           fingerprint: model.fingerprint, reason: dispute ? reason : "", updatedAt: serverTimestamp()}
       }, {merge: true});
       transaction.set(audit, {
         action: dispute ? "DRIVER_COUNT_DISPUTED" : "DRIVER_COUNT_CONFIRMED",
-        payrollRunId: model.from + "_" + model.to, role: side, createdAt: serverTimestamp(),
+        payrollRunId: model.from + "_" + model.to, role: "TASK_ADMIN", createdAt: serverTimestamp(),
         details: {driverId: model.driverId, count: dispute ? reported : model.tasks.length}
       });
     });
@@ -141,10 +137,8 @@ async function submit(dispute) {
 
 async function start() {
   const snapshot = await getDocs(collection(db, "payrollEmployees"));
-  const assigned = side === "driver" ? (localStorage.getItem("driverId") || parameters.get("driver") || "") : "";
   const values = snapshot.docs.map(record => record.data()).filter(employee =>
-    employee.active !== false && employee.driverId?.trim() && (!assigned ||
-      employee.driverId.trim().toUpperCase() === assigned.trim().toUpperCase()));
+    employee.active !== false && employee.driverId?.trim());
   values.sort((a, b) => String(a.name).localeCompare(String(b.name)));
   for (const employee of values) {
     const id = employee.driverId.trim();
@@ -153,10 +147,7 @@ async function start() {
     field("driver").add(new Option(employee.name + " (" + id + ")", id));
   }
   if (!drivers.size) message("Link a driver ID to an active payroll employee first.");
-  if (assigned && drivers.size === 1) {
-    field("driver").value = drivers.keys().next().value;
-    field("driver").disabled = true;
-  } else if (drivers.has(parameters.get("driver"))) {
+  if (drivers.has(parameters.get("driver"))) {
     field("driver").value = parameters.get("driver");
   }
   const today = new Intl.DateTimeFormat("sv-SE", {timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit"}).format(new Date());
@@ -164,12 +155,6 @@ async function start() {
   const firstHalf = Number(today.slice(8)) <= 15;
   field("from").value = parameters.get("from") || (month + (firstHalf ? "-01" : "-16"));
   field("to").value = parameters.get("to") || (firstHalf ? month + "-15" : today);
-}
-
-if (side === "driver") {
-  field("pageTitle").textContent = "Confirm my completed tasks";
-  field("backLink").textContent = "Back to driver app";
-  field("backLink").href = "../driver.html";
 }
 
 field("cutoffForm").addEventListener("input", () => {
@@ -200,4 +185,11 @@ field("disputeForm").addEventListener("submit", event => {
   event.preventDefault();
   submit(true);
 });
-start().catch(error => message(error.message, true));
+if (parameters.get("view") === "driver") {
+  field("cutoffForm").hidden = true;
+  field("backLink").href = "../driver.html";
+  field("backLink").textContent = "Back to driver app";
+  message("Driver confirmation will be available in a later phase.");
+} else {
+  start().catch(error => message(error.message, true));
+}

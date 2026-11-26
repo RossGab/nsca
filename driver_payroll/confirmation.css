@@ -1,5 +1,5 @@
-﻿.driver-confirmation [hidden] { display: none; }
-.driver-confirmation .summary { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 16px; }
+.driver-confirmation [hidden] { display: none; }
+.driver-confirmation .summary { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 16px; }
 .driver-confirmation .summary-card strong { font-size: 18px; }
 .driver-confirmation .table-wrap table { min-width: 0; }
 .driver-confirmation .poc-note { color: #526174; font-size: 13px; }

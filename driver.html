@@ -2190,17 +2190,11 @@ document.getElementById("settingsBtn").onclick = async () => {
 1 - Change Driver ID
 2 - Recover Tasks
 3 - Check Device Storage
-4 - Confirm Payroll Task Count
 
-Enter 1, 2, 3 or 4`
+Enter 1, 2 or 3`
   );
 
   if (!choice) {
-    return;
-  }
-
-  if (choice === "4") {
-    location.href = "./driver_payroll/index.html?view=driver";
     return;
   }
 

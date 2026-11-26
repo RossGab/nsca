@@ -1,4 +1,4 @@
-﻿import {collection, doc, getDoc, getDocs, query, where} from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+import {collection, doc, getDoc, getDocs, query, where} from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import {taskCompletion} from "./driver-earnings.js";
 
 export function confirmationId(driverId, from, to) {
@@ -12,9 +12,9 @@ export async function taskFingerprint(tasks) {
   return Array.from(new Uint8Array(hash), byte => byte.toString(16).padStart(2, "0")).join("");
 }
 
-export function confirmationMatches(record, fingerprint, count) {
-  return ["admin", "driver"].every(side => record?.[side]?.status === "CONFIRMED"
-    && record[side].fingerprint === fingerprint && record[side].count === count);
+export function adminConfirmationMatches(record, fingerprint, count) {
+  const admin = record?.admin;
+  return admin?.status === "CONFIRMED" && admin.fingerprint === fingerprint && admin.count === count;
 }
 
 export async function eligibleDriverTasks(db, linked, from, to) {

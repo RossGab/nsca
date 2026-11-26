@@ -1,4 +1,4 @@
-import { confirmationId, confirmationMatches, eligibleDriverTasks, taskFingerprint } from "./driver-confirmations.js";
+import { confirmationId, adminConfirmationMatches, eligibleDriverTasks, taskFingerprint } from "./driver-confirmations.js?v=2";
 import { taskCompletion, driverCredits } from "./driver-earnings.js";
 import { selectContractEmployee } from "./contract-attachments.js?v=6";
 import{initializeApp}from"https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
@@ -143,14 +143,6 @@ async function applyDriverEarnings(rows, input, from, to) {
 
 function renderDriverReconciliation() {
   const table = $("driverReconciliation");
-  const link = $("confirmDriverCounts");
-  const url = new URL("../driver_payroll/index.html", location.href);
-  if (run) {
-    const [from, to] = run.id.split("_");
-    url.searchParams.set("from", from);
-    url.searchParams.set("to", to);
-  }
-  link.href = url;
   $("driverReconciliationPeriod").textContent = run
     ? run.id.replace("_", " to ") + " ? " + run.status.toLowerCase()
     : "Generate or open a payroll run to review its driver tasks.";
@@ -256,8 +248,8 @@ async function updateRun(id, allowedStatuses, payload, action) {
     }
     await Promise.all(checks.map(async check => {
       const confirmation = (await transaction.get(check.ref)).data();
-      if (!confirmationMatches(confirmation, check.fingerprint, check.count)) {
-        throw new Error("Admin and driver must confirm the current task list for " + check.driverId + " before finalizing.");
+      if (!adminConfirmationMatches(confirmation, check.fingerprint, check.count)) {
+        throw new Error("A task administrator must confirm the current task list for " + check.driverId + " before finalizing.");
       }
     }));
     const taskRecords = await Promise.all(tasks.map(async task => {
