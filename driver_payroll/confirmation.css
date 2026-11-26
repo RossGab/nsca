@@ -1,5 +1,5 @@
 .driver-confirmation [hidden] { display: none; }
-.driver-confirmation .summary { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 16px; }
+.driver-confirmation .summary { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-top: 16px; }
 .driver-confirmation .summary-card strong { font-size: 18px; }
 .driver-confirmation .table-wrap table { min-width: 0; }
 .driver-confirmation .poc-note { color: #526174; font-size: 13px; }
@@ -8,6 +8,9 @@
 .confirmation-actions .action-row { flex-wrap: wrap; margin-top: 12px; }
 .confirmation-actions form { display: grid; gap: 12px; max-width: 420px; margin-top: 14px; }
 .confirmation-actions form button { justify-self: start; }
-@media (max-width: 570px) {
+@media (max-width: 760px) {
+  .driver-confirmation .summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 450px) {
   .driver-confirmation .summary { grid-template-columns: 1fr; }
 }

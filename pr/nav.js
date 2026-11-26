@@ -11,6 +11,7 @@ const groups = [
   ]],
   ["Payroll tools", [
     ["index.html#special-pay", "Special pay"],
+    ["../driver_payroll/index.html?view=payroll", "Driver payroll approval"],
     ["index.html#history", "History"],
     ["payslips.html", "Payslips"],
     ["reports.html", "Reports"]

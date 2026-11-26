@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Driver payroll confirmation</title>
   <link rel="stylesheet" href="../pr/styles.css?v=20">
-  <link rel="stylesheet" href="./confirmation.css">
+  <link rel="stylesheet" href="./confirmation.css?v=2">
 </head>
 <body class="employee-self-service">
   <header class="topbar"><div><div class="eyebrow">NSCA</div><h1 id="pageTitle">Driver task count confirmation</h1></div><a id="backLink" href="../admin.html">Back to admin dashboard</a></header>
@@ -21,7 +21,9 @@
     <div id="result" hidden>
       <section class="summary confirmation-summary" aria-label="Confirmation status">
         <div class="summary-card"><span>Eligible completed tasks</span><strong id="taskCount"></strong></div>
-        <div class="summary-card"><span>Task admin confirmation</span><strong id="adminStatus"></strong></div>
+        <div class="summary-card"><span>Driver</span><strong id="driverStatus"></strong></div>
+        <div class="summary-card"><span>Task admin</span><strong id="adminStatus"></strong></div>
+        <div class="summary-card"><span>Payroll</span><strong id="payrollStatus"></strong></div>
       </section>
       <section class="card table-card">
         <div class="table-heading"><div><h2 id="listHeading">Completed tasks</h2><p id="cutoffLabel"></p></div></div>
@@ -29,6 +31,7 @@
       </section>
       <section class="card confirmation-actions">
         <h2 id="reviewStatus"></h2>
+        <p id="draftEarnings" hidden></p>
         <p id="reviewNote" hidden></p>
         <div class="action-row">
           <button type="button" id="confirm" class="primary">Confirm task count</button>
@@ -42,6 +45,6 @@
       </section>
     </div>
   </main>
-  <script type="module" src="./confirmation.js?v=4"></script>
+  <script type="module" src="./confirmation.js?v=6"></script>
 </body>
 </html>

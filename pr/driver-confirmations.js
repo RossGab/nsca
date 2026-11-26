@@ -12,9 +12,20 @@ export async function taskFingerprint(tasks) {
   return Array.from(new Uint8Array(hash), byte => byte.toString(16).padStart(2, "0")).join("");
 }
 
-export function adminConfirmationMatches(record, fingerprint, count) {
-  const admin = record?.admin;
-  return admin?.status === "CONFIRMED" && admin.fingerprint === fingerprint && admin.count === count;
+export const confirmationStages = ["driver", "admin", "payroll"];
+
+export function stageMatches(record, stage, fingerprint, count) {
+  const entry = record?.[stage];
+  return entry?.status === "CONFIRMED" && entry.fingerprint === fingerprint && entry.count === count;
+}
+
+export function priorStagesMatch(record, stage, fingerprint, count) {
+  return confirmationStages.slice(0, confirmationStages.indexOf(stage))
+    .every(previous => stageMatches(record, previous, fingerprint, count));
+}
+
+export function payrollConfirmationMatches(record, fingerprint, count) {
+  return confirmationStages.every(stage => stageMatches(record, stage, fingerprint, count));
 }
 
 export async function eligibleDriverTasks(db, linked, from, to) {
