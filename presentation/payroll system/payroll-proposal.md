@@ -1,6 +1,8 @@
 # Payroll, Attendance & Driver Earnings
 
-Latest presentation: `payroll-proposal-v6.pptx` adds an Employee Portal slide after System inclusions.
+Client pitch deck: `payroll-project-pitch.pptx`.
+
+Detailed presentation: `payroll-proposal-v7.pptx` includes the Employee Portal and driver-task count confirmation workflow.
 
 Presentation: `payroll-proposal-v4.pptx` includes a final “Included deliverables and exclusions” slide. Initial import volume, training sessions, report formats, and existing retainer limits remain subject to confirmation. Payroll acceptance uses agreed cutoffs reconciled with HR-verified calculations.
 ## A payroll system tailored to your company
@@ -32,7 +34,7 @@ The proposed system brings these inputs together so HR can:
 |---|---|
 | **Payroll & HR** | Employee records, pay rates, leave, earnings, deductions, payroll processing and reports |
 | **Time-in / Time-out** | Browser-based attendance recording, worked hours, lateness, undertime and HR corrections |
-| **Driver-task integration** | Approved task earnings linked to payroll employees, with duplicate-payment checks and reconciliation |
+| **Driver-task integration** | Admin site and driver-app confirmation of completed task counts, with reconciliation and duplicate-payment checks |
 | **Deployment & training** | Initial setup, HR training, user documentation and initial data assistance |
 
 Payroll has its own HR workspace. It reads accepted driver-task completion records from the task system to calculate applicable earnings.
@@ -62,6 +64,8 @@ Company policies and statutory calculations will be confirmed with HR/accounting
 ## 4. Make driver earnings traceable
 
 The integration connects each payroll employee to the corresponding driver record and retrieves centrally accepted completed tasks within the agreed cutoff.
+
+For each payroll cutoff, admins use a dedicated site to review eligible completed tasks and confirm the count for each driver. Drivers review and confirm their own count in the driver app. Admins reconcile any differences before the confirmed tasks are used to calculate earnings.
 
 | Control | Purpose |
 |---|---|

@@ -1,0 +1,48 @@
+﻿<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Driver payroll confirmation</title>
+  <link rel="stylesheet" href="../pr/styles.css?v=20">
+  <link rel="stylesheet" href="./confirmation.css">
+</head>
+<body class="employee-self-service">
+  <header class="topbar"><div><div class="eyebrow">NSCA</div><h1 id="pageTitle">Driver payroll confirmation</h1></div><a id="backLink" href="../pr/index.html">Back to payroll</a></header>
+  <main class="driver-confirmation">
+    <p class="poc-note">Proof of concept · Use sample driver records.</p>
+    <form id="cutoffForm" class="card controls">
+      <div class="field"><label for="driver">Driver</label><select id="driver" required><option value="">Select a driver</option></select></div>
+      <div class="field"><label for="from">Cutoff start</label><input id="from" type="date" required></div>
+      <div class="field"><label for="to">Cutoff end</label><input id="to" type="date" required></div>
+      <button class="primary">Load completed tasks</button>
+    </form>
+    <p id="feedback" class="message" role="status" hidden></p>
+    <div id="result" hidden>
+      <section class="summary confirmation-summary" aria-label="Confirmation status">
+        <div class="summary-card"><span>Eligible completed tasks</span><strong id="taskCount"></strong></div>
+        <div class="summary-card"><span>Admin</span><strong id="adminStatus"></strong></div>
+        <div class="summary-card"><span>Driver</span><strong id="driverStatus"></strong></div>
+      </section>
+      <section class="card table-card">
+        <div class="table-heading"><div><h2 id="listHeading">Completed tasks</h2><p id="cutoffLabel"></p></div></div>
+        <div class="table-wrap"><table><thead><tr><th scope="col">Task ID</th><th scope="col">Completion date</th></tr></thead><tbody id="taskRows"></tbody></table></div>
+      </section>
+      <section class="card confirmation-actions">
+        <h2 id="reviewStatus"></h2>
+        <p id="reviewNote" hidden></p>
+        <div class="action-row">
+          <button type="button" id="confirm" class="primary">Confirm task count</button>
+          <button type="button" id="flag">Report a discrepancy</button>
+        </div>
+        <form id="disputeForm" hidden>
+          <div class="field"><label for="reportedCount">Expected count</label><input id="reportedCount" type="number" min="0" step="1" required></div>
+          <div class="field"><label for="reason">Reason</label><textarea id="reason" maxlength="400" required></textarea></div>
+          <button type="submit">Send discrepancy</button>
+        </form>
+      </section>
+    </div>
+  </main>
+  <script type="module" src="./confirmation.js"></script>
+</body>
+</html>

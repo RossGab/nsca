@@ -1,3 +1,4 @@
+import { confirmationId, confirmationMatches, eligibleDriverTasks, taskFingerprint } from "./driver-confirmations.js";
 import { taskCompletion, driverCredits } from "./driver-earnings.js";
 import { selectContractEmployee } from "./contract-attachments.js?v=6";
 import{initializeApp}from"https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
@@ -114,23 +115,8 @@ async function applyDriverEarnings(rows, input, from, to) {
     linked.set(driverId, {row, startDate: employee.startDate, tasks: []});
   }
   if (!linked.size) return rows;
-  const end = new Date(to + "T00:00:00+08:00");
-  end.setTime(end.getTime() + 86400000);
-  const snapshot = await getDocs(query(collection(db, "TASK"),
-    where("completedAt", ">=", new Date(from + "T00:00:00+08:00")),
-    where("completedAt", "<", end)));
-  const tasks = [];
-  for (const record of snapshot.docs) {
-    const completion = taskCompletion(record.data());
-    const match = linked.get(completion?.driverId);
-    if (match && (!match.startDate || completion.date >= match.startDate)) {
-      tasks.push({taskId: record.id, ...completion});
-    }
-  }
-  const claims = await Promise.all(tasks.map(task => getDoc(doc(db, "payrollTaskClaims", task.taskId))));
-  tasks.forEach((task, index) => {
-    if (!claims[index].exists()) linked.get(task.driverId).tasks.push(task);
-  });
+  const tasks = await eligibleDriverTasks(db, linked, from, to);
+  for (const task of tasks) linked.get(task.driverId).tasks.push(task);
   for (const {row, tasks} of linked.values()) {
     const employee = row.employeeId.toUpperCase();
     const recordedDates = input.attendance.filter(record => String(record.employeeId).toUpperCase() === employee)
@@ -157,6 +143,14 @@ async function applyDriverEarnings(rows, input, from, to) {
 
 function renderDriverReconciliation() {
   const table = $("driverReconciliation");
+  const link = $("confirmDriverCounts");
+  const url = new URL("../driver_payroll/index.html", location.href);
+  if (run) {
+    const [from, to] = run.id.split("_");
+    url.searchParams.set("from", from);
+    url.searchParams.set("to", to);
+  }
+  link.href = url;
   $("driverReconciliationPeriod").textContent = run
     ? run.id.replace("_", " to ") + " ? " + run.status.toLowerCase()
     : "Generate or open a payroll run to review its driver tasks.";
@@ -224,6 +218,31 @@ async function updateRun(id, allowedStatuses, payload, action) {
   const auditRef = doc(collection(db, "payrollAuditLogs"));
   const tasks = action === "FINALIZED" ? payload.rows.flatMap(row =>
     (row.driverTasks || []).map(task => ({...task, employeeId: row.employeeId, rate: row.rate}))) : [];
+  const checks = [];
+  const byDriver = new Map();
+  for (const task of tasks) {
+    if (!byDriver.has(task.driverId)) byDriver.set(task.driverId, []);
+    byDriver.get(task.driverId).push(task);
+  }
+  if (action === "FINALIZED") {
+    await loadEmployees(true);
+    const employeeIds = new Set(payload.rows.map(row => row.employeeId.toUpperCase()));
+    const linked = new Map([...employees.values()]
+      .filter(employee => employeeIds.has(employee.employeeId.toUpperCase()) && employee.driverId?.trim())
+      .map(employee => [employee.driverId.trim(), employee]));
+    if (linked.size || tasks.length) {
+      const latest = linked.size ? await eligibleDriverTasks(db, linked, payload.periodFrom, payload.periodTo) : [];
+      if (await taskFingerprint(latest) !== await taskFingerprint(tasks)) {
+        throw new Error("Driver tasks changed. Refresh the draft and confirm the current counts before finalizing.");
+      }
+    }
+  }
+  for (const [driverId, entries] of byDriver) {
+    checks.push({
+      driverId, count: entries.length, fingerprint: await taskFingerprint(entries),
+      ref: doc(db, "payrollDriverConfirmations", confirmationId(driverId, payload.periodFrom, payload.periodTo))
+    });
+  }
   const dayKeys = [...new Set(tasks.filter(task => task.payableDay)
     .map(task => encodeURIComponent(task.driverId) + "_" + task.date))];
   if (tasks.length + dayKeys.length > 498) {
@@ -235,6 +254,12 @@ async function updateRun(id, allowedStatuses, payload, action) {
     if (!allowedStatuses.includes(currentStatus)) {
       throw new Error("Payroll status changed. Reload the period before continuing.");
     }
+    await Promise.all(checks.map(async check => {
+      const confirmation = (await transaction.get(check.ref)).data();
+      if (!confirmationMatches(confirmation, check.fingerprint, check.count)) {
+        throw new Error("Admin and driver must confirm the current task list for " + check.driverId + " before finalizing.");
+      }
+    }));
     const taskRecords = await Promise.all(tasks.map(async task => {
       const claimRef = doc(db, "payrollTaskClaims", task.taskId);
       const [claim, source] = await Promise.all([
