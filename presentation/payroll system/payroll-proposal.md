@@ -1,6 +1,6 @@
 # Payroll, Attendance & Driver Earnings
 
-Latest presentation: `payroll-proposal-v5.pptx`. The last slide shows only six system inclusions with short definitions: employee records/payroll, contributions/tax, attendance/leave, driver-task earnings, payslips/reports, and setup/training.
+Latest presentation: `payroll-proposal-v6.pptx` adds an Employee Portal slide after System inclusions.
 
 Presentation: `payroll-proposal-v4.pptx` includes a final “Included deliverables and exclusions” slide. Initial import volume, training sessions, report formats, and existing retainer limits remain subject to confirmation. Payroll acceptance uses agreed cutoffs reconciled with HR-verified calculations.
 ## A payroll system tailored to your company
@@ -76,6 +76,12 @@ The integration connects each payroll employee to the corresponding driver recor
 **HR can see both the amount credited and the work behind it.**
 
 ---
+
+## Employee Portal
+
+Employees can view employment details and individual payslips, update their profile photo, and request vacation or sick leave. They can track approval decisions, and approved leave flows into attendance and payroll.
+
+Employees can review and sign employment contracts, approve agreements, and acknowledge documents. The portal keeps employee documents and a record of each decision. One shared sign-in gives employees access to their own records, with HR access governed by role permissions.
 
 ## 5. Choose the payment model that fits your company
 
