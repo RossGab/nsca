@@ -5,14 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Driver payroll confirmation</title>
   <link rel="stylesheet" href="../pr/styles.css?v=20">
-  <link rel="stylesheet" href="./confirmation.css?v=9">
+  <link rel="stylesheet" href="./confirmation.css?v=11">
 </head>
 <body class="employee-self-service">
   <header class="topbar"><div><div class="eyebrow">NSCA</div><h1 id="pageTitle">Driver task count confirmation</h1></div><a id="backLink" href="../admin.html">Back to admin dashboard</a></header>
   <main class="driver-confirmation">
     <p class="poc-note">Proof of concept · Use sample driver records.</p>
     <form id="cutoffForm" class="card controls">
-      <div class="field"><label for="driver">Driver ID</label><input id="driver" maxlength="80" required></div>
+      <div id="driverField" class="field"><label for="driver">Driver ID</label><input id="driver" maxlength="80" required></div>
       <div class="field"><label for="periodMonth">Payroll month</label><input id="periodMonth" type="month" required></div>
       <div class="field"><label for="periodHalf">Payroll period</label><select id="periodHalf">
         <option value="first">1st to 15th</option>
@@ -21,6 +21,10 @@
       <button class="primary">Open cutoff</button>
     </form>
     <p id="feedback" class="message" role="status" hidden></p>
+    <section id="driverRoster" class="card driver-roster" aria-labelledby="rosterHeading" hidden>
+      <div class="table-heading"><div><h2 id="rosterHeading">Drivers with completed tasks</h2><p id="rosterPeriod"></p></div></div>
+      <ul id="rosterList"></ul>
+    </section>
     <div id="result" hidden>
       <section class="summary confirmation-summary" aria-label="Confirmation status">
         <div class="summary-card completed-count"><span>Completed tasks in this period</span><strong id="taskCount"></strong></div>
@@ -37,7 +41,7 @@
           <button type="submit">Add completed task</button>
         </form>
         <section class="task-calendar" aria-labelledby="taskCalendarHeading">
-          <div class="task-calendar-heading"><h3 id="taskCalendarHeading">Completed tasks by day</h3><button id="showAllTasks" type="button" class="small-btn" hidden>Show entire period</button></div>
+          <div class="task-calendar-heading"><h3 id="taskCalendarHeading">Completed tasks by day</h3></div>
           <div class="task-calendar-scroll" role="region" aria-label="Completed tasks calendar" tabindex="0">
             <div class="task-calendar-week" aria-hidden="true"><span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span></div>
             <div id="taskCalendar" class="task-calendar-grid"></div>
@@ -45,24 +49,27 @@
         </section>
         <div id="dayConfirmation" class="day-confirmation" hidden>
           <p id="selectedDaySummary"></p>
-          <button id="confirmDay" type="button" class="primary">Confirm day</button>
+          <p id="reviewNote" role="status" hidden></p>
+          <div class="action-row">
+            <button id="confirmDay" type="button" class="primary">Confirm day</button>
+            <button id="flag" type="button">Report discrepancy for this day</button>
+            <button id="resolveDiscrepancy" type="button" hidden>Resolve discrepancy</button>
+          </div>
+          <form id="disputeForm" hidden>
+            <div class="field"><label for="reportedCount">Expected count</label><input id="reportedCount" type="number" min="0" step="1" required></div>
+            <div class="field"><label for="reason">Reason</label><textarea id="reason" maxlength="400" required></textarea></div>
+            <button type="submit">Send discrepancy</button>
+          </form>
         </div>
-        <p id="reviewNote" hidden></p>
         <div class="action-row">
           <button type="button" id="confirm" class="primary">Confirm task count</button>
-          <button type="button" id="flag">Report a discrepancy</button>
         </div>
-        <form id="disputeForm" hidden>
-          <div class="field"><label for="reportedCount">Expected count</label><input id="reportedCount" type="number" min="0" step="1" required></div>
-          <div class="field"><label for="reason">Reason</label><textarea id="reason" maxlength="400" required></textarea></div>
-          <button type="submit">Send discrepancy</button>
-        </form>
       </section>
       <details id="confirmationHistoryPanel" class="card confirmation-actions" hidden>
         <summary>Confirmation history</summary><ul id="confirmationHistory"></ul>
       </details>
     </div>
   </main>
-  <script type="module" src="./confirmation.js?v=16"></script>
+  <script type="module" src="./confirmation.js?v=19"></script>
 </body>
 </html>

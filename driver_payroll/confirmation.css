@@ -70,3 +70,18 @@
 .confirmation-summary .summary-card.has-discrepancy strong,
 .confirmation-summary .summary-card.has-discrepancy span { color: #713f12; }
 #reviewNote:not([hidden]) { padding: 10px 12px; border-radius: 8px; }
+
+.task-calendar-day.is-disputed { position: relative; background: #fff3d5; border-color: #e8bd62; color: #713f12; }
+.task-calendar-day.is-disputed[aria-pressed="true"] { border-color: #a16207; box-shadow: inset 0 0 0 1px #a16207; }
+.task-calendar-day.is-disputed .task-day-total,
+.task-calendar-day.is-disputed .task-day-check { color: #713f12; }
+
+.driver-roster { margin-top: 16px; }
+.driver-roster ul { list-style: none; margin: 0; padding: 8px 16px 16px; display: grid; gap: 6px; }
+.driver-roster button { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr); gap: 8px; text-align: left; align-items: center; width: 100%; overflow-wrap: anywhere; }
+.driver-roster button[aria-pressed="true"] { background: #dceeff; outline: 1px solid #1167a8; }
+.driver-roster .roster-disputed { color: #713f12; background: #fff3d5; padding: 5px 8px; border-radius: 5px; justify-self: start; }
+@media (max-width: 550px) {
+  .driver-roster button { grid-template-columns: 1fr 1fr; }
+  .driver-roster button span:last-child { grid-column: 1 / -1; }
+}
