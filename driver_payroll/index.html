@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Driver payroll confirmation</title>
   <link rel="stylesheet" href="../pr/styles.css?v=20">
-  <link rel="stylesheet" href="./confirmation.css?v=5">
+  <link rel="stylesheet" href="./confirmation.css?v=6">
 </head>
 <body class="employee-self-service">
   <header class="topbar"><div><div class="eyebrow">NSCA</div><h1 id="pageTitle">Driver task count confirmation</h1></div><a id="backLink" href="../admin.html">Back to admin dashboard</a></header>
@@ -44,14 +44,16 @@
           </div>
         </section>
         <div class="task-list-tools">
-          <div class="field"><label for="taskSearch">Find a task</label><input id="taskSearch" type="search" placeholder="Search task ID"></div>
           <span id="taskPageRange" role="status"></span>
         </div>
         <div class="table-wrap task-list">
-          <table><caption id="taskListCaption">Tasks in this period</caption><thead><tr><th scope="col">Task ID</th><th scope="col">Completion date</th><th scope="col">Driver confirmation</th></tr></thead><tbody id="completedTasks"></tbody></table>
+          <table><caption id="taskListCaption">Tasks in this period</caption><thead><tr><th scope="col">Task ID</th><th scope="col">Completion date</th></tr></thead><tbody id="completedTasks"></tbody></table>
         </div>
         <div id="taskPagination" class="task-pagination" hidden>
           <button id="previousTasks" type="button">Previous</button><button id="nextTasks" type="button">Next</button>
+        </div>
+        <div id="dayConfirmation" class="day-confirmation" hidden>
+          <button id="confirmDay" type="button" class="primary">Confirm day</button>
         </div>
         <p id="reviewNote" hidden></p>
         <div class="action-row">
@@ -69,6 +71,6 @@
       </details>
     </div>
   </main>
-  <script type="module" src="./confirmation.js?v=12"></script>
+  <script type="module" src="./confirmation.js?v=13"></script>
 </body>
 </html>

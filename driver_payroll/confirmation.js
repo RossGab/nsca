@@ -47,11 +47,11 @@ function earlierStagesMatch(record) {
     record?.[role]?.status === "CONFIRMED" && record[role].count === count);
 }
 
-function render(record, model, nextTaskId) {
+function render(record, model) {
   field("result").hidden = false;
   const tasks = record?.tasks || [];
   field("taskCount").textContent = tasks.length;
-  renderTasks(tasks, model, nextTaskId);
+  renderTasks(tasks, model);
   field("cutoffLabel").textContent = model.driverId + " · " + model.from + " to " + model.to;
   for (const role of confirmationStages) {
     const entry = record?.[role];
@@ -135,7 +135,7 @@ function renderCalendar(tasks, model) {
   field("showAllTasks").hidden = !selectedDay;
 }
 
-function renderTasks(tasks, model, nextTaskId) {
+function renderTasks(tasks, model) {
   const {from, to} = model;
   renderCalendar(tasks, model);
   const form = field("sampleTaskForm");
@@ -145,71 +145,40 @@ function renderTasks(tasks, model, nextTaskId) {
   date.max = to;
   if (selectedDay) date.value = selectedDay;
   else if (!date.value || date.value < from || date.value > to) date.value = today >= from && today <= to ? today : from;
-  renderTaskList(model, nextTaskId);
+  renderTaskList(model);
 }
 
-function renderTaskList(model, nextTaskId) {
+function renderTaskList(model) {
   const table = field("completedTasks");
   table.replaceChildren();
-  const query = field("taskSearch").value.trim().toUpperCase();
   const source = selectedDay ? model.tasksByDate.get(selectedDay) || [] : model.sortedTasks;
-  const filtered = query ? source.filter(task => task.id.toUpperCase().includes(query)) : source;
-  taskPage = Math.min(taskPage, Math.max(0, Math.ceil(filtered.length / pageSize) - 1));
+  const total = source.length;
+  taskPage = Math.min(taskPage, Math.max(0, Math.ceil(total / pageSize) - 1));
   const start = taskPage * pageSize;
-  const sorted = filtered.slice(start, start + pageSize);
-  const total = filtered.length;
+  const visible = source.slice(start, start + pageSize);
   field("taskListCaption").textContent = selectedDay ? "Tasks for " + selectedDay : "Tasks in this period";
-  field("taskPageRange").textContent = total ? (start + 1) + " to " + (start + sorted.length) + " of " + total : "0 tasks";
+  field("taskPageRange").textContent = total ? (start + 1) + " to " + (start + visible.length) + " of " + total : "0 tasks";
   field("taskPagination").hidden = total <= pageSize;
   field("previousTasks").disabled = start === 0;
   field("nextTasks").disabled = start + pageSize >= total;
-  for (const task of sorted) {
+  for (const task of visible) {
     const row = table.insertRow();
     row.insertCell().textContent = task.id;
     row.insertCell().textContent = task.date;
-    const cell = row.insertCell();
-    if (stage === "driver") {
-      const label = document.createElement("label");
-      label.className = "check-field";
-      const box = document.createElement("input");
-      box.type = "checkbox";
-      box.checked = task.confirmed;
-      box.dataset.taskId = task.id;
-      box.setAttribute("aria-label", "Confirm task " + task.id);
-      box.addEventListener("change", () => {
-        if (busy) {
-          box.checked = task.confirmed;
-          return;
-        }
-        const next = sorted[sorted.indexOf(task) + 1]?.id || filtered[start + pageSize]?.id;
-        changeTasks(tasks => tasks.map(entry =>
-          entry.id === task.id ? {...entry, confirmed: box.checked} : entry), next || task.id);
-      });
-      label.append(box, task.confirmed ? "Confirmed" : "Confirm task");
-      cell.append(label);
-    } else {
-      cell.textContent = task.confirmed ? "Confirmed" : "Pending";
-    }
   }
-  if (!sorted.length) {
+  if (!visible.length) {
     const cell = table.insertRow().insertCell();
-    cell.colSpan = 3;
+    cell.colSpan = 2;
     cell.className = "empty";
-    cell.textContent = query ? "No tasks match that ID." : selectedDay ? "No completed tasks recorded on this day." : "No completed tasks recorded for this period.";
+    cell.textContent = selectedDay ? "No completed tasks recorded on this day." : "No completed tasks recorded for this period.";
   }
-  if (nextTaskId) {
-    const nextIndex = filtered.findIndex(task => task.id === nextTaskId);
-    if (nextIndex >= 0 && Math.floor(nextIndex / pageSize) !== taskPage) {
-      taskPage = Math.floor(nextIndex / pageSize);
-      renderTaskList(model, nextTaskId);
-      return;
-    }
-    [...table.querySelectorAll("input[data-task-id]")].find(box => box.dataset.taskId === nextTaskId)?.focus({preventScroll: true});
-  }
-
+  const dayConfirmed = total > 0 && source.every(task => task.confirmed);
+  field("dayConfirmation").hidden = stage !== "driver" || !selectedDay || !total;
+  field("confirmDay").disabled = dayConfirmed;
+  field("confirmDay").textContent = dayConfirmed ? "Day confirmed" : "Confirm day (" + total + " tasks)";
 }
 
-async function changeTasks(update, nextTaskId) {
+async function changeTasks(update) {
   if (stage !== "driver" || !current || busy) return;
   const model = current;
   busy = true;
@@ -219,7 +188,7 @@ async function changeTasks(update, nextTaskId) {
       tasks: update(saved?.tasks || []), driver: null, admin: null, payroll: null
     }));
     if (current === model) {
-      setRecord(model, record, nextTaskId);
+      setRecord(model, record);
     }
     if (current?.id === model.id) message("");
   } catch (error) {
@@ -245,7 +214,7 @@ async function load() {
   setRecord(input, record);
 }
 
-function setRecord(input, record, nextTaskId) {
+function setRecord(input, record) {
   const sortedTasks = [...(record?.tasks || [])].sort((a, b) =>
     a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
   const tasksByDate = new Map();
@@ -254,7 +223,7 @@ function setRecord(input, record, nextTaskId) {
     tasksByDate.get(task.date).push(task);
   }
   current = {...input, record, sortedTasks, tasksByDate};
-  render(record, current, nextTaskId);
+  render(record, current);
 }
 
 async function submit(dispute) {
@@ -274,7 +243,7 @@ async function submit(dispute) {
     await updateConfirmation(model.id, saved => {
       if (stage === "driver" && !dispute && (!saved?.tasks?.length || saved.tasks.length !== count
           || saved.tasks.some(task => !task.confirmed))) {
-        throw new Error("Confirm each completed task before sending the list.");
+        throw new Error("Confirm each day with completed tasks before sending the period.");
       }
       if (!earlierStagesMatch(saved) || (stage !== "driver" && saved?.driver?.updatedAt !== model.record?.driver?.updatedAt)) {
         throw new Error("The reported count or approval changed. Open the cutoff again.");
@@ -324,7 +293,6 @@ field("cutoffForm").addEventListener("input", () => {
   current = undefined;
   selectedDay = "";
   taskPage = 0;
-  field("taskSearch").value = "";
   field("result").hidden = true;
   message("");
 });
@@ -348,10 +316,19 @@ field("showAllTasks").addEventListener("click", () => {
   renderTasks(current.record?.tasks || [], current);
   field("taskCalendar").querySelector("button")?.focus();
 });
-field("taskSearch").addEventListener("input", () => {
-  if (!current) return;
-  taskPage = 0;
-  renderTaskList(current);
+field("confirmDay").addEventListener("click", async () => {
+  if (!current || !selectedDay || busy) return;
+  const date = selectedDay;
+  const reviewed = current.tasksByDate.get(date) || [];
+  if (!reviewed.length) return;
+  const ids = new Set(reviewed.map(task => task.id));
+  await changeTasks(tasks => {
+    const actual = tasks.filter(task => task.date === date);
+    if (actual.length !== ids.size || actual.some(task => !ids.has(task.id))) {
+      throw new Error("This day's task list changed. Review the updated count and confirm again.");
+    }
+    return tasks.map(task => task.date === date ? {...task, confirmed: true} : task);
+  });
 });
 for (const [id, step] of [["previousTasks", -1], ["nextTasks", 1]]) {
   field(id).addEventListener("click", () => {
@@ -373,7 +350,8 @@ field("sampleTaskForm").addEventListener("submit", async event => {
     if (tasks.some(task => task.id.toUpperCase() === id.toUpperCase())) {
       throw new Error("That task ID is already recorded for this cutoff.");
     }
-    return [...tasks, {id, date, confirmed: false}];
+    return [...tasks.map(task => task.date === date ? {...task, confirmed: false} : task),
+      {id, date, confirmed: false}];
   });
 });
 field("confirm").addEventListener("click", () => submit(false));

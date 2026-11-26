@@ -36,8 +36,6 @@
 .task-calendar-day .task-day-total { font-size: 17px; color: #123b56; }
 .task-list-tools, .task-pagination { display: flex; justify-content: space-between; align-items: end; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
 .task-list-tools #taskPageRange { color: #526174; font-size: 13px; }
-.task-list .check-field { min-height: 44px; padding: 2px 8px; }
-.task-list .check-field input { width: 20px; height: 20px; }
 @media(max-width: 570px) {
   .driver-confirmation .summary { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
   .confirmation-summary .completed-count { grid-column: 1 / -1; }
@@ -49,5 +47,8 @@
   .task-calendar-day strong { font-size: 11px; }
   .task-calendar-day .task-day-total { font-size: 14px; }
   .task-list th, .task-list td { padding: 8px 5px; overflow-wrap: anywhere; }
-  .task-list .check-field { padding-inline: 0; }
 }
+
+.day-confirmation { margin: 14px 0; }
+.day-confirmation button { min-height: 46px; }
+@media (max-width: 570px) { .day-confirmation button { width: 100%; } }
