@@ -1,17 +1,14 @@
-import {initializeApp} from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-import {collection, doc, getDoc, getDocs, initializeFirestore, runTransaction, serverTimestamp} from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
-import {confirmationId, confirmationStages, eligibleDriverTasks, payrollConfirmationMatches, priorStagesMatch, stageMatches, taskFingerprint} from "../pr/driver-confirmations.js?v=3";
+import { readConfirmation, updateConfirmation } from "./local-confirmations.js";
 
-const db = initializeFirestore(initializeApp({projectId: "driva-pwa", appId: "1:299138219722:web:623ff6b0a067ea822dfe33"}), {}, "drver-task");
+const confirmationStages = ["driver", "admin", "payroll"];
 const field = id => document.getElementById(id);
 const parameters = new URLSearchParams(location.search);
 const requestedStage = parameters.get("view");
 const stage = confirmationStages.includes(requestedStage) ? requestedStage : "admin";
-const stageLabels = {driver: "Driver", admin: "Task admin", payroll: "Payroll"};
-const pageTitles = {driver: "Confirm my completed tasks", admin: "Task Admin to Payroll", payroll: "Payroll confirmation"};
-const buttonLabels = {driver: "Confirm and send to task admin", admin: "Verify and send to payroll", payroll: "Approve for the pay run"};
-const money = new Intl.NumberFormat("en-PH", {style: "currency", currency: "PHP"});
-const drivers = new Map();
+const index = confirmationStages.indexOf(stage);
+const labels = {driver: "Driver", admin: "Task admin", payroll: "Payroll"};
+const pageTitles = {driver: "Report my completed tasks", admin: "Task Admin to Payroll", payroll: "Payroll confirmation"};
+const buttonLabels = {driver: "Send count to task admin", admin: "Verify and send to payroll", payroll: "Approve reported count"};
 let current;
 let busy = false;
 
@@ -23,201 +20,123 @@ function message(text, error = false) {
 }
 
 function selection() {
-  const driverId = field("driver").value;
+  const driverId = field("driver").value.trim().toUpperCase();
   const from = field("from").value;
   const to = field("to").value;
-  const driver = drivers.get(driverId);
-  if (!driver || !from || !to || from > to) throw new Error("Choose a driver and a valid cutoff.");
-  return {driverId, from, to, driver, id: confirmationId(driverId, from, to)};
+  if (!driverId || !from || !to || from > to) throw new Error("Enter a driver ID and a valid cutoff.");
+  return {driverId, from, to, id: JSON.stringify([driverId, from, to])};
 }
 
-function status(entry, fingerprint) {
-  if (!entry) return "Pending";
-  if (entry.fingerprint !== fingerprint) return "Needs reconfirmation";
-  return entry.status === "DISPUTED" ? "Discrepancy" : "Confirmed";
+function earlierStagesMatch(record) {
+  const count = record?.driver?.count;
+  return confirmationStages.slice(0, index).every(role =>
+    record?.[role]?.status === "CONFIRMED" && record[role].count === count);
 }
 
 function render(record, model) {
-  const {tasks, fingerprint, driver, from, to, closed} = model;
   field("result").hidden = false;
-  field("taskCount").textContent = tasks.length;
-  field("listHeading").textContent = "Completed tasks for " + driver.name;
-  field("cutoffLabel").textContent = from + " to " + to;
+  field("taskCount").textContent = record?.driver?.count ?? "Pending";
+  field("cutoffLabel").textContent = model.driverId + " · " + model.from + " to " + model.to;
   for (const role of confirmationStages) {
-    field(role + "Status").textContent = status(record?.[role], fingerprint);
+    const entry = record?.[role];
+    field(role + "Status").textContent = entry?.status === "CONFIRMED"
+      ? "Confirmed · " + entry.count : entry?.status === "DISPUTED" ? "Discrepancy" : "Pending";
   }
-  const ready = payrollConfirmationMatches(record, fingerprint, tasks.length);
-  const stageReady = priorStagesMatch(record, stage, fingerprint, tasks.length);
   const dispute = confirmationStages.find(role => record?.[role]?.status === "DISPUTED");
-  const waiting = confirmationStages.find(role => !stageMatches(record, role, fingerprint, tasks.length));
-  field("reviewStatus").textContent = closed ? "Payroll cutoff closed" : ready ? "Approved for payroll" :
-    dispute ? stageLabels[dispute] + " reported a discrepancy" : "Waiting for " + stageLabels[waiting] + " confirmation";
-  const note = field("reviewNote");
-  note.hidden = !dispute;
-  note.textContent = dispute ? "Expected " + record[dispute].count + " tasks: " + record[dispute].reason : "";
-  const draft = field("draftEarnings");
-  draft.hidden = stage !== "payroll";
-  draft.textContent = model.draftMatches
-    ? "Additional driver earnings in the saved payroll run: " + money.format(model.driverEarnings)
-    : "Save or refresh a payroll draft with this task list before approving.";
-  const table = field("taskRows");
-  table.replaceChildren();
-  for (const task of tasks) {
-    const row = table.insertRow();
-    row.insertCell().textContent = task.taskId;
-    row.insertCell().textContent = task.date;
-  }
-  if (!tasks.length) {
-    const cell = table.insertRow().insertCell();
-    cell.colSpan = 2;
-    cell.className = "empty";
-    cell.textContent = "No eligible completed tasks for this cutoff.";
-  }
-  field("confirm").disabled = closed || !stageReady || (stage === "payroll" && !model.draftMatches)
-    || stageMatches(record, stage, fingerprint, tasks.length);
-  field("flag").disabled = closed || !stageReady;
+  const waiting = confirmationStages.find(role => record?.[role]?.status !== "CONFIRMED");
+  field("reviewStatus").textContent = dispute ? labels[dispute] + " reported a discrepancy" :
+    waiting ? "Waiting for " + labels[waiting] + " confirmation" : "Manual count approved by payroll";
+  field("reviewNote").hidden = !dispute;
+  field("reviewNote").textContent = dispute
+    ? "Expected " + record[dispute].count + " tasks: " + record[dispute].reason : "";
+  field("manualCountField").hidden = stage !== "driver";
+  field("manualCount").value = record?.driver?.count ?? "";
+  field("confirm").disabled = !earlierStagesMatch(record) ||
+    (stage !== "driver" && record?.[stage]?.status === "CONFIRMED");
+  field("flag").disabled = !earlierStagesMatch(record);
   field("disputeForm").hidden = true;
   field("disputeForm").reset();
-}
-
-async function readCutoff(input) {
-  const ref = doc(db, "payrollDriverConfirmations", input.id);
-  const [confirmation, run] = await Promise.all([
-    getDoc(ref), getDoc(doc(db, "payrollRuns", input.from + "_" + input.to))
-  ]);
-  const payroll = run.data();
-  const closed = ["FINALIZED", "PAID"].includes(payroll?.status);
-  const tasks = closed
-    ? (payroll.rows || []).flatMap(row => (row.driverTasks || []).filter(task => task.driverId === input.driverId))
-    : await eligibleDriverTasks(db, new Map([[input.driverId, input.driver]]), input.from, input.to);
-  tasks.sort((a, b) => a.completedAtMs - b.completedAtMs || a.taskId.localeCompare(b.taskId));
-  const fingerprint = await taskFingerprint(tasks);
-  const row = payroll?.rows?.find(entry => entry.driverTasks?.some(task => task.driverId === input.driverId));
-  const draftMatches = Boolean(row && (payroll.status === "DRAFT" || closed)
-    && fingerprint === await taskFingerprint(row.driverTasks));
-  return {model: {...input, ref, tasks, closed, fingerprint, draftMatches, driverEarnings: row?.driverEarnings || 0},
-    record: confirmation.data()};
+  const history = field("confirmationHistory");
+  history.replaceChildren();
+  for (const event of (record?.history || []).slice().reverse()) {
+    const item = document.createElement("li");
+    const date = new Intl.DateTimeFormat("en-PH", {
+      dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Manila"
+    }).format(new Date(event.time));
+    item.textContent = labels[event.stage] + (event.dispute ? " reported a discrepancy" : " confirmed") +
+      " ? " + event.count + " tasks ? " + date;
+    history.append(item);
+  }
+  field("confirmationHistoryPanel").hidden = !history.childElementCount;
 }
 
 async function load() {
   const input = selection();
-  const {model, record} = await readCutoff(input);
+  const record = await readConfirmation(input.id);
   if (selection().id !== input.id) return;
-  current = model;
-  render(record, model);
+  current = {...input, record};
+  render(current.record, current);
 }
 
 async function submit(dispute) {
   if (!current || busy) return;
-  const prior = current;
-  const reported = field("reportedCount").valueAsNumber;
+  const model = current;
   const reason = field("reason").value.trim();
-  if (dispute && (!Number.isSafeInteger(reported) || reported < 0 || !reason)) {
-    message("Enter a whole expected count and a reason.", true);
+  const count = dispute ? field("reportedCount").valueAsNumber : stage === "driver"
+    ? field("manualCount").valueAsNumber : model.record?.driver?.count;
+  if (!Number.isSafeInteger(count) || count < 0 || (dispute && !reason)) {
+    message(dispute ? "Enter a whole expected count and a reason." : "Enter a whole count of zero or more.", true);
     return;
   }
   busy = true;
-  const controls = [field("confirm"), field("flag"), field("disputeForm").querySelector("button")];
-  controls.forEach(control => { control.disabled = true; });
+  const buttons = [field("confirm"), field("flag"), field("disputeForm").querySelector("button")];
+  buttons.forEach(button => { button.disabled = true; });
   try {
-    const {model, record} = await readCutoff(prior);
-    if (current !== prior) return;
-    if (model.closed || model.fingerprint !== prior.fingerprint) {
-      current = model;
-      render(record, model);
-      message(model.closed ? "This payroll cutoff has closed." : "The task list changed. Review the updated list before submitting.", true);
-      return;
-    }
-    await runTransaction(db, async transaction => {
-      const [run, saved] = await Promise.all([
-        transaction.get(doc(db, "payrollRuns", model.from + "_" + model.to)),
-        transaction.get(model.ref)
-      ]);
-      const payroll = run.data();
-      if (["FINALIZED", "PAID"].includes(payroll?.status)) throw new Error("This payroll cutoff has closed.");
-      if (!dispute && stageMatches(saved.data(), stage, model.fingerprint, model.tasks.length)) return;
-      if (!priorStagesMatch(saved.data(), stage, model.fingerprint, model.tasks.length)) {
-        throw new Error("Earlier stages must confirm the current task list first.");
+    await updateConfirmation(model.id, saved => {
+      if (!earlierStagesMatch(saved) || (stage !== "driver" && saved?.driver?.count !== model.record?.driver?.count)) {
+        throw new Error("The reported count or approval changed. Open the cutoff again.");
       }
-      if (stage === "payroll" && !dispute) {
-        const row = payroll?.rows?.find(entry => entry.driverTasks?.some(task => task.driverId === model.driverId));
-        if (payroll?.status !== "DRAFT" || !row || await taskFingerprint(row.driverTasks) !== model.fingerprint) {
-          throw new Error("Save or refresh the matching payroll draft first.");
-        }
-      }
-      const audit = doc(collection(db, "payrollAuditLogs"));
-      const updates = Object.fromEntries(confirmationStages.slice(confirmationStages.indexOf(stage) + 1)
-        .map(role => [role, null]));
-      transaction.set(model.ref, {
-        driverId: model.driverId, from: model.from, to: model.to, ...updates,
-        [stage]: {status: dispute ? "DISPUTED" : "CONFIRMED", count: dispute ? reported : model.tasks.length,
-          fingerprint: model.fingerprint, reason: dispute ? reason : "", updatedAt: serverTimestamp()}
-      }, {merge: true});
-      transaction.set(audit, {
-        action: dispute ? "DRIVER_COUNT_DISPUTED" : "DRIVER_COUNT_CONFIRMED",
-        payrollRunId: model.from + "_" + model.to, role: stage === "admin" ? "TASK_ADMIN" : stage.toUpperCase(), createdAt: serverTimestamp(),
-        details: {driverId: model.driverId, count: dispute ? reported : model.tasks.length}
-      });
+      if (!dispute && saved?.[stage]?.status === "CONFIRMED" && saved[stage].count === count) return saved;
+      const reset = Object.fromEntries(confirmationStages.slice(index + 1).map(role => [role, null]));
+      const time = new Date().toISOString();
+      return {
+        ...saved, driverId: model.driverId, from: model.from, to: model.to, ...reset,
+        [stage]: {status: dispute ? "DISPUTED" : "CONFIRMED", count, reason: dispute ? reason : "", updatedAt: time},
+        history: [...(saved?.history || []), {stage, dispute, count, time}]
+      };
     });
-    if (current === prior) {
-      message(dispute ? "Discrepancy sent for review." : ({driver: "Sent to task admin.", admin: "Sent to payroll.", payroll: "Approved for the pay run."})[stage]);
+    if (current === model) {
       await load();
+      message(dispute ? "Discrepancy recorded." : "Manual count saved.");
     }
   } catch (error) {
-    if (current === prior) message(error.message, true);
+    if (current === model) message(error.message, true);
   } finally {
     busy = false;
-    if (current === prior) controls.forEach(control => { control.disabled = false; });
-    else field("disputeForm").querySelector("button").disabled = false;
-  }
-}
-
-async function start() {
-  const assigned = stage === "driver" ? (localStorage.getItem("driverId") || "").trim() : "";
-  if (stage === "driver" && !assigned) {
-    field("cutoffForm").hidden = true;
-    message("Set your Driver ID in the driver app to continue.", true);
-    return;
-  }
-  const [registry, payroll] = await Promise.allSettled([
-    getDocs(collection(db, "drivers")),
-    getDocs(collection(db, "payrollEmployees"))
-  ]);
-  if (registry.status === "rejected") throw registry.reason;
-  const startDates = new Map();
-  if (payroll.status === "fulfilled") {
-    for (const record of payroll.value.docs) {
-      const employee = record.data();
-      if (employee.active !== false && employee.driverId?.trim()) {
-        startDates.set(employee.driverId.trim(), employee.startDate);
-      }
+    if (current === model) {
+      field("confirm").disabled = false;
+      field("flag").disabled = false;
     }
+    field("disputeForm").querySelector("button").disabled = false;
   }
-  const values = registry.value.docs.map(record => {
-    const driver = record.data();
-    const id = String(driver.driverCode || record.id).trim();
-    return {id, name: driver.name || driver.AGENTNAME || driver.agentName || id, startDate: startDates.get(id)};
-  }).filter(driver => driver.id && (!assigned || driver.id.toUpperCase() === assigned.toUpperCase()));
-  values.sort((a, b) => String(a.name).localeCompare(String(b.name)));
-  for (const driver of values) {
-    if (drivers.has(driver.id)) continue;
-    drivers.set(driver.id, driver);
-    field("driver").add(new Option(driver.name + " (" + driver.id + ")", driver.id));
-  }
-  if (!drivers.size) message("No drivers found. Add a driver from the task admin dashboard.");
-  if (assigned && drivers.size) {
-    field("driver").value = drivers.keys().next().value;
-    field("driver").disabled = true;
-  } else if (drivers.has(parameters.get("driver"))) {
-    field("driver").value = parameters.get("driver");
-  }
-  const today = new Intl.DateTimeFormat("sv-SE", {timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit"}).format(new Date());
-  const month = today.slice(0, 7);
-  const firstHalf = Number(today.slice(8)) <= 15;
-  field("from").value = parameters.get("from") || (month + (firstHalf ? "-01" : "-16"));
-  field("to").value = parameters.get("to") || (firstHalf ? month + "-15" : today);
 }
 
+field("pageTitle").textContent = pageTitles[stage];
+field("confirm").textContent = buttonLabels[stage];
+if (stage === "driver") {
+  field("driver").value = localStorage.getItem("driverId") || "";
+  field("backLink").href = "../driver.html";
+  field("backLink").textContent = "Back to driver app";
+} else if (stage === "payroll") {
+  field("backLink").href = "../pr/index.html";
+  field("backLink").textContent = "Back to payroll";
+}
+if (parameters.has("driver")) field("driver").value = parameters.get("driver");
+const today = new Intl.DateTimeFormat("sv-SE", {timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit"}).format(new Date());
+const month = today.slice(0, 7);
+const firstHalf = Number(today.slice(8)) <= 15;
+field("from").value = parameters.get("from") || (month + (firstHalf ? "-01" : "-16"));
+field("to").value = parameters.get("to") || (firstHalf ? month + "-15" : today);
 field("cutoffForm").addEventListener("input", () => {
   current = undefined;
   field("result").hidden = true;
@@ -228,7 +147,6 @@ field("cutoffForm").addEventListener("submit", async event => {
   const button = field("cutoffForm").querySelector("button");
   button.disabled = true;
   try {
-    message("Loading completed tasks...");
     await load();
     message("");
   } catch (error) {
@@ -246,13 +164,3 @@ field("disputeForm").addEventListener("submit", event => {
   event.preventDefault();
   submit(true);
 });
-field("pageTitle").textContent = pageTitles[stage];
-field("confirm").textContent = buttonLabels[stage];
-if (stage === "driver") {
-  field("backLink").href = "../driver.html";
-  field("backLink").textContent = "Back to driver app";
-} else if (stage === "payroll") {
-  field("backLink").href = "../pr/index.html";
-  field("backLink").textContent = "Back to payroll";
-}
-start().catch(error => message(error.message, true));

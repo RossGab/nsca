@@ -12,26 +12,23 @@
   <main class="driver-confirmation">
     <p class="poc-note">Proof of concept · Use sample driver records.</p>
     <form id="cutoffForm" class="card controls">
-      <div class="field"><label for="driver">Driver</label><select id="driver" required><option value="">Select a driver</option></select></div>
+      <div class="field"><label for="driver">Driver ID</label><input id="driver" maxlength="80" required></div>
       <div class="field"><label for="from">Cutoff start</label><input id="from" type="date" required></div>
       <div class="field"><label for="to">Cutoff end</label><input id="to" type="date" required></div>
-      <button class="primary">Load completed tasks</button>
+      <button class="primary">Open cutoff</button>
     </form>
     <p id="feedback" class="message" role="status" hidden></p>
     <div id="result" hidden>
       <section class="summary confirmation-summary" aria-label="Confirmation status">
-        <div class="summary-card"><span>Eligible completed tasks</span><strong id="taskCount"></strong></div>
+        <div class="summary-card"><span>Driver-reported tasks</span><strong id="taskCount"></strong></div>
         <div class="summary-card"><span>Driver</span><strong id="driverStatus"></strong></div>
         <div class="summary-card"><span>Task admin</span><strong id="adminStatus"></strong></div>
         <div class="summary-card"><span>Payroll</span><strong id="payrollStatus"></strong></div>
       </section>
-      <section class="card table-card">
-        <div class="table-heading"><div><h2 id="listHeading">Completed tasks</h2><p id="cutoffLabel"></p></div></div>
-        <div class="table-wrap"><table><thead><tr><th scope="col">Task ID</th><th scope="col">Completion date</th></tr></thead><tbody id="taskRows"></tbody></table></div>
-      </section>
       <section class="card confirmation-actions">
         <h2 id="reviewStatus"></h2>
-        <p id="draftEarnings" hidden></p>
+        <p id="cutoffLabel"></p>
+        <div id="manualCountField" class="field" hidden><label for="manualCount">Completed tasks</label><input id="manualCount" type="number" min="0" step="1"></div>
         <p id="reviewNote" hidden></p>
         <div class="action-row">
           <button type="button" id="confirm" class="primary">Confirm task count</button>
@@ -43,8 +40,11 @@
           <button type="submit">Send discrepancy</button>
         </form>
       </section>
+      <details id="confirmationHistoryPanel" class="card confirmation-actions" hidden>
+        <summary>Confirmation history</summary><ul id="confirmationHistory"></ul>
+      </details>
     </div>
   </main>
-  <script type="module" src="./confirmation.js?v=6"></script>
+  <script type="module" src="./confirmation.js?v=8"></script>
 </body>
 </html>
