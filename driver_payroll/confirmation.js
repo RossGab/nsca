@@ -1,4 +1,4 @@
-import { readConfirmation, updateConfirmation } from "./local-confirmations.js";
+import { readConfirmation, updateConfirmation } from "./local-confirmations.js?v=2";
 
 const confirmationStages = ["driver", "admin", "payroll"];
 const field = id => document.getElementById(id);
@@ -11,6 +11,9 @@ const pageTitles = {driver: "Report my completed tasks", admin: "Task Admin to P
 const buttonLabels = {driver: "Send confirmed tasks to task admin", admin: "Verify and send to payroll", payroll: "Approve reported count"};
 let current;
 let busy = false;
+let selectedDay = "";
+let taskPage = 0;
+const pageSize = 30;
 
 function message(text, error = false) {
   const feedback = field("feedback");
@@ -44,11 +47,11 @@ function earlierStagesMatch(record) {
     record?.[role]?.status === "CONFIRMED" && record[role].count === count);
 }
 
-function render(record, model) {
+function render(record, model, nextTaskId) {
   field("result").hidden = false;
   const tasks = record?.tasks || [];
   field("taskCount").textContent = tasks.length;
-  renderTasks(tasks, model);
+  renderTasks(tasks, model, nextTaskId);
   field("cutoffLabel").textContent = model.driverId + " · " + model.from + " to " + model.to;
   for (const role of confirmationStages) {
     const entry = record?.[role];
@@ -81,16 +84,85 @@ function render(record, model) {
   field("confirmationHistoryPanel").hidden = !history.childElementCount;
 }
 
-function renderTasks(tasks, {from, to}) {
+function calendarDays(from, to) {
+  const start = Date.parse(from + "T00:00:00Z");
+  const end = Date.parse(to + "T00:00:00Z");
+  const days = Array(new Date(start).getUTCDay()).fill("");
+  for (let time = start; time <= end; time += 86400000) {
+    days.push(new Date(time).toISOString().slice(0, 10));
+  }
+  return days;
+}
+
+function renderCalendar(tasks, model) {
+  const dates = new Map();
+  for (const task of tasks) {
+    const counts = dates.get(task.date) || {completed: 0, confirmed: 0};
+    counts.completed++;
+    if (task.confirmed) counts.confirmed++;
+    dates.set(task.date, counts);
+  }
+  const grid = field("taskCalendar");
+  grid.replaceChildren();
+  for (const date of calendarDays(model.from, model.to)) {
+    if (!date) {
+      const blank = document.createElement("span");
+      blank.setAttribute("aria-hidden", "true");
+      grid.append(blank);
+      continue;
+    }
+    const {completed, confirmed} = dates.get(date) || {completed: 0, confirmed: 0};
+    const day = document.createElement("button");
+    day.type = "button";
+    day.className = "task-calendar-day";
+    day.dataset.date = date;
+    day.setAttribute("aria-pressed", String(selectedDay === date));
+    day.setAttribute("aria-label", date + ", " + completed + " completed, " + confirmed + " confirmed");
+    const number = document.createElement("strong");
+    number.textContent = Number(date.slice(-2));
+    const count = document.createElement("span");
+    count.textContent = completed;
+    count.className = "task-day-total";
+    day.append(number, count);
+    day.addEventListener("click", () => {
+      selectedDay = date;
+      taskPage = 0;
+      renderTasks(tasks, model);
+      grid.querySelector('[data-date="' + date + '"]')?.focus();
+    });
+    grid.append(day);
+  }
+  field("showAllTasks").hidden = !selectedDay;
+}
+
+function renderTasks(tasks, model, nextTaskId) {
+  const {from, to} = model;
+  renderCalendar(tasks, model);
   const form = field("sampleTaskForm");
   form.hidden = stage !== "driver";
   const date = field("sampleTaskDate");
   date.min = from;
   date.max = to;
-  if (!date.value || date.value < from || date.value > to) date.value = today >= from && today <= to ? today : from;
+  if (selectedDay) date.value = selectedDay;
+  else if (!date.value || date.value < from || date.value > to) date.value = today >= from && today <= to ? today : from;
+  renderTaskList(model, nextTaskId);
+}
+
+function renderTaskList(model, nextTaskId) {
   const table = field("completedTasks");
   table.replaceChildren();
-  const sorted = [...tasks].sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
+  const query = field("taskSearch").value.trim().toUpperCase();
+  const source = selectedDay ? model.tasksByDate.get(selectedDay) || [] : model.sortedTasks;
+  const filtered = query ? source.filter(task => task.id.toUpperCase().includes(query)) : source;
+  taskPage = Math.min(taskPage, Math.max(0, Math.ceil(filtered.length / pageSize) - 1));
+  const start = taskPage * pageSize;
+  const sorted = filtered.slice(start, start + pageSize);
+  const total = filtered.length;
+  field("taskListCaption").textContent = selectedDay ? "Tasks for " + selectedDay : "Tasks in this period";
+  field("taskPageRange").textContent = total ? (start + 1) + " to " + (start + sorted.length) + " of " + total : "0 tasks";
+  field("taskPagination").hidden = total <= pageSize;
+  field("previousTasks").disabled = start === 0;
+  field("nextTasks").disabled = start + pageSize >= total;
   for (const task of sorted) {
     const row = table.insertRow();
     row.insertCell().textContent = task.id;
@@ -102,14 +174,16 @@ function renderTasks(tasks, {from, to}) {
       const box = document.createElement("input");
       box.type = "checkbox";
       box.checked = task.confirmed;
+      box.dataset.taskId = task.id;
       box.setAttribute("aria-label", "Confirm task " + task.id);
       box.addEventListener("change", () => {
         if (busy) {
           box.checked = task.confirmed;
           return;
         }
+        const next = sorted[sorted.indexOf(task) + 1]?.id || filtered[start + pageSize]?.id;
         changeTasks(tasks => tasks.map(entry =>
-          entry.id === task.id ? {...entry, confirmed: box.checked} : entry));
+          entry.id === task.id ? {...entry, confirmed: box.checked} : entry), next || task.id);
       });
       label.append(box, task.confirmed ? "Confirmed" : "Confirm task");
       cell.append(label);
@@ -121,20 +195,32 @@ function renderTasks(tasks, {from, to}) {
     const cell = table.insertRow().insertCell();
     cell.colSpan = 3;
     cell.className = "empty";
-    cell.textContent = "No completed tasks recorded for this period.";
+    cell.textContent = query ? "No tasks match that ID." : selectedDay ? "No completed tasks recorded on this day." : "No completed tasks recorded for this period.";
   }
+  if (nextTaskId) {
+    const nextIndex = filtered.findIndex(task => task.id === nextTaskId);
+    if (nextIndex >= 0 && Math.floor(nextIndex / pageSize) !== taskPage) {
+      taskPage = Math.floor(nextIndex / pageSize);
+      renderTaskList(model, nextTaskId);
+      return;
+    }
+    [...table.querySelectorAll("input[data-task-id]")].find(box => box.dataset.taskId === nextTaskId)?.focus({preventScroll: true});
+  }
+
 }
 
-async function changeTasks(update) {
+async function changeTasks(update, nextTaskId) {
   if (stage !== "driver" || !current || busy) return;
   const model = current;
   busy = true;
   try {
-    await updateConfirmation(model.id, saved => ({
+    const record = await updateConfirmation(model.id, saved => ({
       ...saved, driverId: model.driverId, from: model.from, to: model.to,
       tasks: update(saved?.tasks || []), driver: null, admin: null, payroll: null
     }));
-    if (current === model) await load();
+    if (current === model) {
+      setRecord(model, record, nextTaskId);
+    }
     if (current?.id === model.id) message("");
   } catch (error) {
     if (current === model) {
@@ -150,8 +236,25 @@ async function load() {
   const input = selection();
   const record = await readConfirmation(input.id);
   if (selection().id !== input.id) return;
-  current = {...input, record};
-  render(current.record, current);
+  if (!current || current.id !== input.id) {
+    const dates = (record?.tasks || []).map(task => task.date);
+    const latest = dates.reduce((max, date) => date > max ? date : max, input.from);
+    selectedDay = dates.includes(today) || (!dates.length && today >= input.from && today <= input.to) ? today : latest;
+    taskPage = 0;
+  }
+  setRecord(input, record);
+}
+
+function setRecord(input, record, nextTaskId) {
+  const sortedTasks = [...(record?.tasks || [])].sort((a, b) =>
+    a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
+  const tasksByDate = new Map();
+  for (const task of sortedTasks) {
+    if (!tasksByDate.has(task.date)) tasksByDate.set(task.date, []);
+    tasksByDate.get(task.date).push(task);
+  }
+  current = {...input, record, sortedTasks, tasksByDate};
+  render(record, current, nextTaskId);
 }
 
 async function submit(dispute) {
@@ -219,6 +322,9 @@ field("periodMonth").value = defaultDate.slice(0, 7);
 field("periodHalf").value = Number(defaultDate.slice(8)) <= 15 ? "first" : "second";
 field("cutoffForm").addEventListener("input", () => {
   current = undefined;
+  selectedDay = "";
+  taskPage = 0;
+  field("taskSearch").value = "";
   field("result").hidden = true;
   message("");
 });
@@ -235,6 +341,25 @@ field("cutoffForm").addEventListener("submit", async event => {
     button.disabled = false;
   }
 });
+field("showAllTasks").addEventListener("click", () => {
+  if (!current) return;
+  selectedDay = "";
+  taskPage = 0;
+  renderTasks(current.record?.tasks || [], current);
+  field("taskCalendar").querySelector("button")?.focus();
+});
+field("taskSearch").addEventListener("input", () => {
+  if (!current) return;
+  taskPage = 0;
+  renderTaskList(current);
+});
+for (const [id, step] of [["previousTasks", -1], ["nextTasks", 1]]) {
+  field(id).addEventListener("click", () => {
+    if (!current) return;
+    taskPage += step;
+    renderTaskList(current);
+  });
+}
 field("sampleTaskForm").addEventListener("submit", async event => {
   event.preventDefault();
   if (!current) return;

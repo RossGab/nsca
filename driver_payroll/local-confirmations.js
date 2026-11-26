@@ -1,4 +1,4 @@
-﻿let database;
+let database;
 
 function openDatabase() {
   if (!database) {
@@ -30,12 +30,14 @@ export async function updateConfirmation(id, updater) {
     const transaction = db.transaction("confirmations", "readwrite");
     const store = transaction.objectStore("confirmations");
     let updateError;
-    transaction.oncomplete = () => resolve();
+    let updated;
+    transaction.oncomplete = () => resolve(updated);
     transaction.onabort = () => reject(updateError || transaction.error);
     const request = store.get(id);
     request.onsuccess = () => {
       try {
-        store.put(updater(request.result), id);
+        updated = updater(request.result);
+        if (updated !== request.result) store.put(updated, id);
       } catch (error) {
         updateError = error;
         transaction.abort();

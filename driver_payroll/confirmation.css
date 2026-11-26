@@ -20,3 +20,34 @@
 @media (max-width: 570px) {
   .confirmation-actions #sampleTaskForm { grid-template-columns: 1fr; }
 }
+
+.task-calendar { margin-top: 18px; }
+.task-calendar-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.task-calendar-heading h3 { margin: 0; font-size: 16px; }
+.task-calendar-scroll { overflow-x: auto; padding: 4px; }
+.task-calendar-week, .task-calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; min-width: 440px; }
+.task-calendar-week { padding-bottom: 5px; text-align: center; color: #526174; font-size: 12px; }
+.task-calendar-day { display: grid; align-content: start; gap: 3px; min-height: 64px; padding: 7px; border: 1px solid #dce4ed; background: #f4f7fb; text-align: left; }
+.task-calendar-day[aria-pressed="true"] { background: #dceeff; border-color: #1167a8; }
+.task-calendar-day span, .task-calendar-day small { font-size: 11px; color: #42526a; }
+#taskListCaption { padding: 0 0 8px; text-align: left; font-weight: 700; }
+
+.task-day-total { font-weight: 800; }
+.task-calendar-day .task-day-total { font-size: 17px; color: #123b56; }
+.task-list-tools, .task-pagination { display: flex; justify-content: space-between; align-items: end; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+.task-list-tools #taskPageRange { color: #526174; font-size: 13px; }
+.task-list .check-field { min-height: 44px; padding: 2px 8px; }
+.task-list .check-field input { width: 20px; height: 20px; }
+@media(max-width: 570px) {
+  .driver-confirmation .summary { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
+  .confirmation-summary .completed-count { grid-column: 1 / -1; }
+  .confirmation-summary .completed-count strong { font-size: 32px; }
+  .confirmation-summary .summary-card:not(.completed-count) { padding: 8px; }
+  .confirmation-summary .summary-card:not(.completed-count) strong { font-size: 12px; }
+  .task-calendar-week, .task-calendar-grid { min-width: 0; gap: 3px; }
+  .task-calendar-day { min-height: 52px; padding: 4px 0; text-align: center; }
+  .task-calendar-day strong { font-size: 11px; }
+  .task-calendar-day .task-day-total { font-size: 14px; }
+  .task-list th, .task-list td { padding: 8px 5px; overflow-wrap: anywhere; }
+  .task-list .check-field { padding-inline: 0; }
+}
