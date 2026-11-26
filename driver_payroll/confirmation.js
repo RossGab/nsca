@@ -18,7 +18,7 @@ const rosterStatuses = stage === "payroll" ? {
   discrepancy: "Discrepancies", ready: "Ready for payroll", approved: "Approved by Payroll"
 } : {
   all: "All drivers", waiting: "Waiting for driver", discrepancy: "Discrepancies",
-  ready: "Ready for task admin", sent: "Sent to Payroll"
+  ready: "Ready for task admin", sent: "Sent to Payroll", approved: "Approved by Payroll"
 };
 let rosterFilter = "all";
 let rosterDrivers = [];
@@ -57,8 +57,8 @@ async function loadDriverRoster() {
 
 function driverRosterStatus(driver) {
   if (driver.openDiscrepancies) return "discrepancy";
+  if (driver.payrollStatus === "CONFIRMED") return "approved";
   if (stage === "payroll") {
-    if (driver.payrollStatus === "CONFIRMED") return "approved";
     if (driver.adminStatus === "CONFIRMED") return "ready";
     return driver.driverStatus === "CONFIRMED" ? "adminReview" : "waiting";
   }
@@ -76,6 +76,7 @@ function renderDriverRoster() {
     button.querySelector("strong").textContent = groups[status].length;
     button.setAttribute("aria-pressed", String(status === rosterFilter));
   }
+  updateBulkApproval(groups.ready.length);
   const rows = groups[rosterFilter];
   field("rosterResultCount").textContent = rows.length + (rows.length === 1 ? " driver" : " drivers") + " shown";
   const list = field("rosterList");
@@ -340,6 +341,14 @@ async function saveAction(update, success) {
   }
 }
 
+function confirmedRecord(saved, count) {
+  if (saved?.[stage]?.status === "CONFIRMED" && saved[stage].count === count) return saved;
+  const reset = Object.fromEntries(confirmationStages.slice(index + 1).map(role => [role, null]));
+  const time = new Date().toISOString();
+  return {...saved, ...reset, [stage]: {status: "CONFIRMED", count, updatedAt: time},
+    history: [...(saved?.history || []), {stage, count, time}]};
+}
+
 function submitConfirmation() {
   saveAction((saved, model) => {
     if (openDayDisputes(saved).length) throw new Error("Resolve the open discrepancies before sending this cutoff.");
@@ -351,12 +360,61 @@ function submitConfirmation() {
     if (!earlierStagesMatch(saved) || (stage !== "driver" && saved?.driver?.updatedAt !== model.record?.driver?.updatedAt)) {
       throw new Error("The reported count or approval changed. Open the cutoff again.");
     }
-    if (saved?.[stage]?.status === "CONFIRMED" && saved[stage].count === count) return saved;
-    const reset = Object.fromEntries(confirmationStages.slice(index + 1).map(role => [role, null]));
-    const time = new Date().toISOString();
-    return {...saved, ...reset, [stage]: {status: "CONFIRMED", count, updatedAt: time},
-      history: [...(saved?.history || []), {stage, count, time}]};
+    return confirmedRecord(saved, count);
   }, "Confirmation saved.");
+}
+
+function updateBulkApproval(readyCount) {
+  const button = field("approveReadyDrivers");
+  button.hidden = stage !== "payroll";
+  button.disabled = busy || !readyCount;
+  button.textContent = readyCount ? "Approve all ready drivers (" + readyCount + ")" : "Approve all ready drivers";
+}
+
+function approveReadyRecord(saved, driver) {
+  if (!saved || openDayDisputes(saved).length || !earlierStagesMatch(saved)
+      || saved.payroll?.status === "CONFIRMED" || saved.admin.count !== driver.count) return saved;
+  return confirmedRecord(saved, driver.count);
+}
+
+async function approveAllReadyDrivers() {
+  if (stage !== "payroll" || busy) return;
+  const candidates = rosterDrivers.filter(driver => driverRosterStatus(driver) === "ready");
+  if (!candidates.length) return;
+  const selected = current;
+  busy = true;
+  updateBulkApproval(candidates.length);
+  try {
+    const outcomes = await Promise.allSettled(candidates.map(async driver => {
+      const id = JSON.stringify([driver.driverId, driver.from, driver.to]);
+      let approved = false;
+      const record = await updateConfirmation(id, saved => {
+        const result = approveReadyRecord(saved, driver);
+        approved = result !== saved;
+        return result;
+      });
+      return {id, record, approved};
+    }));
+    let approved = 0;
+    let skipped = 0;
+    let failed = 0;
+    for (const outcome of outcomes) {
+      if (outcome.status === "rejected") { failed++; continue; }
+      const result = outcome.value;
+      if (result.approved) approved++;
+      else skipped++;
+      if (selected && current === selected && selected.id === result.id) setRecord(selected, result.record);
+    }
+    await loadDriverRoster();
+    message("Approved " + approved + (approved === 1 ? " driver." : " drivers.") +
+      (skipped ? " Skipped " + skipped + " whose status or count changed." : "") +
+      (failed ? " Could not save " + failed + "." : ""), failed > 0);
+  } catch (error) {
+    message(error.message, true);
+  } finally {
+    busy = false;
+    updateBulkApproval(rosterDrivers.filter(driver => driverRosterStatus(driver) === "ready").length);
+  }
 }
 
 function reportDayDiscrepancy() {
@@ -527,6 +585,7 @@ field("sampleTaskForm").addEventListener("submit", async event => {
   }, {date, confirmed: false});
 });
 field("confirm").addEventListener("click", submitConfirmation);
+field("approveReadyDrivers").addEventListener("click", approveAllReadyDrivers);
 field("adminResolutionForm").addEventListener("submit", event => {
   event.preventDefault();
   saveAdminResolution();
@@ -541,4 +600,10 @@ field("disputeForm").addEventListener("submit", event => {
   reportDayDiscrepancy();
 });
 
-if (hasRoster) loadDriverRoster().catch(error => message(error.message, true));
+if (hasRoster) {
+  const refreshRoster = () => loadDriverRoster().catch(error => message(error.message, true));
+  refreshRoster();
+  window.addEventListener("focus", () => {
+    if (!field("driverRoster").hidden && !busy) refreshRoster();
+  });
+}
