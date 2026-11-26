@@ -1,7 +1,6 @@
 .driver-confirmation [hidden] { display: none; }
 .driver-confirmation .summary { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-top: 16px; }
 .driver-confirmation .summary-card strong { font-size: 18px; }
-.driver-confirmation .table-wrap table { min-width: 0; }
 .driver-confirmation .poc-note { color: #526174; font-size: 13px; }
 .driver-confirmation .controls select { width: 100%; max-width: 300px; }
 .confirmation-actions { padding: 16px; margin-top: 16px; }
@@ -15,7 +14,6 @@
   .driver-confirmation .summary { grid-template-columns: 1fr; }
 }
 
-.confirmation-actions .table-wrap { margin-top: 16px; }
 .confirmation-actions #sampleTaskForm { grid-template-columns: 1fr 1fr; max-width: 580px; }
 @media (max-width: 570px) {
   .confirmation-actions #sampleTaskForm { grid-template-columns: 1fr; }
@@ -30,12 +28,9 @@
 .task-calendar-day { display: grid; align-content: start; gap: 3px; min-height: 64px; padding: 7px; border: 1px solid #dce4ed; background: #f4f7fb; text-align: left; }
 .task-calendar-day[aria-pressed="true"] { background: #dceeff; border-color: #1167a8; }
 .task-calendar-day span, .task-calendar-day small { font-size: 11px; color: #42526a; }
-#taskListCaption { padding: 0 0 8px; text-align: left; font-weight: 700; }
 
 .task-day-total { font-weight: 800; }
 .task-calendar-day .task-day-total { font-size: 17px; color: #123b56; }
-.task-list-tools, .task-pagination { display: flex; justify-content: space-between; align-items: end; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
-.task-list-tools #taskPageRange { color: #526174; font-size: 13px; }
 @media(max-width: 570px) {
   .driver-confirmation .summary { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
   .confirmation-summary .completed-count { grid-column: 1 / -1; }
@@ -46,9 +41,32 @@
   .task-calendar-day { min-height: 52px; padding: 4px 0; text-align: center; }
   .task-calendar-day strong { font-size: 11px; }
   .task-calendar-day .task-day-total { font-size: 14px; }
-  .task-list th, .task-list td { padding: 8px 5px; overflow-wrap: anywhere; }
 }
 
 .day-confirmation { margin: 14px 0; }
 .day-confirmation button { min-height: 46px; }
 @media (max-width: 570px) { .day-confirmation button { width: 100%; } }
+
+.task-calendar-day.is-confirmed {
+  position: relative;
+  background: #dcfce7;
+  border-color: #86c99c;
+  color: #14532d;
+}
+.task-calendar-day.is-confirmed[aria-pressed="true"] {
+  box-shadow: inset 0 0 0 1px #166534;
+  border-color: #166534;
+}
+.task-calendar-day.is-confirmed .task-day-total,
+.task-calendar-day .task-day-check { color: #166534; }
+.task-calendar-day .task-day-check { position: absolute; top: 3px; right: 4px; font-weight: 800; }
+
+.confirmation-summary .summary-card.has-discrepancy,
+#reviewNote:not([hidden]) {
+  background: #fff3d5;
+  border: 1px solid #e8bd62;
+  color: #713f12;
+}
+.confirmation-summary .summary-card.has-discrepancy strong,
+.confirmation-summary .summary-card.has-discrepancy span { color: #713f12; }
+#reviewNote:not([hidden]) { padding: 10px 12px; border-radius: 8px; }

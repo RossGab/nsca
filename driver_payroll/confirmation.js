@@ -12,8 +12,6 @@ const buttonLabels = {driver: "Send confirmed tasks to task admin", admin: "Veri
 let current;
 let busy = false;
 let selectedDay = "";
-let taskPage = 0;
-const pageSize = 30;
 
 function message(text, error = false) {
   const feedback = field("feedback");
@@ -55,7 +53,9 @@ function render(record, model) {
   field("cutoffLabel").textContent = model.driverId + " · " + model.from + " to " + model.to;
   for (const role of confirmationStages) {
     const entry = record?.[role];
-    field(role + "Status").textContent = entry?.status === "CONFIRMED"
+    const status = field(role + "Status");
+    status.closest(".summary-card").classList.toggle("has-discrepancy", entry?.status === "DISPUTED");
+    status.textContent = entry?.status === "CONFIRMED"
       ? "Confirmed · " + entry.count : entry?.status === "DISPUTED" ? "Discrepancy" : "Pending";
   }
   const dispute = confirmationStages.find(role => record?.[role]?.status === "DISPUTED");
@@ -114,7 +114,9 @@ function renderCalendar(tasks, model) {
     const {completed, confirmed} = dates.get(date) || {completed: 0, confirmed: 0};
     const day = document.createElement("button");
     day.type = "button";
+    const dayConfirmed = completed > 0 && completed === confirmed;
     day.className = "task-calendar-day";
+    day.classList.toggle("is-confirmed", dayConfirmed);
     day.dataset.date = date;
     day.setAttribute("aria-pressed", String(selectedDay === date));
     day.setAttribute("aria-label", date + ", " + completed + " completed, " + confirmed + " confirmed");
@@ -124,9 +126,15 @@ function renderCalendar(tasks, model) {
     count.textContent = completed;
     count.className = "task-day-total";
     day.append(number, count);
+    if (dayConfirmed) {
+      const check = document.createElement("span");
+      check.className = "task-day-check";
+      check.textContent = "\u2713";
+      check.setAttribute("aria-hidden", "true");
+      day.append(check);
+    }
     day.addEventListener("click", () => {
       selectedDay = date;
-      taskPage = 0;
       renderTasks(tasks, model);
       grid.querySelector('[data-date="' + date + '"]')?.focus();
     });
@@ -145,37 +153,18 @@ function renderTasks(tasks, model) {
   date.max = to;
   if (selectedDay) date.value = selectedDay;
   else if (!date.value || date.value < from || date.value > to) date.value = today >= from && today <= to ? today : from;
-  renderTaskList(model);
+  renderDayConfirmation(model);
 }
 
-function renderTaskList(model) {
-  const table = field("completedTasks");
-  table.replaceChildren();
-  const source = selectedDay ? model.tasksByDate.get(selectedDay) || [] : model.sortedTasks;
-  const total = source.length;
-  taskPage = Math.min(taskPage, Math.max(0, Math.ceil(total / pageSize) - 1));
-  const start = taskPage * pageSize;
-  const visible = source.slice(start, start + pageSize);
-  field("taskListCaption").textContent = selectedDay ? "Tasks for " + selectedDay : "Tasks in this period";
-  field("taskPageRange").textContent = total ? (start + 1) + " to " + (start + visible.length) + " of " + total : "0 tasks";
-  field("taskPagination").hidden = total <= pageSize;
-  field("previousTasks").disabled = start === 0;
-  field("nextTasks").disabled = start + pageSize >= total;
-  for (const task of visible) {
-    const row = table.insertRow();
-    row.insertCell().textContent = task.id;
-    row.insertCell().textContent = task.date;
-  }
-  if (!visible.length) {
-    const cell = table.insertRow().insertCell();
-    cell.colSpan = 2;
-    cell.className = "empty";
-    cell.textContent = selectedDay ? "No completed tasks recorded on this day." : "No completed tasks recorded for this period.";
-  }
-  const dayConfirmed = total > 0 && source.every(task => task.confirmed);
-  field("dayConfirmation").hidden = stage !== "driver" || !selectedDay || !total;
+function renderDayConfirmation(model) {
+  const tasks = model.tasksByDate.get(selectedDay) || [];
+  const total = tasks.length;
+  const dayConfirmed = total > 0 && tasks.every(task => task.confirmed);
+  field("dayConfirmation").hidden = !selectedDay;
+  field("selectedDaySummary").textContent = selectedDay + ": " + total + " completed " + (total === 1 ? "task" : "tasks");
+  field("confirmDay").hidden = stage !== "driver" || !total;
   field("confirmDay").disabled = dayConfirmed;
-  field("confirmDay").textContent = dayConfirmed ? "Day confirmed" : "Confirm day (" + total + " tasks)";
+  field("confirmDay").textContent = dayConfirmed ? "Day confirmed" : "Confirm day";
 }
 
 async function changeTasks(update) {
@@ -209,20 +198,17 @@ async function load() {
     const dates = (record?.tasks || []).map(task => task.date);
     const latest = dates.reduce((max, date) => date > max ? date : max, input.from);
     selectedDay = dates.includes(today) || (!dates.length && today >= input.from && today <= input.to) ? today : latest;
-    taskPage = 0;
   }
   setRecord(input, record);
 }
 
 function setRecord(input, record) {
-  const sortedTasks = [...(record?.tasks || [])].sort((a, b) =>
-    a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
   const tasksByDate = new Map();
-  for (const task of sortedTasks) {
+  for (const task of record?.tasks || []) {
     if (!tasksByDate.has(task.date)) tasksByDate.set(task.date, []);
     tasksByDate.get(task.date).push(task);
   }
-  current = {...input, record, sortedTasks, tasksByDate};
+  current = {...input, record, tasksByDate};
   render(record, current);
 }
 
@@ -292,7 +278,6 @@ field("periodHalf").value = Number(defaultDate.slice(8)) <= 15 ? "first" : "seco
 field("cutoffForm").addEventListener("input", () => {
   current = undefined;
   selectedDay = "";
-  taskPage = 0;
   field("result").hidden = true;
   message("");
 });
@@ -312,7 +297,6 @@ field("cutoffForm").addEventListener("submit", async event => {
 field("showAllTasks").addEventListener("click", () => {
   if (!current) return;
   selectedDay = "";
-  taskPage = 0;
   renderTasks(current.record?.tasks || [], current);
   field("taskCalendar").querySelector("button")?.focus();
 });
@@ -330,13 +314,6 @@ field("confirmDay").addEventListener("click", async () => {
     return tasks.map(task => task.date === date ? {...task, confirmed: true} : task);
   });
 });
-for (const [id, step] of [["previousTasks", -1], ["nextTasks", 1]]) {
-  field(id).addEventListener("click", () => {
-    if (!current) return;
-    taskPage += step;
-    renderTaskList(current);
-  });
-}
 field("sampleTaskForm").addEventListener("submit", async event => {
   event.preventDefault();
   if (!current) return;
