@@ -69,7 +69,7 @@
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Upload Driver Task Export <span class="app-version">V.R.1.2.2</span></h1>
+      <h1 class="app-title">Upload Driver Task Export <span class="app-version">V.R.1.2.3</span></h1>
       <p class="app-subtitle">Imports files produced by Driver Sync Option 2.</p>
     </div>
   </div>
@@ -142,7 +142,8 @@
     <ul class="message-list">
       <li><strong>Completed</strong> — The task was accepted and saved.</li>
       <li><strong>Already completed</strong> — The task was previously completed. No changes were made.</li>
-      <li><strong>Driver mismatch</strong> — The task now belongs to another driver. No changes were made.</li>
+      <li><strong>Driver mismatch</strong> — The export driver matches neither the current driver nor the recorded previous driver of a transferred task. No changes were made.</li>
+      <li><strong>Transferred task</strong> ? An export from the recorded previous driver can be accepted. The current assignment stays unchanged and the completing driver is recorded.</li>
       <li><strong>Task deleted</strong> — The administrator previously removed the task. It is listed for review and is not restored automatically.</li>
       <li><strong>Failed</strong> — Keep the JSON file and check the task results table before trying again.</li>
     </ul>
@@ -558,19 +559,26 @@ async function uploadTask(task, relatedPhotos, options = {}) {
   const expectedDriver = safeId(task.driverId || exportData.driverId).toUpperCase();
   // agentId is the canonical assignment field; driverId is legacy fallback.
   const actualDriver = safeId(existing.agentId || existing.driverId).toUpperCase();
-  if (expectedDriver && actualDriver && expectedDriver !== actualDriver) {
-    return {
-      skipped: true,
-      category: "driverMismatch",
-      reason: `driver mismatch: export=${expectedDriver}, Firestore=${actualDriver}`,
-      createdAt: existing.createdAt || task.createdAt || task.createdDate || null
-    };
-  }
+  const previousDriver = safeId(existing.lastTransferredFromAgentId || existing.lastTransferredFromAgentName).toUpperCase();
+  const fromPreviousDriver = Boolean(expectedDriver && actualDriver && expectedDriver !== actualDriver &&
+    existing.transferredAt && previousDriver === expectedDriver);
+  const assignmentDetails = fromPreviousDriver
+    ? `Export from recorded previous driver ${expectedDriver}; current assigned driver ${actualDriver}`
+    : `export=${expectedDriver || "Unknown"}, current assigned driver=${actualDriver || "Unknown"}`;
+  // Deletion takes priority, including when the task was also transferred.
   if (existing.deleted === true && !options.restoreDeleted) {
     return {
       skipped: true,
       category: "deleted",
-      reason: "task was deleted by an administrator",
+      reason: `Task deleted by an administrator. ${assignmentDetails}. Review before restoring.`,
+      createdAt: existing.createdAt || task.createdAt || task.createdDate || null
+    };
+  }
+  if (expectedDriver && actualDriver && expectedDriver !== actualDriver && !fromPreviousDriver) {
+    return {
+      skipped: true,
+      category: "driverMismatch",
+      reason: `Driver mismatch: ${assignmentDetails}. Export driver is not the recorded previous driver.`,
       createdAt: existing.createdAt || task.createdAt || task.createdDate || null
     };
   }
@@ -631,6 +639,7 @@ async function uploadTask(task, relatedPhotos, options = {}) {
   return {
     skipped: false,
     restored: options.restoreDeleted === true,
+    details: fromPreviousDriver ? `Saved completion from recorded previous driver ${expectedDriver}. Assignment remains ${actualDriver}.` : "Saved to Firestore",
     createdAt: existing.createdAt || task.createdAt || task.createdDate || null
   };
 }
@@ -691,7 +700,7 @@ async function uploadData() {
           updateUploadResult(task, {
             createdAt: result.createdAt,
             status: "Completed",
-            details: "Saved to Firestore"
+            details: result.details || "Saved to Firestore"
           });
           appendLog(`${task._key}: completed in Firestore.`, "success");
         }
@@ -783,7 +792,7 @@ async function restoreSelectedDeletedTasks() {
           updateUploadResult(task, {
             createdAt: result.createdAt,
             status: "Restored and completed",
-            details: "Restored and saved to Firestore"
+            details: `Restored. ${result.details || "Saved to Firestore"}`
           });
           appendLog(`${taskId}: restored and completed in Firestore.`, "success");
         }
