@@ -86,7 +86,7 @@
   .driver-roster button span:last-child { grid-column: 1 / -1; }
 }
 
-.roster-filters { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; padding: 16px 16px 4px; }
+.roster-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(125px, 1fr)); gap: 8px; padding: 16px 16px 4px; }
 .driver-roster .roster-filters button { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; border: 1px solid #dce4ed; background: #f4f7fb; min-height: 76px; }
 .roster-filters span { font-size: 12px; }
 .roster-filters strong { font-size: 22px; color: #123b56; }

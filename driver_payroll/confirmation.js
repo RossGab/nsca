@@ -1,4 +1,4 @@
-import { dailyCounts, listPeriodDrivers, readConfirmation, updateConfirmation } from "./local-confirmations.js?v=4";
+import { dailyCounts, listPeriodDrivers, readConfirmation, updateConfirmation } from "./local-confirmations.js?v=5";
 
 const confirmationStages = ["driver", "admin", "payroll"];
 const field = id => document.getElementById(id);
@@ -6,13 +6,17 @@ const parameters = new URLSearchParams(location.search);
 const requestedStage = parameters.get("view");
 const stage = confirmationStages.includes(requestedStage) ? requestedStage : "admin";
 const index = confirmationStages.indexOf(stage);
+const hasRoster = stage === "admin" || stage === "payroll";
 const labels = {driver: "Driver", admin: "Task admin", payroll: "Payroll"};
 const pageTitles = {driver: "Report my completed tasks", admin: "Task Admin to Payroll", payroll: "Payroll confirmation"};
 const buttonLabels = {driver: "Send confirmed tasks to task admin", admin: "Verify and send to payroll", payroll: "Approve reported count"};
 let current;
 let busy = false;
 let selectedDay = "";
-const rosterStatuses = {
+const rosterStatuses = stage === "payroll" ? {
+  all: "All drivers", waiting: "Waiting for driver", adminReview: "With task admin",
+  discrepancy: "Discrepancies", ready: "Ready for payroll", approved: "Approved by Payroll"
+} : {
   all: "All drivers", waiting: "Waiting for driver", discrepancy: "Discrepancies",
   ready: "Ready for task admin", sent: "Sent to Payroll"
 };
@@ -53,6 +57,11 @@ async function loadDriverRoster() {
 
 function driverRosterStatus(driver) {
   if (driver.openDiscrepancies) return "discrepancy";
+  if (stage === "payroll") {
+    if (driver.payrollStatus === "CONFIRMED") return "approved";
+    if (driver.adminStatus === "CONFIRMED") return "ready";
+    return driver.driverStatus === "CONFIRMED" ? "adminReview" : "waiting";
+  }
   if (driver.adminStatus === "CONFIRMED") return "sent";
   return driver.driverStatus === "CONFIRMED" ? "ready" : "waiting";
 }
@@ -294,7 +303,7 @@ async function load() {
   if (!current || current.id !== input.id) {
     const dates = [...dailyCounts(record).keys()];
     const latest = dates.reduce((max, date) => date > max ? date : max, input.from);
-    const open = stage === "admin" ? openDayDisputes(record)[0]?.date : null;
+    const open = hasRoster ? openDayDisputes(record)[0]?.date : null;
     selectedDay = open || (dates.includes(today) || (!dates.length && today >= input.from && today <= input.to) ? today : latest);
   }
   setRecord(input, record);
@@ -319,7 +328,7 @@ async function saveAction(update, success) {
     if (current === model) {
       setRecord(model, record);
       message(success);
-      if (stage === "admin") await loadDriverRoster();
+      if (hasRoster) await loadDriverRoster();
     }
   } catch (error) {
     if (current === model) {
@@ -424,7 +433,7 @@ if (stage === "driver") {
   field("backLink").textContent = "Back to payroll";
 }
 if (parameters.has("driver")) field("driver").value = parameters.get("driver");
-if (stage === "admin") {
+if (hasRoster) {
   field("driverField").hidden = true;
   field("driver").required = false;
   field("cutoffForm").querySelector("button").textContent = "Show drivers";
@@ -468,7 +477,7 @@ field("cutoffForm").addEventListener("submit", async event => {
   const button = field("cutoffForm").querySelector("button");
   button.disabled = true;
   try {
-    if (stage === "admin") {
+    if (hasRoster) {
       current = undefined;
       selectedDay = "";
       field("result").hidden = true;
@@ -532,4 +541,4 @@ field("disputeForm").addEventListener("submit", event => {
   reportDayDiscrepancy();
 });
 
-if (stage === "admin") loadDriverRoster().catch(error => message(error.message, true));
+if (hasRoster) loadDriverRoster().catch(error => message(error.message, true));

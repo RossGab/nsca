@@ -23,14 +23,14 @@ function summary(record) {
     count: [...dailyCounts(record).values()].reduce((sum, day) => sum + day.count, 0),
     hasTasks: Boolean(record.tasks?.length || Object.keys(record.dayAdjustments || {}).length),
     openDiscrepancies: Object.values(record.dayDisputes || {}).filter(dispute => !dispute.resolvedAt).length,
-    driverStatus: record.driver?.status, adminStatus: record.admin?.status
+    driverStatus: record.driver?.status, adminStatus: record.admin?.status, payrollStatus: record.payroll?.status
   };
 }
 
 function openDatabase() {
   if (!database) {
     database = new Promise((resolve, reject) => {
-      const request = indexedDB.open("nsca-driver-confirmation-demo", 2);
+      const request = indexedDB.open("nsca-driver-confirmation-demo", 3);
       let blocked = false;
       request.onblocked = () => {
         blocked = true;
@@ -40,8 +40,9 @@ function openDatabase() {
         const db = request.result;
         const records = db.objectStoreNames.contains("confirmations")
           ? request.transaction.objectStore("confirmations") : db.createObjectStore("confirmations");
-        const summaries = db.createObjectStore("summaries");
-        summaries.createIndex("period", ["from", "to"]);
+        const summaries = db.objectStoreNames.contains("summaries")
+          ? request.transaction.objectStore("summaries") : db.createObjectStore("summaries");
+        if (!summaries.indexNames.contains("period")) summaries.createIndex("period", ["from", "to"]);
         const cursor = records.openCursor();
         cursor.onsuccess = () => {
           const entry = cursor.result;
