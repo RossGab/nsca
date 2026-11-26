@@ -12,6 +12,12 @@ const buttonLabels = {driver: "Send confirmed tasks to task admin", admin: "Veri
 let current;
 let busy = false;
 let selectedDay = "";
+const rosterStatuses = {
+  all: "All drivers", waiting: "Waiting for driver", discrepancy: "Discrepancies",
+  ready: "Ready for task admin", sent: "Sent to Payroll"
+};
+let rosterFilter = "all";
+let rosterDrivers = [];
 
 function message(text, error = false) {
   const feedback = field("feedback");
@@ -41,9 +47,30 @@ async function loadDriverRoster() {
   if (from !== latest.from || to !== latest.to) return;
   field("driverRoster").hidden = false;
   field("rosterPeriod").textContent = from + " to " + to;
+  rosterDrivers = rows.sort((a, b) => a.driverId.localeCompare(b.driverId, undefined, {numeric: true}));
+  renderDriverRoster();
+}
+
+function driverRosterStatus(driver) {
+  if (driver.openDiscrepancies) return "discrepancy";
+  if (driver.adminStatus === "CONFIRMED") return "sent";
+  return driver.driverStatus === "CONFIRMED" ? "ready" : "waiting";
+}
+
+function renderDriverRoster() {
+  const groups = Object.fromEntries(Object.keys(rosterStatuses).map(status => [status, []]));
+  groups.all = rosterDrivers;
+  for (const driver of rosterDrivers) groups[driverRosterStatus(driver)].push(driver);
+  const filters = field("rosterFilters");
+  for (const button of filters.querySelectorAll("button")) {
+    const status = button.dataset.status;
+    button.querySelector("strong").textContent = groups[status].length;
+    button.setAttribute("aria-pressed", String(status === rosterFilter));
+  }
+  const rows = groups[rosterFilter];
+  field("rosterResultCount").textContent = rows.length + (rows.length === 1 ? " driver" : " drivers") + " shown";
   const list = field("rosterList");
   list.replaceChildren();
-  rows.sort((a, b) => a.driverId.localeCompare(b.driverId, undefined, {numeric: true}));
   for (const driver of rows) {
     const item = document.createElement("li");
     const button = document.createElement("button");
@@ -56,8 +83,7 @@ async function loadDriverRoster() {
     const status = document.createElement("span");
     status.textContent = driver.openDiscrepancies
       ? driver.openDiscrepancies + (driver.openDiscrepancies === 1 ? " open discrepancy" : " open discrepancies")
-      : driver.adminStatus === "CONFIRMED" ? "Sent to Payroll" :
-        driver.driverStatus === "CONFIRMED" ? "Ready for task admin" : "Waiting for driver";
+      : rosterStatuses[driverRosterStatus(driver)];
     status.className = driver.openDiscrepancies ? "roster-disputed" : "";
     button.append(id, details, status);
     button.addEventListener("click", async () => {
@@ -77,7 +103,8 @@ async function loadDriverRoster() {
   if (!rows.length) {
     const empty = document.createElement("li");
     empty.className = "empty";
-    empty.textContent = "No drivers have recorded tasks in this period.";
+    empty.textContent = rosterFilter === "all" ? "No drivers have recorded tasks in this period."
+      : "No drivers match this status.";
     list.append(empty);
   }
 }
@@ -401,6 +428,27 @@ if (stage === "admin") {
   field("driverField").hidden = true;
   field("driver").required = false;
   field("cutoffForm").querySelector("button").textContent = "Show drivers";
+  for (const [status, label] of Object.entries(rosterStatuses)) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.dataset.status = status;
+    const title = document.createElement("span");
+    title.textContent = label;
+    button.append(title, document.createElement("strong"));
+    button.addEventListener("click", () => {
+      rosterFilter = status;
+      const active = rosterDrivers.find(driver => driver.driverId === field("driver").value);
+      if (active && status !== "all" && driverRosterStatus(active) !== status) {
+        current = undefined;
+        selectedDay = "";
+        field("driver").value = "";
+        field("result").hidden = true;
+        message("");
+      }
+      renderDriverRoster();
+    });
+    field("rosterFilters").append(button);
+  }
 }
 const today = new Intl.DateTimeFormat("sv-SE", {timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit"}).format(new Date());
 const requestedFrom = parameters.get("from");
@@ -412,6 +460,7 @@ field("cutoffForm").addEventListener("input", () => {
   selectedDay = "";
   field("result").hidden = true;
   field("driverRoster").hidden = true;
+  rosterFilter = "all";
   message("");
 });
 field("cutoffForm").addEventListener("submit", async event => {
