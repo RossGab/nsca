@@ -14,3 +14,9 @@
 @media (max-width: 450px) {
   .driver-confirmation .summary { grid-template-columns: 1fr; }
 }
+
+.confirmation-actions .table-wrap { margin-top: 16px; }
+.confirmation-actions #sampleTaskForm { grid-template-columns: 1fr 1fr; max-width: 580px; }
+@media (max-width: 570px) {
+  .confirmation-actions #sampleTaskForm { grid-template-columns: 1fr; }
+}

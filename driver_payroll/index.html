@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Driver payroll confirmation</title>
   <link rel="stylesheet" href="../pr/styles.css?v=20">
-  <link rel="stylesheet" href="./confirmation.css?v=2">
+  <link rel="stylesheet" href="./confirmation.css?v=3">
 </head>
 <body class="employee-self-service">
   <header class="topbar"><div><div class="eyebrow">NSCA</div><h1 id="pageTitle">Driver task count confirmation</h1></div><a id="backLink" href="../admin.html">Back to admin dashboard</a></header>
@@ -13,14 +13,17 @@
     <p class="poc-note">Proof of concept · Use sample driver records.</p>
     <form id="cutoffForm" class="card controls">
       <div class="field"><label for="driver">Driver ID</label><input id="driver" maxlength="80" required></div>
-      <div class="field"><label for="from">Cutoff start</label><input id="from" type="date" required></div>
-      <div class="field"><label for="to">Cutoff end</label><input id="to" type="date" required></div>
+      <div class="field"><label for="periodMonth">Payroll month</label><input id="periodMonth" type="month" required></div>
+      <div class="field"><label for="periodHalf">Payroll period</label><select id="periodHalf">
+        <option value="first">1st to 15th</option>
+        <option value="second">16th to end of month</option>
+      </select></div>
       <button class="primary">Open cutoff</button>
     </form>
     <p id="feedback" class="message" role="status" hidden></p>
     <div id="result" hidden>
       <section class="summary confirmation-summary" aria-label="Confirmation status">
-        <div class="summary-card"><span>Driver-reported tasks</span><strong id="taskCount"></strong></div>
+        <div class="summary-card"><span>Completed tasks</span><strong id="taskCount"></strong></div>
         <div class="summary-card"><span>Driver</span><strong id="driverStatus"></strong></div>
         <div class="summary-card"><span>Task admin</span><strong id="adminStatus"></strong></div>
         <div class="summary-card"><span>Payroll</span><strong id="payrollStatus"></strong></div>
@@ -28,7 +31,14 @@
       <section class="card confirmation-actions">
         <h2 id="reviewStatus"></h2>
         <p id="cutoffLabel"></p>
-        <div id="manualCountField" class="field" hidden><label for="manualCount">Completed tasks</label><input id="manualCount" type="number" min="0" step="1"></div>
+        <form id="sampleTaskForm" hidden>
+          <div class="field"><label for="sampleTaskId">Sample task ID</label><input id="sampleTaskId" maxlength="80" required></div>
+          <div class="field"><label for="sampleTaskDate">Completion date</label><input id="sampleTaskDate" type="date" required></div>
+          <button type="submit">Add completed task</button>
+        </form>
+        <div class="table-wrap">
+          <table><thead><tr><th scope="col">Task ID</th><th scope="col">Completion date</th><th scope="col">Driver confirmation</th></tr></thead><tbody id="completedTasks"></tbody></table>
+        </div>
         <p id="reviewNote" hidden></p>
         <div class="action-row">
           <button type="button" id="confirm" class="primary">Confirm task count</button>
@@ -45,6 +55,6 @@
       </details>
     </div>
   </main>
-  <script type="module" src="./confirmation.js?v=8"></script>
+  <script type="module" src="./confirmation.js?v=10"></script>
 </body>
 </html>

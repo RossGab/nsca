@@ -8,7 +8,7 @@ const stage = confirmationStages.includes(requestedStage) ? requestedStage : "ad
 const index = confirmationStages.indexOf(stage);
 const labels = {driver: "Driver", admin: "Task admin", payroll: "Payroll"};
 const pageTitles = {driver: "Report my completed tasks", admin: "Task Admin to Payroll", payroll: "Payroll confirmation"};
-const buttonLabels = {driver: "Send count to task admin", admin: "Verify and send to payroll", payroll: "Approve reported count"};
+const buttonLabels = {driver: "Send confirmed tasks to task admin", admin: "Verify and send to payroll", payroll: "Approve reported count"};
 let current;
 let busy = false;
 
@@ -19,23 +19,36 @@ function message(text, error = false) {
   feedback.textContent = text;
 }
 
+function payrollCutoff(month, half) {
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month) || !["first", "second"].includes(half)) {
+    throw new Error("Choose a payroll month and period.");
+  }
+  const [year, monthNumber] = month.split("-").map(Number);
+  const first = half === "first";
+  const lastDay = new Date(year, monthNumber, 0).getDate();
+  return {from: month + (first ? "-01" : "-16"), to: month + "-" + (first ? "15" : lastDay)};
+}
+
 function selection() {
   const driverId = field("driver").value.trim().toUpperCase();
-  const from = field("from").value;
-  const to = field("to").value;
-  if (!driverId || !from || !to || from > to) throw new Error("Enter a driver ID and a valid cutoff.");
+  if (!driverId) throw new Error("Enter a Driver ID.");
+  const {from, to} = payrollCutoff(field("periodMonth").value, field("periodHalf").value);
   return {driverId, from, to, id: JSON.stringify([driverId, from, to])};
 }
 
 function earlierStagesMatch(record) {
-  const count = record?.driver?.count;
-  return confirmationStages.slice(0, index).every(role =>
+  if (index === 0) return true;
+  const tasks = record?.tasks || [];
+  const count = tasks.length;
+  return count > 0 && tasks.every(task => task.confirmed) && confirmationStages.slice(0, index).every(role =>
     record?.[role]?.status === "CONFIRMED" && record[role].count === count);
 }
 
 function render(record, model) {
   field("result").hidden = false;
-  field("taskCount").textContent = record?.driver?.count ?? "Pending";
+  const tasks = record?.tasks || [];
+  field("taskCount").textContent = tasks.length;
+  renderTasks(tasks, model);
   field("cutoffLabel").textContent = model.driverId + " · " + model.from + " to " + model.to;
   for (const role of confirmationStages) {
     const entry = record?.[role];
@@ -49,10 +62,8 @@ function render(record, model) {
   field("reviewNote").hidden = !dispute;
   field("reviewNote").textContent = dispute
     ? "Expected " + record[dispute].count + " tasks: " + record[dispute].reason : "";
-  field("manualCountField").hidden = stage !== "driver";
-  field("manualCount").value = record?.driver?.count ?? "";
-  field("confirm").disabled = !earlierStagesMatch(record) ||
-    (stage !== "driver" && record?.[stage]?.status === "CONFIRMED");
+  field("confirm").disabled = !earlierStagesMatch(record) || record?.[stage]?.status === "CONFIRMED"
+    || (stage === "driver" && (!tasks.length || tasks.some(task => !task.confirmed)));
   field("flag").disabled = !earlierStagesMatch(record);
   field("disputeForm").hidden = true;
   field("disputeForm").reset();
@@ -70,6 +81,71 @@ function render(record, model) {
   field("confirmationHistoryPanel").hidden = !history.childElementCount;
 }
 
+function renderTasks(tasks, {from, to}) {
+  const form = field("sampleTaskForm");
+  form.hidden = stage !== "driver";
+  const date = field("sampleTaskDate");
+  date.min = from;
+  date.max = to;
+  if (!date.value || date.value < from || date.value > to) date.value = today >= from && today <= to ? today : from;
+  const table = field("completedTasks");
+  table.replaceChildren();
+  const sorted = [...tasks].sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
+  for (const task of sorted) {
+    const row = table.insertRow();
+    row.insertCell().textContent = task.id;
+    row.insertCell().textContent = task.date;
+    const cell = row.insertCell();
+    if (stage === "driver") {
+      const label = document.createElement("label");
+      label.className = "check-field";
+      const box = document.createElement("input");
+      box.type = "checkbox";
+      box.checked = task.confirmed;
+      box.setAttribute("aria-label", "Confirm task " + task.id);
+      box.addEventListener("change", () => {
+        if (busy) {
+          box.checked = task.confirmed;
+          return;
+        }
+        changeTasks(tasks => tasks.map(entry =>
+          entry.id === task.id ? {...entry, confirmed: box.checked} : entry));
+      });
+      label.append(box, task.confirmed ? "Confirmed" : "Confirm task");
+      cell.append(label);
+    } else {
+      cell.textContent = task.confirmed ? "Confirmed" : "Pending";
+    }
+  }
+  if (!sorted.length) {
+    const cell = table.insertRow().insertCell();
+    cell.colSpan = 3;
+    cell.className = "empty";
+    cell.textContent = "No completed tasks recorded for this period.";
+  }
+}
+
+async function changeTasks(update) {
+  if (stage !== "driver" || !current || busy) return;
+  const model = current;
+  busy = true;
+  try {
+    await updateConfirmation(model.id, saved => ({
+      ...saved, driverId: model.driverId, from: model.from, to: model.to,
+      tasks: update(saved?.tasks || []), driver: null, admin: null, payroll: null
+    }));
+    if (current === model) await load();
+    if (current?.id === model.id) message("");
+  } catch (error) {
+    if (current === model) {
+      await load().catch(() => {});
+      message(error.message, true);
+    }
+  } finally {
+    busy = false;
+  }
+}
+
 async function load() {
   const input = selection();
   const record = await readConfirmation(input.id);
@@ -83,7 +159,7 @@ async function submit(dispute) {
   const model = current;
   const reason = field("reason").value.trim();
   const count = dispute ? field("reportedCount").valueAsNumber : stage === "driver"
-    ? field("manualCount").valueAsNumber : model.record?.driver?.count;
+    ? model.record?.tasks?.length : model.record?.driver?.count;
   if (!Number.isSafeInteger(count) || count < 0 || (dispute && !reason)) {
     message(dispute ? "Enter a whole expected count and a reason." : "Enter a whole count of zero or more.", true);
     return;
@@ -93,7 +169,11 @@ async function submit(dispute) {
   buttons.forEach(button => { button.disabled = true; });
   try {
     await updateConfirmation(model.id, saved => {
-      if (!earlierStagesMatch(saved) || (stage !== "driver" && saved?.driver?.count !== model.record?.driver?.count)) {
+      if (stage === "driver" && !dispute && (!saved?.tasks?.length || saved.tasks.length !== count
+          || saved.tasks.some(task => !task.confirmed))) {
+        throw new Error("Confirm each completed task before sending the list.");
+      }
+      if (!earlierStagesMatch(saved) || (stage !== "driver" && saved?.driver?.updatedAt !== model.record?.driver?.updatedAt)) {
         throw new Error("The reported count or approval changed. Open the cutoff again.");
       }
       if (!dispute && saved?.[stage]?.status === "CONFIRMED" && saved[stage].count === count) return saved;
@@ -107,7 +187,7 @@ async function submit(dispute) {
     });
     if (current === model) {
       await load();
-      message(dispute ? "Discrepancy recorded." : "Manual count saved.");
+      message(dispute ? "Discrepancy recorded." : "Confirmation saved.");
     }
   } catch (error) {
     if (current === model) message(error.message, true);
@@ -133,10 +213,10 @@ if (stage === "driver") {
 }
 if (parameters.has("driver")) field("driver").value = parameters.get("driver");
 const today = new Intl.DateTimeFormat("sv-SE", {timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit"}).format(new Date());
-const month = today.slice(0, 7);
-const firstHalf = Number(today.slice(8)) <= 15;
-field("from").value = parameters.get("from") || (month + (firstHalf ? "-01" : "-16"));
-field("to").value = parameters.get("to") || (firstHalf ? month + "-15" : today);
+const requestedFrom = parameters.get("from");
+const defaultDate = /^\d{4}-\d{2}-\d{2}$/.test(requestedFrom || "") ? requestedFrom : today;
+field("periodMonth").value = defaultDate.slice(0, 7);
+field("periodHalf").value = Number(defaultDate.slice(8)) <= 15 ? "first" : "second";
 field("cutoffForm").addEventListener("input", () => {
   current = undefined;
   field("result").hidden = true;
@@ -154,6 +234,22 @@ field("cutoffForm").addEventListener("submit", async event => {
   } finally {
     button.disabled = false;
   }
+});
+field("sampleTaskForm").addEventListener("submit", async event => {
+  event.preventDefault();
+  if (!current) return;
+  const id = field("sampleTaskId").value.trim();
+  const date = field("sampleTaskDate").value;
+  if (!id || date < current.from || date > current.to) {
+    message("Enter a task ID and a completion date within the cutoff.", true);
+    return;
+  }
+  await changeTasks(tasks => {
+    if (tasks.some(task => task.id.toUpperCase() === id.toUpperCase())) {
+      throw new Error("That task ID is already recorded for this cutoff.");
+    }
+    return [...tasks, {id, date, confirmed: false}];
+  });
 });
 field("confirm").addEventListener("click", () => submit(false));
 field("flag").addEventListener("click", () => {
