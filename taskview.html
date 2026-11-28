@@ -501,7 +501,7 @@ onAuthStateChanged(auth, async (user) => {
 const VIEWER_TASK_URL =
   "https://asia-southeast1-driva-pwa.cloudfunctions.net/listCompletedViewerTasks";
 const PAGE_SIZE = 100;
-const PAGE_CACHE_TTL = 2 * 60 * 1000;
+const PAGE_CACHE_TTL = 3 * 24 * 60 * 60 * 1000;
 const PAGE_CACHE_LIMIT = 20;
 const PAGE_CACHE = new Map();
 let stopWatchingAssignment;
