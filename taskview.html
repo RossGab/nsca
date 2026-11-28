@@ -4,133 +4,297 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-<title>Task Viewer 1.0</title>
-
+<title>Completed tasks | NSCA Task Viewer</title>
 <style>
+:root {
+  color-scheme: light;
+  --navy: #10223b;
+  --ink: #14243a;
+  --muted: #485c74;
+  --blue: #1c4e84;
+  --border: #dbe4ee;
+  --surface: #edf2f7;
+}
+
+* { box-sizing: border-box; }
+
 body {
-  display:none; /* 🔥 add this */
-  font-family: Arial;
-  background:#f3f3f3;
-  padding:10px;
+  display: none;
+  margin: 0;
+  background: var(--surface);
+  color: var(--ink);
+  font: 1rem/1.5 system-ui, sans-serif;
 }
 
-.admin-header {
-  display:flex; justify-content:space-between; align-items:center;
-  margin-bottom:12px;
+.shell {
+  width: min(calc(100% - 2rem), 72rem);
+  margin-inline: auto;
 }
 
-.admin-logo { height:72px; }
+.topbar {
+  background: linear-gradient(145deg, var(--navy), #1b3d65);
+  color: #fff;
+}
+
+.topbar .shell, .brand, .actions {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+}
+
+.topbar .shell {
+  justify-content: space-between;
+  flex-wrap: wrap;
+  padding-block: 1rem;
+}
+
+.brand { font-weight: 650; }
+.actions { flex-wrap: wrap; }
+
+.brand img {
+  display: block;
+  object-fit: contain;
+  border-radius: .5rem;
+  background: #fff;
+}
+
+main { padding-block: clamp(1.5rem, 4vw, 3rem); }
+
+h1 {
+  margin: 0;
+  font-size: clamp(2rem, 5vw, 3rem);
+  line-height: 1.1;
+  letter-spacing: -.045em;
+}
+
+.intro { margin: .625rem 0 1.5rem; color: var(--muted); }
+
+.filters, .task, .empty {
+  border: 1px solid var(--border);
+  border-radius: .875rem;
+  background: #fff;
+}
+
+.filters { padding: 1rem; margin-bottom: 1.25rem; }
+
+.filter-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) repeat(2, minmax(0, 10rem));
+  gap: .875rem;
+}
+
+.field { min-width: 0; }
+
+.field label, .task-form label {
+  display: block;
+  font-size: .875rem;
+  font-weight: 650;
+}
+
+.field label { margin-bottom: .375rem; }
+
+.field input, .task-form input, .task-form textarea {
+  width: 100%;
+  min-width: 0;
+  min-height: 2.75rem;
+  padding: .5rem .625rem;
+  border: 1px solid #8194aa;
+  border-radius: .5rem;
+  color: inherit;
+  background: #fff;
+  font: inherit;
+}
+
+#baFilters:not(:empty) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem;
+  margin-top: 1rem;
+}
+
+#baFilters label {
+  display: inline-flex;
+  align-items: center;
+  gap: .375rem;
+  min-height: 2.75rem;
+  padding: .375rem .625rem;
+  border: 1px solid var(--border);
+  border-radius: .5rem;
+  font-size: .875rem;
+  cursor: pointer;
+}
+
+input[type=checkbox] { accent-color: var(--blue); }
+
+button {
+  min-height: 2.75rem;
+  padding: .5rem .875rem;
+  border: 1px solid transparent;
+  border-radius: .5rem;
+  background: var(--blue);
+  color: #fff;
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) { background: #153c68; }
+button:disabled { opacity: .6; cursor: default; }
+.actions button { background: transparent; border-color: #90a6bf; }
+.actions button:hover { background: #ffffff20; }
+:focus-visible { outline: 3px solid #2873c3; outline-offset: 3px; }
 
 #loadingScreen {
-  position:fixed; inset:0;
-  background:rgba(255,255,255,0.95);
-  display:flex; align-items:center; justify-content:center;
-  z-index:9999;
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: .75rem;
+  background: #fffffff5;
+  z-index: 9999;
 }
 
-.spinner {
-  width:42px; height:42px;
-  border:4px solid #ddd;
-  border-top:4px solid #007bff;
-  border-radius:50%;
-  animation:spin 1s linear infinite;
+.spinner, .database-spinner {
+  width: 1.25rem;
+  height: 1.25rem;
+  flex: 0 0 1.25rem;
+  border: 3px solid #bdcfe3;
+  border-top-color: var(--blue);
+  border-radius: 50%;
+  animation: spin .8s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .spinner, .database-spinner { animation: none; }
 }
 
 #databaseLoading {
-  display:none;
-  align-items:center;
-  gap:10px;
-  background:#eaf4ff;
-  color:#124f86;
-  border:1px solid #9bc8ef;
-  border-radius:8px;
-  padding:10px 12px;
-  margin-bottom:10px;
-  font-weight:bold;
+  display: none;
+  align-items: center;
+  gap: .625rem;
+  padding: .75rem 1rem;
+  margin-bottom: 1rem;
+  border: 1px solid #b3cce7;
+  border-radius: .625rem;
+  background: #e7f1fc;
+  color: #234e7a;
 }
 
 #databaseLoading.complete {
-  background:#eaf8ee;
-  color:#176b32;
-  border-color:#9bd3aa;
+  background: #eaf8ee;
+  color: #176b32;
+  border-color: #9bd3aa;
 }
 
-.database-spinner {
-  width:18px;
-  height:18px;
-  flex:0 0 18px;
-  border:3px solid #bdd9ef;
-  border-top-color:#1676c2;
-  border-radius:50%;
-  animation:spin .8s linear infinite;
+#taskList { display: grid; gap: .75rem; }
+.task { min-width: 0; }
+
+.task-header {
+  display: grid;
+  gap: .25rem;
+  width: 100%;
+  padding: 1rem 1.25rem;
+  text-align: left;
+  border: 0;
+  border-radius: inherit;
+  background: #fff;
+  color: inherit;
+  font-weight: 400;
+  overflow-wrap: anywhere;
 }
 
-@keyframes spin { to { transform:rotate(360deg);} }
-
-.task {
-  background:#fff;
-  padding:12px;
-  margin-bottom:10px;
-  border-radius:8px;
-  border-left:5px solid green;
-}
-
-.task-header { cursor:pointer; }
-
-.small { font-size:13px; color:#555; }
+.task-header:hover:not(:disabled) { background: #f4f8fc; }
+.task-header b { font-size: 1.0625rem; }
+.small { font-size: .875rem; color: var(--muted); }
+.completed { color: #17643d; }
+.details { padding: 1rem 1.25rem; border-top: 1px solid var(--border); }
 
 .task-form {
-  display:grid;
-  grid-template-columns:1fr 1fr;
-  gap:10px;
-  margin-top:10px;
+  display: grid;
+  grid-template-columns: minmax(0, 9rem) minmax(0, 1fr);
+  align-items: center;
+  gap: .5rem .875rem;
+  margin-bottom: 1rem;
 }
 
-.task-form .full { grid-column:span 2; }
+.task-form .full, .task-form > b { grid-column: 1 / -1; }
 
-.task-form input,
-.task-form textarea {
-  width:100%;
-  padding:6px;
-  border:1px solid #ccc;
-  border-radius:4px;
+.task-form input:disabled, .task-form textarea:disabled {
+  opacity: 1;
+  background: #f4f7fa;
+  border-color: var(--border);
+}
+
+.empty { padding: 1.25rem; text-align: center; color: var(--muted); }
+
+#pagination:not(:empty) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: .75rem;
+  margin-top: 1.25rem;
+}
+
+@media (max-width: 40rem) {
+  .filter-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .field:first-child { grid-column: 1 / -1; }
+  .task-form { grid-template-columns: minmax(0, 1fr); }
 }
 </style>
 </head>
-
 <body>
-
-  <div class="admin-header">
-  <img src="./logo.jpg" class="admin-logo">
-  <h2>Tasks Viewer V.R.1.1.0.2.0</h2>
-
-  <div>
-    <input type="date" id="from">
-    to
-    <input type="date" id="to">
-    <button onclick="logout()">Logout</button>
-  
-    <button id="configBtn" onclick="goConfig()" style="display:none;">
-      ⚙️ Config
-    </button>
+  <header class="topbar">
+    <div class="shell">
+      <div class="brand">
+        <img src="./logo.jpg" alt="" width="48" height="48">
+        <span>NSCA Task Viewer</span>
+      </div>
+      <div class="actions">
+        <button id="configBtn" onclick="goConfig()" style="display:none">Settings</button>
+        <button onclick="logout()">Sign out</button>
+      </div>
     </div>
+  </header>
+
+  <main class="shell">
+    <h1>Completed tasks</h1>
+    <p class="intro">Find completed tasks and review delivery details and photos.</p>
+
+    <section class="filters" aria-label="Filter completed tasks">
+      <div class="filter-fields">
+        <div class="field">
+          <label for="searchBox">Search tasks</label>
+          <input id="searchBox" type="search">
+        </div>
+        <div class="field">
+          <label for="from">From date</label>
+          <input type="date" id="from">
+        </div>
+        <div class="field">
+          <label for="to">To date</label>
+          <input type="date" id="to">
+        </div>
+      </div>
+      <div id="baFilters" role="group" aria-label="Filter by BA"></div>
+    </section>
+
+    <div id="databaseLoading" role="status">
+      <span class="database-spinner" aria-hidden="true"></span>
+      <span id="databaseLoadingText">Loading completed tasks...</span>
+    </div>
+
+    <div id="taskList"></div>
+    <nav id="pagination" aria-label="Task pages"></nav>
+  </main>
+
+  <div id="loadingScreen" role="status">
+    <span class="spinner" aria-hidden="true"></span>
+    <span>Loading completed tasks...</span>
   </div>
 
-<input id="searchBox" placeholder="Search..." style="width:100%;padding:10px;margin-bottom:10px">
-
-<div id="baFilters" style="margin-bottom:10px;"></div>
-
-<div id="loadingScreen">
-  <div class="spinner"></div>
-</div>
-
-<div id="databaseLoading" role="status" aria-live="polite">
-  <span class="database-spinner"></span>
-  <span id="databaseLoadingText">Reading database...</span>
-</div>
-
-<div id="taskList"></div>
-<div id="pagination" style="text-align:center;margin:12px 0;"></div>
 
 <script type="module">import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
 
@@ -585,7 +749,6 @@ function buildBAFilters(){
 
   [...bas].sort().forEach(ba => {
     const label = document.createElement("label");
-    label.style.marginRight = "10px";
 
     label.innerHTML = `
       <input type="checkbox" value="${ba}">
@@ -643,7 +806,7 @@ function renderPage(tasks){
   list.innerHTML="";
 
   if(!tasks.length){
-    list.innerHTML = `<div style="padding:12px;background:#fff;border-radius:8px;text-align:center;">No tasks found</div>`;
+    list.innerHTML = `<div class="empty">No completed tasks match your filters.</div>`;
     return;
   }
 
@@ -652,25 +815,27 @@ function renderPage(tasks){
     div.className="task";
 
     div.innerHTML=`
-      <div class="task-header">
+      <button type="button" class="task-header" aria-expanded="false">
         <b>${t.CUSTOMERNAME||""}</b>
-        <div class="small">${t.ADDRESS||""}</div>
-        <div class="small">Driver: ${t.driverId||"—"}</div>
-        <div class="small" style="color:#16a34a;">
+        <span class="small">${t.ADDRESS||""}</span>
+        <span class="small">Driver: ${t.driverId||"—"}</span>
+        <span class="small completed">
           Completed: ${formatDateTime(t.correctedCompletedAt || t.completedAt || t.uploadedAt || t.updatedAt)}
-        </div>
-      </div>
+        </span>
+      </button>
 
-      <div class="details" style="display:none">
+      <div class="details" hidden>
         ${renderDetails(t)}
         ${renderDynamic(t)}
-        <button onclick="loadPhotos('${t._key}',this)">📸 Load Photos</button>
+        <button onclick="loadPhotos('${t._key}',this)">Load photos</button>
       </div>
     `;
 
-    div.querySelector(".task-header").onclick=()=>{
-      const d = div.querySelector(".details");
-      d.style.display = d.style.display==="none"?"block":"none";
+    const header = div.querySelector(".task-header");
+    const details = div.querySelector(".details");
+    header.onclick = () => {
+      details.hidden = !details.hidden;
+      header.setAttribute("aria-expanded", String(!details.hidden));
     };
 
     list.appendChild(div);
@@ -687,15 +852,15 @@ function renderPagination(){
 
   el.innerHTML = `
     <button ${ADMIN_CURRENT_PAGE === 0 ? "disabled" : ""}
-      onclick="prevPage()">⬅ Prev</button>
+      onclick="prevPage()">Previous</button>
 
-    <span style="margin:0 10px;">
+    <span>
       Page ${ADMIN_CURRENT_PAGE + 1} of ${totalPages}
       (${FILTERED_TASK_IDS.length} tasks)
     </span>
 
     <button ${ADMIN_CURRENT_PAGE >= totalPages - 1 ? "disabled" : ""}
-      onclick="nextPage()">Next ➡</button>
+      onclick="nextPage()">Next</button>
   `;
 }
 
