@@ -85,6 +85,14 @@ h1 {
 
 .field { min-width: 0; }
 
+.search-controls {
+  display: flex;
+  align-items: stretch;
+  gap: .5rem;
+}
+
+.search-controls input { flex: 1; }
+
 .field label {
   display: block;
   font-size: .875rem;
@@ -333,10 +341,13 @@ body:has(.task-panel[open]) { overflow: hidden; }
 
     <section class="filters" aria-label="Filter completed tasks">
       <div class="filter-fields">
-        <div class="field">
+        <form class="field" id="taskSearch">
           <label for="searchBox">Search tasks</label>
-          <input id="searchBox" type="search">
-        </div>
+          <div class="search-controls">
+            <input id="searchBox" type="search">
+            <button type="submit">Search</button>
+          </div>
+        </form>
         <div class="field">
           <label for="from">Assigned from</label>
           <input type="date" id="from">
@@ -392,11 +403,14 @@ const firebaseConfig = {
 const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
-import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 
 const auth = getAuth(app);
 
 onAuthStateChanged(auth, async (user) => {
+  stopWatchingAssignment?.();
+  clearPageCache();
+  clearTaskPage();
   if (!user) {
     window.location.href = "login-taskview.html";
     return;
@@ -450,15 +464,21 @@ onAuthStateChanged(auth, async (user) => {
   
   // 🚀 LOAD DATA
   await loadConfig();
-  await loadTasks();
 
   // Apply BA assignment changes even while this page remains open.
   if (userConfigKey) {
     let assignmentSignature = JSON.stringify(
       [...window.USER_BA].map(normalizeBAName).sort()
     );
-    onValue(ref(db, `config/taskviewUsers/${role}/${userConfigKey}`), async userSnap => {
+    stopWatchingAssignment = onValue(ref(db, `config/taskviewUsers/${role}/${userConfigKey}`), async userSnap => {
       const viewer = userSnap.val();
+      if (!viewer?.active || String(viewer.email || "").toLowerCase() !== email) {
+        clearPageCache();
+        clearTaskPage();
+        window.location.href = "login-taskview.html";
+        return;
+      }
+
       const updatedBAs =
         viewer?.active && Array.isArray(viewer.ba) ? viewer.ba : [];
       const updatedSignature = JSON.stringify(
@@ -467,23 +487,30 @@ onAuthStateChanged(auth, async (user) => {
       if (updatedSignature === assignmentSignature) return;
 
       assignmentSignature = updatedSignature;
+      clearPageCache();
+      clearTaskPage();
       window.USER_BA = updatedBAs;
       FILTER_BA.clear();
       await loadConfig();
       await loadTasks();
     });
   }
+  await loadTasks();
 });
 
 const VIEWER_TASK_URL =
   "https://asia-southeast1-driva-pwa.cloudfunctions.net/listCompletedViewerTasks";
 const PAGE_SIZE = 100;
+const PAGE_CACHE_TTL = 2 * 60 * 1000;
+const PAGE_CACHE_LIMIT = 20;
+const PAGE_CACHE = new Map();
+let stopWatchingAssignment;
 const FILTER_BA = new Set();
 let CONFIGURED_BAS = new Set();
 let DRIVER_UI_CONFIG = {};
 let TASKS = [];
 let ACTIVE_REQUEST;
-let SEARCH_TIMER;
+let appliedSearch = "";
 let CURRENT_PAGE = 0;
 let PAGE_CURSORS = [null];
 let NEXT_CURSOR = null;
@@ -569,6 +596,20 @@ function setDatabaseStatus(message, loading = false) {
   document.getElementById("databaseLoadingText").textContent = message;
 }
 
+function clearPageCache() {
+  ACTIVE_REQUEST?.abort();
+  PAGE_CACHE.clear();
+  PAGE_CURSORS = [null];
+}
+
+function showTaskPage(tasks, cursor) {
+  TASKS = tasks;
+  NEXT_CURSOR = cursor;
+  setDatabaseStatus("");
+  renderPage(TASKS);
+  renderPagination();
+}
+
 function clearTaskPage() {
   document.getElementById("taskPanel").close();
   TASKS = [];
@@ -577,12 +618,11 @@ function clearTaskPage() {
 }
 
 async function loadTasks(page = 0) {
-  clearTimeout(SEARCH_TIMER);
   ACTIVE_REQUEST?.abort();
   const controller = new AbortController();
   ACTIVE_REQUEST = controller;
-  const search = document.getElementById("searchBox").value.trim();
-  const selection = { from: from.value, to: to.value, search, bas: [...FILTER_BA] };
+  const search = appliedSearch;
+  const selection = { from: from.value, to: to.value, search, bas: [...FILTER_BA].sort() };
 
   if (page === 0) PAGE_CURSORS = [null];
   CURRENT_PAGE = page;
@@ -594,10 +634,28 @@ async function loadTasks(page = 0) {
     return;
   }
 
+  const user = auth.currentUser;
+  if (!user) return;
+
+  let cursor = PAGE_CURSORS[page];
+  const key = JSON.stringify([user.uid, selection.from, selection.to,
+    search.toLowerCase(), selection.bas, cursor]);
+  const now = Date.now();
+  for (const [cacheKey, entry] of PAGE_CACHE) {
+    if (entry.expires <= now) PAGE_CACHE.delete(cacheKey);
+  }
+
+  const cached = PAGE_CACHE.get(key);
+  if (cached) {
+    PAGE_CACHE.delete(key);
+    PAGE_CACHE.set(key, cached);
+    showTaskPage(cached.tasks, cached.cursor);
+    return;
+  }
+
   setDatabaseStatus(search ? "Searching the selected dates..." : "Loading completed tasks...", true);
   try {
-    const token = await auth.currentUser.getIdToken();
-    let cursor = PAGE_CURSORS[page];
+    const token = await user.getIdToken();
     const tasks = [];
     do {
       const response = await fetch(VIEWER_TASK_URL, {
@@ -616,11 +674,9 @@ async function loadTasks(page = 0) {
     } while (cursor && tasks.length < PAGE_SIZE && !controller.signal.aborted);
 
     if (controller.signal.aborted) return;
-    TASKS = tasks;
-    NEXT_CURSOR = cursor;
-    setDatabaseStatus("");
-    renderPage(TASKS);
-    renderPagination();
+    PAGE_CACHE.set(key, { tasks, cursor, expires: Date.now() + PAGE_CACHE_TTL });
+    if (PAGE_CACHE.size > PAGE_CACHE_LIMIT) PAGE_CACHE.delete(PAGE_CACHE.keys().next().value);
+    showTaskPage(tasks, cursor);
   } catch (error) {
     if (controller.signal.aborted) return;
     console.error("Completed tasks request failed", error);
@@ -632,12 +688,11 @@ async function loadTasks(page = 0) {
   }
 }
 
-document.getElementById("searchBox").oninput = () => {
-  clearTimeout(SEARCH_TIMER);
-  ACTIVE_REQUEST?.abort();
-  clearTaskPage();
-  SEARCH_TIMER = setTimeout(() => loadTasks(), 350);
-};
+document.getElementById("taskSearch").addEventListener("submit", event => {
+  event.preventDefault();
+  appliedSearch = document.getElementById("searchBox").value.trim();
+  loadTasks();
+});
 
 const TASK_COLUMNS = [
   ["Customer", task => task.CUSTOMERNAME],
@@ -819,13 +874,9 @@ window.goConfig = function(){
   window.location.href = "taskviewerConfig.html";
 };
 
-</script>
-
-<script type="module">
-import { getAuth, signOut } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
-
-window.logout = async function(){
-  const auth = getAuth();
+window.logout = async function() {
+  clearPageCache();
+  clearTaskPage();
   await signOut(auth);
   window.location.href = "login-taskview.html";
 };
