@@ -1377,3 +1377,178 @@ exports.generateTaskCsvReport = onRequest({
     }
   }
 });
+
+const VIEWER_PAGE_SIZE = 100;
+const VIEWER_SNAPSHOT_BASE =
+  "https://raw.githubusercontent.com/RossGab/driva-task-snapshots/main/snapshots";
+
+function normalizeViewerBA(value) {
+  return String(value || "").trim().toUpperCase();
+}
+
+function viewerTask(raw, id, allowedBAs) {
+  const ba = raw.BA ?? raw.ba;
+  if (raw.deleted === true || String(raw.status || "").toUpperCase() !== "COMPLETED" ||
+      normalizeViewerBA(ba) === "TEST" || !allowedBAs.has(normalizeViewerBA(ba))) return null;
+
+  const task = {
+    ...raw,
+    _key: String(raw.taskId ?? raw._key ?? raw.id ?? id),
+    driverId: raw.driverId ?? raw.agentId ?? "",
+    BA: ba,
+    deliveryType: raw.deliveryType ?? raw.DELIVERYTYPE ?? ""
+  };
+  const fields = {
+    JOBTYPE: "jobType", DMZ: "dmz", MRU: "mru", BG: "bg", SEQUENCE: "sequence",
+    METERNUMBER: "meterNumber", ACCOUNTNUMBER: "accountNumber", CUSTOMERNAME: "customerName",
+    ADDRESS: "address", ZIPCODE: "zipCode", LATITUDE: "latitude", LONGITUDE: "longitude"
+  };
+  for (const [legacy, current] of Object.entries(fields)) {
+    task[legacy] = raw[legacy] ?? raw[current] ?? "";
+  }
+  return task._key ? task : null;
+}
+
+async function readViewerDay(db, date, allowedBAs, queryValues) {
+  const liveReads = [];
+  for (let i = 0; i < queryValues.length; i += 30) {
+    for (const field of ["ba", "BA"]) {
+      liveReads.push(db.collection(REPORT_COLLECTION)
+        .where("assignedDate", "==", date)
+        .where("status", "==", "COMPLETED")
+        .where(field, "in", queryValues.slice(i, i + 30)).get());
+    }
+  }
+
+  const archiveRead = fetch(
+    VIEWER_SNAPSHOT_BASE + "/" + date.replaceAll("-", "") + ".json",
+    { signal: AbortSignal.timeout(15000) }
+  ).then(response => {
+    if (response.status === 404) return {};
+    if (!response.ok) throw new Error("Historical snapshot could not be loaded.");
+    return response.json();
+  });
+
+  const [archive, live] = await Promise.all([archiveRead, Promise.all(liveReads)]);
+  const tasks = new Map();
+  const merge = (raw, id) => {
+    if (!raw) return;
+    const task = viewerTask(raw, id, allowedBAs);
+    if (task) tasks.set(task._key, task);
+  };
+
+  for (const [id, task] of Object.entries(archive || {})) {
+    merge(task, Array.isArray(archive) ? "" : id);
+  }
+  for (const result of live) {
+    for (const doc of result.docs) {
+      const raw = doc.data();
+      tasks.delete(String(raw.taskId ?? raw._key ?? raw.id ?? doc.id));
+      merge(raw, doc.id);
+    }
+  }
+  return [...tasks.values()];
+}
+
+function viewerCompletionTime(task) {
+  const value = task.correctedCompletedAt || task.completedAt || task.uploadedAt || task.updatedAt;
+  const seconds = value?.seconds ?? value?._seconds;
+  return (Number.isFinite(seconds) ? seconds * 1000 : new Date(value).getTime()) || 0;
+}
+
+function viewerTaskMatches(task, term) {
+  if (Array.isArray(task)) return task.some(value => viewerTaskMatches(value, term));
+  if (task && typeof task === "object") {
+    return Object.values(task).some(value => viewerTaskMatches(value, term));
+  }
+  return String(task ?? "").toLowerCase().includes(term);
+}
+
+exports.listCompletedViewerTasks = onRequest({
+  region: "asia-southeast1",
+  timeoutSeconds: 120,
+  cors: false
+}, async (req, res) => {
+  const allowedOrigin = setReportCors(req, res);
+  res.set("Cache-Control", "no-store");
+  if (req.method === "OPTIONS") return res.status(allowedOrigin ? 204 : 403).end();
+  if (req.method !== "POST" || !allowedOrigin) return res.status(403).end();
+
+  const { from, to, cursor, search, bas, pageSize } = req.body || {};
+  const validCursor = !cursor || (parseDateOnly(cursor.date) && cursor.date >= from &&
+    cursor.date <= to && (cursor.after === null || (
+      Number.isFinite(cursor.after?.time) && typeof cursor.after?.id === "string"
+    )));
+  if (!parseDateOnly(from) || !parseDateOnly(to) || from > to || !validCursor ||
+      typeof search !== "string" || !Array.isArray(bas) ||
+      !Number.isInteger(pageSize) || pageSize < 1 || pageSize > VIEWER_PAGE_SIZE) {
+    return res.status(400).json({ error: "Choose a valid date range." });
+  }
+
+  const token = /^Bearer (\S+)$/.exec(req.get("authorization") || "")?.[1];
+  const user = token && await admin.auth().verifyIdToken(token).catch(() => null);
+  if (!user?.email) return res.status(401).json({ error: "Please sign in again." });
+
+  try {
+    const [users, config] = await Promise.all([
+      admin.database().ref("config/taskviewUsers").get(),
+      admin.database().ref("config/baList").get()
+    ]);
+    const email = user.email.toLowerCase();
+    const accounts = users.val() || {};
+    const viewer = ["admin", "viewer"].flatMap(role => Object.values(accounts[role] || {}))
+      .filter(account => account?.active && String(account.email || "").toLowerCase() === email)
+      .at(-1);
+    if (!viewer) return res.status(403).json({ error: "Task Viewer access is unavailable." });
+
+    const configured = Object.keys(config.val() || {});
+    const configuredBAs = new Set(configured.map(normalizeViewerBA));
+    const requestedBAs = new Set(bas.map(normalizeViewerBA));
+    const allowedBAs = new Set((Array.isArray(viewer.ba) ? viewer.ba : [])
+      .map(normalizeViewerBA)
+      .filter(ba => ba && ba !== "TEST" && (!configuredBAs.size || configuredBAs.has(ba)) &&
+        (!requestedBAs.size || requestedBAs.has(ba))));
+    if (!allowedBAs.size) return res.json({ tasks: [], cursor: null });
+
+    const queryValues = [...new Set([...configured, ...viewer.ba, ...allowedBAs]
+      .filter(ba => typeof ba === "string" && allowedBAs.has(normalizeViewerBA(ba))))];
+    const db = getFirestore(REPORT_DATABASE_ID);
+    const term = search.trim().toLowerCase();
+    const tasks = [];
+    let date = cursor?.date ?? to;
+    let after = cursor?.after ?? null;
+
+    // Bound each request even when a wide search finds few matches.
+    for (let days = 0; days < 7 && date >= from; days++) {
+      const dayTasks = (await readViewerDay(db, date, allowedBAs, queryValues))
+        .filter(task => {
+          if (!term || viewerTaskMatches(task, term)) return true;
+          const time = viewerCompletionTime(task);
+          return time && new Date(time).toLocaleString("en-PH", {
+            timeZone: "Asia/Manila", year: "numeric", month: "short",
+            day: "2-digit", hour: "2-digit", minute: "2-digit"
+          }).toLowerCase().includes(term);
+        })
+        .map(task => ({ task, time: viewerCompletionTime(task) }))
+        .sort((a, b) => b.time - a.time || (a.task._key < b.task._key ? -1 : 1));
+
+      for (const [index, { task, time }] of dayTasks.entries()) {
+        if (after && (time > after.time || (time === after.time && task._key <= after.id))) continue;
+        tasks.push(task);
+        if (tasks.length === pageSize) {
+          const hasMore = index + 1 < dayTasks.length || date > from;
+          return res.json({ tasks, cursor: hasMore ? { date, after: { time, id: task._key } } : null });
+        }
+      }
+      const previous = new Date(date + "T00:00:00Z");
+      previous.setUTCDate(previous.getUTCDate() - 1);
+      date = previous.toISOString().slice(0, 10);
+      after = null;
+    }
+
+    return res.json({ tasks, cursor: date >= from ? { date, after: null } : null });
+  } catch (error) {
+    console.error("Completed Task Viewer request failed", error);
+    return res.status(502).json({ error: "Could not load completed tasks. Please try again." });
+  }
+});

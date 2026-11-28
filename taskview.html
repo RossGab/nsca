@@ -144,18 +144,7 @@ button:disabled { opacity: .6; cursor: default; }
 .actions button:hover { background: #ffffff20; }
 :focus-visible { outline: 3px solid #2873c3; outline-offset: 3px; }
 
-#loadingScreen {
-  position: fixed;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: .75rem;
-  background: #fffffff5;
-  z-index: 9999;
-}
-
-.spinner, .database-spinner {
+.database-spinner {
   width: 1.25rem;
   height: 1.25rem;
   flex: 0 0 1.25rem;
@@ -167,7 +156,7 @@ button:disabled { opacity: .6; cursor: default; }
 
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {
-  .spinner, .database-spinner { animation: none; }
+  .database-spinner { animation: none; }
 }
 
 #databaseLoading {
@@ -180,12 +169,6 @@ button:disabled { opacity: .6; cursor: default; }
   border-radius: .625rem;
   background: #e7f1fc;
   color: #234e7a;
-}
-
-#databaseLoading.complete {
-  background: #eaf8ee;
-  color: #176b32;
-  border-color: #9bd3aa;
 }
 
 #taskList { display: grid; gap: .75rem; }
@@ -290,17 +273,9 @@ button:disabled { opacity: .6; cursor: default; }
     <nav id="pagination" aria-label="Task pages"></nav>
   </main>
 
-  <div id="loadingScreen" role="status">
-    <span class="spinner" aria-hidden="true"></span>
-    <span>Loading completed tasks...</span>
-  </div>
-
 
 <script type="module">import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
 
-import {
-  initializeFirestore, collection, getDocs, query, where
-} from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
 import {
   getDatabase, ref, get, onValue
@@ -321,8 +296,6 @@ const firebaseConfig = {
 
 const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
 const db = getDatabase(app);
-const firestore = initializeFirestore(app, {}, "drver-task");
-const TASK_COLLECTION = "TASK";
 
 import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 
@@ -407,24 +380,18 @@ onAuthStateChanged(auth, async (user) => {
   }
 });
 
-/* SNAPSHOT */
-const BASE =
-"https://raw.githubusercontent.com/RossGab/driva-task-snapshots/main/snapshots";
-
-/* GLOBAL */
-let TASKS = [];
-let SNAPSHOT_TASKS = [];
-let FIRESTORE_TASKS = [];
-let LOAD_GENERATION = 0;
-let DRIVER_UI_CONFIG = {};
+const VIEWER_TASK_URL =
+  "https://asia-southeast1-driva-pwa.cloudfunctions.net/listCompletedViewerTasks";
+const PAGE_SIZE = 100;
+const FILTER_BA = new Set();
 let CONFIGURED_BAS = new Set();
-let CONFIGURED_BA_VALUES = [];
-let FILTER_BA = new Set();
-let SEARCH_TERM = "";
-
-const ADMIN_PAGE_SIZE = 200;
-let ADMIN_CURRENT_PAGE = 0;
-let FILTERED_TASK_IDS = [];
+let DRIVER_UI_CONFIG = {};
+let TASKS = [];
+let ACTIVE_REQUEST;
+let SEARCH_TIMER;
+let CURRENT_PAGE = 0;
+let PAGE_CURSORS = [null];
+let NEXT_CURSOR = null;
 
 function formatDateTime(ts){
   if(!ts) return "";
@@ -461,21 +428,6 @@ const to = document.getElementById("to");
 from.value = getTodayPH();
 to.value = getTodayPH();
 
-/* DATE KEYS */
-function getKeys(from,to){
-  const keys=[];
-  let d=new Date(from);
-  const end=new Date(to);
-
-  while(d<=end){
-    keys.push(
-      d.toLocaleDateString("en-CA",{timeZone:"Asia/Manila"})
-       .replace(/-/g,"")
-    );
-    d.setDate(d.getDate()+1);
-  }
-  return keys;
-}
 
 /* LOAD CONFIG */
 async function loadConfig(){
@@ -485,320 +437,108 @@ async function loadConfig(){
   ]);
 
   DRIVER_UI_CONFIG = jobTypesSnap.val() || {};
-  CONFIGURED_BA_VALUES = Object.keys(baListSnap.val() || {})
-    .map(value => String(value || "").trim())
-    .filter(Boolean);
-  CONFIGURED_BAS = new Set(CONFIGURED_BA_VALUES.map(normalizeBAName));
+  CONFIGURED_BAS = new Set(Object.keys(baListSnap.val() || {}).map(normalizeBAName));
+  buildBAFilters();
 }
 
-function normalizeBAName(value){
+function normalizeBAName(value) {
   return String(value || "").trim().toUpperCase();
 }
 
-function isBAInDisplayConfig(ba){
-  // Preserve the previous behavior if no BA display list has been configured.
-  return !CONFIGURED_BAS.size || CONFIGURED_BAS.has(normalizeBAName(ba));
-}
+function buildBAFilters() {
+  const container = document.getElementById("baFilters");
+  container.replaceChildren();
+  const bas = [...new Set((window.USER_BA || []).map(normalizeBAName))]
+    .filter(ba => ba && ba !== "TEST" && (!CONFIGURED_BAS.size || CONFIGURED_BAS.has(ba)))
+    .sort();
 
-function getFirestoreAllowedBAs(){
-  const viewerBAs = new Set((window.USER_BA || []).map(normalizeBAName));
-  return CONFIGURED_BA_VALUES.filter(ba => viewerBAs.has(normalizeBAName(ba)));
-}
-
-function getFirestoreBAQueryValues(allowedBAs){
-  return [...new Set(allowedBAs.map(normalizeBAName).filter(Boolean))];
-}
-
-function chunkValues(values,size=30){
-  const chunks=[];
-  for(let index=0;index<values.length;index+=size){
-    chunks.push(values.slice(index,index+size));
-  }
-  return chunks;
-}
-
-// =====================
-// IndexedDB
-// =====================
-const DB_NAME = "taskViewerDB";
-const STORE = "snapshots";
-
-function openDB() {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 1);
-
-    req.onupgradeneeded = e => {
-      e.target.result.createObjectStore(STORE);
+  for (const ba of bas) {
+    const label = document.createElement("label");
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = FILTER_BA.has(ba);
+    input.onchange = () => {
+      if (input.checked) FILTER_BA.add(ba);
+      else FILTER_BA.delete(ba);
+      loadTasks();
     };
-
-    req.onsuccess = e => resolve(e.target.result);
-    req.onerror = reject;
-  });
-}
-
-async function idbGet(key) {
-  const db = await openDB();
-  return new Promise(res => {
-    const tx = db.transaction(STORE, "readonly");
-    const store = tx.objectStore(STORE);
-    const req = store.get(key);
-    req.onsuccess = () => res(req.result);
-  });
-}
-
-async function idbSet(key, val) {
-  const db = await openDB();
-  return new Promise(res => {
-    const tx = db.transaction(STORE, "readwrite");
-    const store = tx.objectStore(STORE);
-    store.put(val, key);
-    tx.oncomplete = res;
-  });
-}
-
-function setDatabaseLoading(reading,message){
-  const box=document.getElementById("databaseLoading");
-  const text=document.getElementById("databaseLoadingText");
-  if(!box||!text)return;
-
-  box.style.display="flex";
-  box.classList.toggle("complete",!reading);
-  const spinner=box.querySelector(".database-spinner");
-  if(spinner)spinner.style.display=reading?"block":"none";
-  text.textContent=message;
-}
-
-/* LOAD TASKS */
-async function loadTasks(){
-  const generation = ++LOAD_GENERATION;
-  showLoader();
-  setDatabaseLoading(true,"Checking saved snapshots and reading Firestore...");
-
-  const keys = getKeys(from.value,to.value);
-  SNAPSHOT_TASKS = [];
-  FIRESTORE_TASKS = [];
-
-  // =========================
-  // STEP 1: LOAD FROM CACHE FIRST
-  // =========================
-  for (const k of keys) {
-    const cacheKey = `snapshot_${k}`;
-    const cached = await idbGet(cacheKey);
-
-    if (cached?.data) {
-      console.log(`⚡ ${k} from cache`);
-      mergeTasks(cached.data, SNAPSHOT_TASKS);
-    }
-  }
-
-  // ✅ render immediately
-  rebuildCombinedTasks();
-  hideLoader();
-
-  // =========================
-  // STEP 2: BACKGROUND VALIDATION
-  // =========================
-  await Promise.allSettled([
-    backgroundValidate(keys, generation),
-    loadFirestoreTasks(keys, generation)
-  ]);
-
-  if(generation===LOAD_GENERATION){
-    setDatabaseLoading(
-      false,
-      `Database check complete - ${TASKS.length.toLocaleString()} task(s) available.`
-    );
+    label.append(input, ba);
+    container.append(label);
   }
 }
 
-async function backgroundValidate(keys, generation){
-  console.log("🔄 Background validation started");
-
-  for (const k of keys) {
-    if (generation !== LOAD_GENERATION) return;
-    const cacheKey = `snapshot_${k}`;
-
-    try {
-      const cached = await idbGet(cacheKey);
-
-      // 🔍 HEAD request (still used, but now NON-BLOCKING)
-      const head = await fetch(`${BASE}/${k}.json`, {
-        method: "HEAD"
-      });
-
-      if (!head.ok) continue;
-
-      const remoteETag = head.headers.get("etag");
-
-      // ✅ if same → skip
-      if (cached && cached.etag === remoteETag) {
-        continue;
-      }
-
-      // ⬇️ changed → fetch full
-      console.log(`⬇️ ${k} updated`);
-
-      const res = await fetch(`${BASE}/${k}.json`, {
-        cache: "no-store"
-      });
-
-      if (!res.ok) continue;
-
-      const data = await res.json();
-
-      await idbSet(cacheKey, {
-        etag: remoteETag,
-        data: data
-      });
-
-      // 🔥 update UI live
-      if (generation !== LOAD_GENERATION) return;
-      mergeTasks(data, SNAPSHOT_TASKS);
-      rebuildCombinedTasks();
-
-    } catch (err) {
-      console.warn(`⚠️ background fail ${k}`, err);
-    }
-  }
-
-  console.log("✅ Background validation done");
+function setDatabaseStatus(message, loading = false) {
+  const status = document.getElementById("databaseLoading");
+  status.style.display = message ? "flex" : "none";
+  status.querySelector(".database-spinner").hidden = !loading;
+  document.getElementById("databaseLoadingText").textContent = message;
 }
 
-async function loadFirestoreTasks(keys, generation){
-  const liveTasksById = new Map();
-  const allowedBAs = getFirestoreAllowedBAs();
-  const baQueryChunks = chunkValues(getFirestoreBAQueryValues(allowedBAs));
+function clearTaskPage() {
+  TASKS = [];
+  document.getElementById("taskList").replaceChildren();
+  document.getElementById("pagination").replaceChildren();
+}
 
-  if (!allowedBAs.length) {
-    FIRESTORE_TASKS = [];
-    rebuildCombinedTasks();
-    console.warn("Firestore task load skipped: no configured BA is available for this user.");
+async function loadTasks(page = 0) {
+  clearTimeout(SEARCH_TIMER);
+  ACTIVE_REQUEST?.abort();
+  const controller = new AbortController();
+  ACTIVE_REQUEST = controller;
+  const search = document.getElementById("searchBox").value.trim();
+  const selection = { from: from.value, to: to.value, search, bas: [...FILTER_BA] };
+
+  if (page === 0) PAGE_CURSORS = [null];
+  CURRENT_PAGE = page;
+  NEXT_CURSOR = null;
+  clearTaskPage();
+
+  if (!selection.from || !selection.to || selection.from > selection.to) {
+    setDatabaseStatus("Choose a valid date range.");
     return;
   }
 
+  setDatabaseStatus(search ? "Searching the selected dates..." : "Loading completed tasks...", true);
   try {
-    for (const key of keys) {
-      if (generation !== LOAD_GENERATION) return;
+    const token = await auth.currentUser.getIdToken();
+    let cursor = PAGE_CURSORS[page];
+    const tasks = [];
+    do {
+      const response = await fetch(VIEWER_TASK_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+        body: JSON.stringify({ ...selection, cursor, pageSize: PAGE_SIZE - tasks.length }),
+        signal: controller.signal
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Could not load completed tasks.");
+      tasks.push(...result.tasks);
+      cursor = result.cursor;
+    } while (cursor && tasks.length < PAGE_SIZE && !controller.signal.aborted);
 
-      const assignedDate =
-        `${key.slice(0,4)}-${key.slice(4,6)}-${key.slice(6,8)}`;
-
-      for (const baValues of baQueryChunks) {
-        if (generation !== LOAD_GENERATION) return;
-
-        // Current task documents use lowercase `ba`; older documents may use
-        // uppercase `BA`. Firestore field names are case-sensitive, so query
-        // both and merge by document ID.
-        for (const baField of ["ba", "BA"]) {
-          if (generation !== LOAD_GENERATION) return;
-
-          setDatabaseLoading(
-            true,
-            `Reading Firestore for ${assignedDate} — ${liveTasksById.size.toLocaleString()} completed task(s) found so far…`
-          );
-
-          const snapshot = await getDocs(query(
-            collection(firestore, TASK_COLLECTION),
-            where("assignedDate", "==", assignedDate),
-            where("status", "==", "COMPLETED"),
-            where(baField, "in", baValues)
-          ));
-
-          snapshot.forEach(docSnap => {
-            const task = normalizeViewerTask({ _key: docSnap.id, ...docSnap.data() });
-            if (isVisibleCompletedTask(task)) liveTasksById.set(docSnap.id, task);
-          });
-        }
-      }
-    }
-
-    if (generation !== LOAD_GENERATION) return;
-    const liveTasks = [...liveTasksById.values()];
-    FIRESTORE_TASKS = liveTasks;
-    rebuildCombinedTasks();
-    console.log(
-      `Firestore added ${liveTasks.length} completed task(s) from ${allowedBAs.length} allowed BA(s)`,
-      { queriedBAValues: baQueryChunks.flat() }
-    );
+    if (controller.signal.aborted) return;
+    TASKS = tasks;
+    NEXT_CURSOR = cursor;
+    setDatabaseStatus("");
+    renderPage(TASKS);
+    renderPagination();
   } catch (error) {
-    console.warn("Firestore task load failed; snapshot tasks remain available.", error);
+    if (controller.signal.aborted) return;
+    console.error("Completed tasks request failed", error);
+    setDatabaseStatus("Could not load completed tasks. Please try again.");
+    const retry = document.createElement("button");
+    retry.textContent = "Try again";
+    retry.onclick = () => loadTasks(page);
+    document.getElementById("pagination").append(retry);
   }
 }
 
-/* SEARCH */
-searchBox.oninput = e=>{
-  SEARCH_TERM = e.target.value.toLowerCase();
-  ADMIN_CURRENT_PAGE = 0;
-  render();
+document.getElementById("searchBox").oninput = () => {
+  clearTimeout(SEARCH_TIMER);
+  ACTIVE_REQUEST?.abort();
+  clearTaskPage();
+  SEARCH_TIMER = setTimeout(() => loadTasks(), 350);
 };
-
-/* BA FILTER */
-function buildBAFilters(){
-  const container = document.getElementById("baFilters");
-  container.innerHTML = "";
-
-  let bas = new Set(
-    TASKS
-      .map(t => t.BA)
-      .filter(ba => ba && ba !== "Test" && isBAInDisplayConfig(ba)) // 🔥 REMOVE TEST BA
-  );
-
-  // 🔥 restrict BA filters for viewer
-  const viewerBAs = new Set((window.USER_BA || []).map(normalizeBAName));
-  bas = new Set([...bas].filter(ba => viewerBAs.has(normalizeBAName(ba))));
-
-  [...bas].sort().forEach(ba => {
-    const label = document.createElement("label");
-
-    label.innerHTML = `
-      <input type="checkbox" value="${ba}">
-      ${ba}
-    `;
-
-    label.querySelector("input").onchange = e => {
-      if (e.target.checked) FILTER_BA.add(ba);
-      else FILTER_BA.delete(ba);
-
-      ADMIN_CURRENT_PAGE = 0;
-      render();
-    };
-
-    container.appendChild(label);
-  });
-}
-
-/* MAIN RENDER */
-function render(){
-
-  let tasks = TASKS;
-
-  // 🔥 REMOVE TEST BA FROM DATA
-  tasks = tasks.filter(t => t.BA !== "Test" && isBAInDisplayConfig(t.BA));
-
-  // 🔥 APPLY USER BA FILTER
-  const viewerBAs = new Set((window.USER_BA || []).map(normalizeBAName));
-  tasks = tasks.filter(t => viewerBAs.has(normalizeBAName(t.BA)));
-
-  if(SEARCH_TERM){
-    tasks = tasks.filter(t =>
-      Object.values(t).some(v =>
-        String(v||"").toLowerCase().includes(SEARCH_TERM)
-      )
-    );
-  }
-
-  if(FILTER_BA.size){
-    tasks = tasks.filter(t => FILTER_BA.has(t.BA));
-  }
-
-  FILTERED_TASK_IDS = tasks.map(t => t._key);
-
-  const start = ADMIN_CURRENT_PAGE * ADMIN_PAGE_SIZE;
-  const pageTasks = tasks.slice(start, start + ADMIN_PAGE_SIZE);
-
-  renderPage(pageTasks);
-  renderPagination();
-}
 
 /* PAGE RENDER */
 function renderPage(tasks){
@@ -842,101 +582,18 @@ function renderPage(tasks){
   });
 }
 
-/* PAGINATION */
-function renderPagination(){
+function renderPagination() {
   const el = document.getElementById("pagination");
-
-  const totalPages = Math.max(1,
-    Math.ceil(FILTERED_TASK_IDS.length / ADMIN_PAGE_SIZE)
-  );
-
   el.innerHTML = `
-    <button ${ADMIN_CURRENT_PAGE === 0 ? "disabled" : ""}
-      onclick="prevPage()">Previous</button>
-
-    <span>
-      Page ${ADMIN_CURRENT_PAGE + 1} of ${totalPages}
-      (${FILTERED_TASK_IDS.length} tasks)
-    </span>
-
-    <button ${ADMIN_CURRENT_PAGE >= totalPages - 1 ? "disabled" : ""}
-      onclick="nextPage()">Next</button>
+    <button id="previousPage" ${CURRENT_PAGE === 0 ? "disabled" : ""}>Previous</button>
+    <span>Page ${CURRENT_PAGE + 1} &middot; ${TASKS.length} tasks</span>
+    <button id="nextPage" ${NEXT_CURSOR ? "" : "disabled"}>Next</button>
   `;
-}
-
-window.prevPage = function(){
-  if(ADMIN_CURRENT_PAGE > 0){
-    ADMIN_CURRENT_PAGE--;
-    render();
-  }
-};
-
-window.nextPage = function(){
-  const totalPages = Math.ceil(FILTERED_TASK_IDS.length / ADMIN_PAGE_SIZE);
-  if(ADMIN_CURRENT_PAGE < totalPages - 1){
-    ADMIN_CURRENT_PAGE++;
-    render();
-  }
-};
-
-function isVisibleCompletedTask(task){
-  return task &&
-    task.deleted !== true &&
-    String(task.status || "").toUpperCase() === "COMPLETED" &&
-    task.BA !== "Test";
-}
-
-function normalizeViewerTask(task){
-  const raw = task || {};
-  return {
-    ...raw,
-    _key: raw.taskId ?? raw._key ?? raw.id ?? "",
-    driverId: raw.driverId ?? raw.agentId ?? "",
-    JOBTYPE: raw.JOBTYPE ?? raw.jobType ?? "",
-    BA: raw.BA ?? raw.ba ?? "",
-    DMZ: raw.DMZ ?? raw.dmz ?? "",
-    MRU: raw.MRU ?? raw.mru ?? "",
-    BG: raw.BG ?? raw.bg ?? "",
-    SEQUENCE: raw.SEQUENCE ?? raw.sequence ?? "",
-    METERNUMBER: raw.METERNUMBER ?? raw.meterNumber ?? "",
-    ACCOUNTNUMBER: raw.ACCOUNTNUMBER ?? raw.accountNumber ?? "",
-    CUSTOMERNAME: raw.CUSTOMERNAME ?? raw.customerName ?? "",
-    ADDRESS: raw.ADDRESS ?? raw.address ?? "",
-    ZIPCODE: raw.ZIPCODE ?? raw.zipCode ?? "",
-    LATITUDE: raw.LATITUDE ?? raw.latitude ?? "",
-    LONGITUDE: raw.LONGITUDE ?? raw.longitude ?? "",
-    deliveryType: raw.deliveryType ?? raw.DELIVERYTYPE ?? ""
+  document.getElementById("previousPage").onclick = () => loadTasks(CURRENT_PAGE - 1);
+  document.getElementById("nextPage").onclick = () => {
+    PAGE_CURSORS[CURRENT_PAGE + 1] = NEXT_CURSOR;
+    loadTasks(CURRENT_PAGE + 1);
   };
-}
-
-function mergeTasks(data, target){
-  const incoming = Array.isArray(data)
-    ? data
-    : Object.entries(data || {}).map(([id, task]) => ({
-        ...task,
-        _key: task?.taskId ?? task?._key ?? task?.id ?? id
-      }));
-  const byId = new Map(target.map(task => [task._key, task]));
-
-  incoming.map(normalizeViewerTask).forEach(task => {
-    if (isVisibleCompletedTask(task) && task._key) {
-      byId.set(task._key, task);
-    }
-  });
-
-  target.splice(0, target.length, ...byId.values());
-}
-
-function rebuildCombinedTasks(){
-  const combined = new Map();
-
-  SNAPSHOT_TASKS.forEach(task => combined.set(task._key, task));
-  FIRESTORE_TASKS.forEach(task => combined.set(task._key, task));
-
-  TASKS = [...combined.values()];
-  buildBAFilters();
-  ADMIN_CURRENT_PAGE = 0;
-  render();
 }
 
 /* DETAILS */
@@ -1031,24 +688,8 @@ window.loadPhotos = async function(id,btn){
   btn.innerText="Photos Loaded";
 };
 
-/* LOADER */
-function showLoader(){
-  loadingScreen.style.display="flex";
-}
-function hideLoader(){
-  loadingScreen.style.display="none";
-}
-
-
-from.onchange = async () => {
-  await loadConfig();
-  await loadTasks();
-};
-
-to.onchange = async () => {
-  await loadConfig();
-  await loadTasks();
-};
+from.onchange = () => loadTasks();
+to.onchange = () => loadTasks();
 
 window.goConfig = function(){
   window.location.href = "taskviewerConfig.html";
