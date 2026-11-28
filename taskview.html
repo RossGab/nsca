@@ -113,6 +113,21 @@ h1 {
   font: inherit;
 }
 
+.filter-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0 1rem;
+}
+
+#queryCost {
+  margin: .75rem 0 0 auto;
+  color: var(--muted);
+  font-size: .875rem;
+  text-align: right;
+}
+
 #baFilters:not(:empty) {
   display: flex;
   flex-wrap: wrap;
@@ -357,7 +372,10 @@ body:has(.task-panel[open]) { overflow: hidden; }
           <input type="date" id="to">
         </div>
       </div>
-      <div id="baFilters" role="group" aria-label="Filter by BA"></div>
+      <div class="filter-footer">
+        <div id="baFilters" role="group" aria-label="Filter by BA"></div>
+        <p id="queryCost" role="status" hidden></p>
+      </div>
     </section>
 
     <div id="databaseLoading" role="status">
@@ -602,7 +620,17 @@ function clearPageCache() {
   PAGE_CURSORS = [null];
 }
 
-function showTaskPage(tasks, cursor) {
+function showTaskPage(tasks, cursor, estimatedReads, cached = false) {
+  const cost = document.getElementById("queryCost");
+  if (window.USER_ROLE === "admin" && (cached || Number.isSafeInteger(estimatedReads))) {
+    // Firestore Standard reference rate in USD. Compute and transfer are separate.
+    const usd = estimatedReads * 0.03 / 100000;
+    const price = usd > 0 && usd < 0.000001 ? "<$0.000001" : "$" + usd.toFixed(6);
+    cost.textContent = cached
+      ? "Cached · 0 new Firestore reads"
+      : "Est. Firestore reads: " + estimatedReads.toLocaleString() + " · " + price + " USD";
+    cost.hidden = false;
+  }
   TASKS = tasks;
   NEXT_CURSOR = cursor;
   setDatabaseStatus("");
@@ -611,6 +639,7 @@ function showTaskPage(tasks, cursor) {
 }
 
 function clearTaskPage() {
+  document.getElementById("queryCost").hidden = true;
   document.getElementById("taskPanel").close();
   TASKS = [];
   document.getElementById("taskList").replaceChildren();
@@ -649,7 +678,7 @@ async function loadTasks(page = 0) {
   if (cached) {
     PAGE_CACHE.delete(key);
     PAGE_CACHE.set(key, cached);
-    showTaskPage(cached.tasks, cached.cursor);
+    showTaskPage(cached.tasks, cached.cursor, undefined, true);
     return;
   }
 
@@ -657,6 +686,8 @@ async function loadTasks(page = 0) {
   try {
     const token = await user.getIdToken();
     const tasks = [];
+    let estimatedReads = 0;
+    let hasReadEstimate = true;
     do {
       const response = await fetch(VIEWER_TASK_URL, {
         method: "POST",
@@ -670,13 +701,15 @@ async function loadTasks(page = 0) {
       }
       const result = await response.json();
       tasks.push(...result.tasks);
+      if (Number.isSafeInteger(result.estimatedReads)) estimatedReads += result.estimatedReads;
+      else hasReadEstimate = false;
       cursor = result.cursor;
     } while (cursor && tasks.length < PAGE_SIZE && !controller.signal.aborted);
 
     if (controller.signal.aborted) return;
     PAGE_CACHE.set(key, { tasks, cursor, expires: Date.now() + PAGE_CACHE_TTL });
     if (PAGE_CACHE.size > PAGE_CACHE_LIMIT) PAGE_CACHE.delete(PAGE_CACHE.keys().next().value);
-    showTaskPage(tasks, cursor);
+    showTaskPage(tasks, cursor, hasReadEstimate ? estimatedReads : undefined);
   } catch (error) {
     if (controller.signal.aborted) return;
     console.error("Completed tasks request failed", error);

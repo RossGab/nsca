@@ -1447,7 +1447,7 @@ async function readViewerDay(db, date, allowedBAs, queryValues) {
       merge(raw, doc.id);
     }
   }
-  return [...tasks.values()];
+  return { tasks: [...tasks.values()], reads: live.reduce((sum, result) => sum + Math.max(1, result.size), 0) };
 }
 
 function viewerCompletionTime(task) {
@@ -1498,10 +1498,16 @@ exports.listCompletedViewerTasks = onRequest({
     ]);
     const email = user.email.toLowerCase();
     const accounts = users.val() || {};
-    const viewer = ["admin", "viewer"].flatMap(role => Object.values(accounts[role] || {}))
-      .filter(account => account?.active && String(account.email || "").toLowerCase() === email)
+    const access = ["admin", "viewer"].flatMap(role => Object.values(accounts[role] || {}).map(account => ({ account, role })))
+      .filter(({ account }) => account?.active && String(account.email || "").toLowerCase() === email)
       .at(-1);
-    if (!viewer) return res.status(403).json({ error: "Task Viewer access is unavailable." });
+    if (!access) return res.status(403).json({ error: "Task Viewer access is unavailable." });
+    const viewer = access.account;
+    let estimatedReads = 0;
+    const sendPage = (tasks, cursor) => res.json({
+      tasks, cursor,
+      ...(access.role === "admin" ? { estimatedReads } : {})
+    });
 
     const configured = Object.keys(config.val() || {});
     const configuredBAs = new Set(configured.map(normalizeViewerBA));
@@ -1510,7 +1516,7 @@ exports.listCompletedViewerTasks = onRequest({
       .map(normalizeViewerBA)
       .filter(ba => ba && ba !== "TEST" && (!configuredBAs.size || configuredBAs.has(ba)) &&
         (!requestedBAs.size || requestedBAs.has(ba))));
-    if (!allowedBAs.size) return res.json({ tasks: [], cursor: null });
+    if (!allowedBAs.size) return sendPage([], null);
 
     const queryValues = [...new Set([...configured, ...viewer.ba, ...allowedBAs]
       .filter(ba => typeof ba === "string" && allowedBAs.has(normalizeViewerBA(ba))))];
@@ -1522,7 +1528,9 @@ exports.listCompletedViewerTasks = onRequest({
 
     // Bound each request even when a wide search finds few matches.
     for (let days = 0; days < 7 && date >= from; days++) {
-      const dayTasks = (await readViewerDay(db, date, allowedBAs, queryValues))
+      const day = await readViewerDay(db, date, allowedBAs, queryValues);
+      estimatedReads += day.reads;
+      const dayTasks = day.tasks
         .filter(task => {
           if (!term || viewerTaskMatches(task, term)) return true;
           const time = viewerCompletionTime(task);
@@ -1539,7 +1547,7 @@ exports.listCompletedViewerTasks = onRequest({
         tasks.push(task);
         if (tasks.length === pageSize) {
           const hasMore = index + 1 < dayTasks.length || date > from;
-          return res.json({ tasks, cursor: hasMore ? { date, after: { time, id: task._key } } : null });
+          return sendPage(tasks, hasMore ? { date, after: { time, id: task._key } } : null);
         }
       }
       const previous = new Date(date + "T00:00:00Z");
@@ -1548,7 +1556,7 @@ exports.listCompletedViewerTasks = onRequest({
       after = null;
     }
 
-    return res.json({ tasks, cursor: date >= from ? { date, after: null } : null });
+    return sendPage(tasks, date >= from ? { date, after: null } : null);
   } catch (error) {
     console.error("Completed Task Viewer request failed", error);
     return res.status(502).json({ error: "Could not load completed tasks. Please try again." });
