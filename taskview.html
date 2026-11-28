@@ -69,7 +69,7 @@ h1 {
 
 .intro { margin: .625rem 0 1.5rem; color: var(--muted); }
 
-.filters, .task, .empty {
+.filters, .empty {
   border: 1px solid var(--border);
   border-radius: .875rem;
   background: #fff;
@@ -85,7 +85,7 @@ h1 {
 
 .field { min-width: 0; }
 
-.field label, .task-form label {
+.field label {
   display: block;
   font-size: .875rem;
   font-weight: 650;
@@ -93,7 +93,7 @@ h1 {
 
 .field label { margin-bottom: .375rem; }
 
-.field input, .task-form input, .task-form textarea {
+.field input {
   width: 100%;
   min-width: 0;
   min-height: 2.75rem;
@@ -171,44 +171,130 @@ button:disabled { opacity: .6; cursor: default; }
   color: #234e7a;
 }
 
-#taskList { display: grid; gap: .75rem; }
-.task { min-width: 0; }
-
-.task-header {
-  display: grid;
-  gap: .25rem;
+.results {
   width: 100%;
-  padding: 1rem 1.25rem;
-  text-align: left;
-  border: 0;
-  border-radius: inherit;
+  border-spacing: 0;
+  border: 1px solid var(--border);
+  border-radius: .875rem;
   background: #fff;
-  color: inherit;
-  font-weight: 400;
+  font-size: .9375rem;
+}
+
+.results th, .results td {
+  padding: .625rem .875rem;
+  text-align: left;
   overflow-wrap: anywhere;
 }
 
-.task-header:hover:not(:disabled) { background: #f4f8fc; }
-.task-header b { font-size: 1.0625rem; }
-.small { font-size: .875rem; color: var(--muted); }
-.completed { color: #17643d; }
-.details { padding: 1rem 1.25rem; border-top: 1px solid var(--border); }
-
-.task-form {
-  display: grid;
-  grid-template-columns: minmax(0, 9rem) minmax(0, 1fr);
-  align-items: center;
-  gap: .5rem .875rem;
-  margin-bottom: 1rem;
-}
-
-.task-form .full, .task-form > b { grid-column: 1 / -1; }
-
-.task-form input:disabled, .task-form textarea:disabled {
-  opacity: 1;
+.results thead th {
   background: #f4f7fa;
-  border-color: var(--border);
+  color: var(--muted);
+  font-size: .875rem;
 }
+
+.results thead th:first-child { border-top-left-radius: .875rem; }
+.results thead th:last-child { border-top-right-radius: .875rem; }
+.results tbody tr > * { border-top: 1px solid var(--border); }
+.results tbody tr:hover { background: #f4f8fc; }
+.results td:last-child { text-align: right; }
+.results .completed { color: #17643d; }
+.mobile-label { display: none; }
+
+.secondary {
+  background: #fff;
+  color: var(--blue);
+  border-color: #a7bad0;
+  white-space: nowrap;
+}
+
+.secondary:hover:not(:disabled) { background: #e7f1fc; }
+
+.task-panel {
+  position: fixed;
+  inset: 0 0 0 auto;
+  width: min(100%, 36rem);
+  max-width: none;
+  height: 100%;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  color: var(--ink);
+  background: #fff;
+  box-shadow: -12px 0 40px #10223b28;
+}
+
+.task-panel::backdrop { background: #10223b66; }
+body:has(.task-panel[open]) { overflow: hidden; }
+
+.panel-header {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  background: #fff;
+  border-bottom: 1px solid var(--border);
+}
+
+.panel-header h2 { margin: 0; font-size: 1.375rem; }
+.panel-content { padding: 1.25rem; overflow-wrap: anywhere; }
+.panel-content h3 { margin: 0 0 .75rem; font-size: 1rem; }
+
+.detail-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .875rem 1.25rem;
+  margin: 0 0 1.5rem;
+}
+
+.detail-fields .wide { grid-column: 1 / -1; }
+.detail-fields dt { color: var(--muted); font-size: .875rem; font-weight: 650; }
+.detail-fields dd { margin: .125rem 0 0; white-space: pre-wrap; }
+
+.photo-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: .5rem;
+  margin-top: .75rem;
+}
+
+.photo-grid img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: .375rem;
+}
+
+@media (max-width: 47rem) {
+  .results, .results tbody { display: grid; gap: .75rem; border: 0; background: transparent; }
+
+  .results thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  .results tbody tr {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: .625rem 1rem;
+    padding: 1rem;
+    border: 1px solid var(--border);
+    border-radius: .875rem;
+    background: #fff;
+  }
+
+  .results tbody tr > * { padding: 0; border: 0; }
+  .results tbody th, .results tbody td:last-child { grid-column: 1 / -1; text-align: left; }
+  .mobile-label { display: block; color: var(--muted); font-size: .875rem; font-weight: 650; }
+}
+
 
 .empty { padding: 1.25rem; text-align: center; color: var(--muted); }
 
@@ -224,7 +310,6 @@ button:disabled { opacity: .6; cursor: default; }
 @media (max-width: 40rem) {
   .filter-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .field:first-child { grid-column: 1 / -1; }
-  .task-form { grid-template-columns: minmax(0, 1fr); }
 }
 </style>
 </head>
@@ -253,11 +338,11 @@ button:disabled { opacity: .6; cursor: default; }
           <input id="searchBox" type="search">
         </div>
         <div class="field">
-          <label for="from">From date</label>
+          <label for="from">Assigned from</label>
           <input type="date" id="from">
         </div>
         <div class="field">
-          <label for="to">To date</label>
+          <label for="to">Assigned through</label>
           <input type="date" id="to">
         </div>
       </div>
@@ -273,6 +358,16 @@ button:disabled { opacity: .6; cursor: default; }
     <nav id="pagination" aria-label="Task pages"></nav>
   </main>
 
+
+  <dialog id="taskPanel" class="task-panel" aria-labelledby="panelTitle">
+    <header class="panel-header">
+      <h2 id="panelTitle">Task details</h2>
+      <form method="dialog">
+        <button class="secondary" autofocus>Close</button>
+      </form>
+    </header>
+    <div id="panelContent" class="panel-content"></div>
+  </dialog>
 
 <script type="module">import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
 
@@ -475,6 +570,7 @@ function setDatabaseStatus(message, loading = false) {
 }
 
 function clearTaskPage() {
+  document.getElementById("taskPanel").close();
   TASKS = [];
   document.getElementById("taskList").replaceChildren();
   document.getElementById("pagination").replaceChildren();
@@ -540,47 +636,76 @@ document.getElementById("searchBox").oninput = () => {
   SEARCH_TIMER = setTimeout(() => loadTasks(), 350);
 };
 
-/* PAGE RENDER */
-function renderPage(tasks){
-  const list = document.getElementById("taskList");
-  list.innerHTML="";
+const TASK_COLUMNS = [
+  ["Customer", task => task.CUSTOMERNAME],
+  ["Account No.", task => task.ACCOUNTNUMBER],
+  ["Meter No.", task => task.METERNUMBER],
+  ["BA", task => task.BA],
+  ["Driver", task => task.driverId],
+  ["Completed At", task => formatDateTime(
+    task.correctedCompletedAt || task.completedAt || task.uploadedAt || task.updatedAt
+  )]
+];
 
-  if(!tasks.length){
-    list.innerHTML = `<div class="empty">No completed tasks match your filters.</div>`;
+function renderPage(tasks) {
+  const list = document.getElementById("taskList");
+  if (!tasks.length) {
+    list.innerHTML = '<div class="empty">No completed tasks match your filters.</div>';
     return;
   }
 
-  tasks.forEach(t=>{
-    const div=document.createElement("div");
-    div.className="task";
+  const table = document.createElement("table");
+  table.className = "results";
+  table.setAttribute("role", "table");
+  table.setAttribute("aria-label", "Completed tasks");
+  const headings = table.createTHead();
+  headings.setAttribute("role", "rowgroup");
+  const header = headings.insertRow();
+  header.setAttribute("role", "row");
+  for (const name of [...TASK_COLUMNS.map(([label]) => label), "Details"]) {
+    const cell = document.createElement("th");
+    cell.scope = "col";
+    cell.textContent = name;
+    header.append(cell);
+  }
 
-    div.innerHTML=`
-      <button type="button" class="task-header" aria-expanded="false">
-        <b>${t.CUSTOMERNAME||""}</b>
-        <span class="small">${t.ADDRESS||""}</span>
-        <span class="small">Driver: ${t.driverId||"—"}</span>
-        <span class="small completed">
-          Completed: ${formatDateTime(t.correctedCompletedAt || t.completedAt || t.uploadedAt || t.updatedAt)}
-        </span>
-      </button>
+  const body = table.createTBody();
+  body.setAttribute("role", "rowgroup");
+  for (const task of tasks) {
+    const row = body.insertRow();
+    row.setAttribute("role", "row");
+    TASK_COLUMNS.forEach(([label, value], index) => {
+      const cell = document.createElement(index === 0 ? "th" : "td");
+      cell.setAttribute("role", index === 0 ? "rowheader" : "cell");
+      if (index === 0) cell.scope = "row";
+      if (label === "Completed At") cell.className = "completed";
+      if (index > 0) {
+        const mobileLabel = document.createElement("span");
+        mobileLabel.className = "mobile-label";
+        mobileLabel.setAttribute("aria-hidden", "true");
+        mobileLabel.textContent = label;
+        cell.append(mobileLabel);
+      }
 
-      <div class="details" hidden>
-        ${renderDetails(t)}
-        ${renderDynamic(t)}
-        <button onclick="loadPhotos('${t._key}',this)">Load photos</button>
-      </div>
-    `;
+      const text = value(task);
+      cell.append(text == null || text === "" ? "\u2014" : String(text));
+      row.append(cell);
+    });
 
-    const header = div.querySelector(".task-header");
-    const details = div.querySelector(".details");
-    header.onclick = () => {
-      details.hidden = !details.hidden;
-      header.setAttribute("aria-expanded", String(!details.hidden));
-    };
-
-    list.appendChild(div);
-  });
+    const action = row.insertCell();
+    action.setAttribute("role", "cell");
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "secondary";
+    button.textContent = "View details";
+    button.setAttribute("aria-haspopup", "dialog");
+    if (task.CUSTOMERNAME) button.setAttribute("aria-label", "View details for " + task.CUSTOMERNAME);
+    button.onclick = () => openTaskDetails(task);
+    action.append(button);
+  }
+  list.replaceChildren(table);
 }
+
 
 function renderPagination() {
   const el = document.getElementById("pagination");
@@ -596,97 +721,93 @@ function renderPagination() {
   };
 }
 
-/* DETAILS */
-function renderDetails(t){
-return `
-<div class="task-form">
-<label>ASSIGNED DRIVER</label><input value="${t.driverId||""}" disabled>
-<label>JOB TYPE</label><input value="${t.JOBTYPE||""}" disabled>
-<label>BA</label><input value="${t.BA||""}" disabled>
-<label>DMZ</label><input value="${t.DMZ||""}" disabled>
-<label>MRU</label><input value="${t.MRU||""}" disabled>
-<label>SEQUENCE</label><input value="${t.SEQUENCE||""}" disabled>
-<label>METER NUMBER</label><input value="${t.METERNUMBER||""}" disabled>
-<label>ACCOUNT NUMBER</label><input value="${t.ACCOUNTNUMBER||""}" disabled>
-<label>CUSTOMER NAME</label><input value="${t.CUSTOMERNAME||""}" disabled>
-<label class="full">ADDRESS</label>
-<textarea class="full" disabled>${t.ADDRESS||""}</textarea>
-<label>ZIP CODE</label><input value="${t.ZIPCODE||""}" disabled>
-<label>DELIVERY TYPE</label><input value="${t.deliveryType||""}" disabled>
-<label>LATITUDE</label><input value="${t.LATITUDE||""}" disabled>
-<label>LONGITUDE</label><input value="${t.LONGITUDE||""}" disabled>
-</div>`;
+function renderFields(fields) {
+  const list = document.createElement("dl");
+  list.className = "detail-fields";
+  for (const [label, value, wide] of fields) {
+    const field = document.createElement("div");
+    if (wide) field.className = "wide";
+    const term = document.createElement("dt");
+    const description = document.createElement("dd");
+    term.textContent = label;
+    description.textContent = value == null || value === "" ? "\u2014" : String(value);
+    field.append(term, description);
+    list.append(field);
+  }
+  return list;
 }
 
-/* DYNAMIC */
-function renderDynamic(t){
-  const cfg =
-    DRIVER_UI_CONFIG?.[t.JOBTYPE]
-    ?.deliveryMethods?.[t.deliveryType];
+function openTaskDetails(task) {
+  const panel = document.getElementById("taskPanel");
+  const content = document.getElementById("panelContent");
+  content.replaceChildren(renderFields([
+    ...TASK_COLUMNS.map(([label, value]) => [label, value(task)]),
+    ["Address", task.ADDRESS, true], ["ZIP code", task.ZIPCODE],
+    ["Job type", task.JOBTYPE], ["Delivery type", task.deliveryType],
+    ["DMZ", task.DMZ], ["MRU", task.MRU], ["Sequence", task.SEQUENCE],
+    ["Latitude", task.LATITUDE], ["Longitude", task.LONGITUDE]
+  ]));
 
-  if(!cfg) return "";
+  const config = DRIVER_UI_CONFIG?.[task.JOBTYPE]?.deliveryMethods?.[task.deliveryType];
+  const deliveryFields = (config?._order || [])
+    .filter(key => config.fields?.[key])
+    .map(key => [config.fields[key].label, task[key], true]);
 
-  let html=`<div class="task-form full"><b>DELIVERY DETAILS</b>`;
+  if (deliveryFields.length) {
+    const heading = document.createElement("h3");
+    heading.textContent = "Delivery details";
+    content.append(heading, renderFields(deliveryFields));
+  }
 
-  cfg._order.forEach(k=>{
-    const f=cfg.fields[k];
-    if(!f) return;
-
-    html+=`
-      <label class="full">${f.label}</label>
-      <input class="full" value="${t[k]||""}" disabled>
-    `;
-  });
-
-  html+=`</div>`;
-  return html;
+  const photos = document.createElement("button");
+  photos.type = "button";
+  photos.className = "secondary";
+  photos.textContent = "Load photos";
+  photos.onclick = () => loadPhotos(task, photos);
+  content.append(photos);
+  panel.showModal();
+  panel.scrollTop = 0;
 }
 
-/* PHOTOS */
-window.loadPhotos = async function(id,btn){
-  if(btn.dataset.loaded) return;
+async function loadPhotos(task, button) {
+  button.disabled = true;
+  button.textContent = "Loading photos...";
+  const slots = [1, 2, 3];
 
-  btn.dataset.loaded=1;
-  btn.innerText="Loading photos...";
+  try {
+    // Older snapshots can omit photo URLs.
+    if (task._key && !slots.some(slot => task["photo" + slot + "Url"])) {
+      const snapshot = await get(ref(db, "tasks/" + task._key));
+      if (snapshot.exists()) task = { ...task, ...snapshot.val() };
+    }
 
-  let t = TASKS.find(task => task._key === id) || {};
-  const hasTaskPhoto = [1,2,3].some(i => t[`photo${i}Url`]);
+    const grid = document.createElement("div");
+    grid.className = "photo-grid";
+    for (const slot of slots) {
+      const url = URL.canParse(task["photo" + slot + "Url"])
+        ? new URL(task["photo" + slot + "Url"])
+        : null;
+      if (url?.protocol !== "https:" && url?.protocol !== "http:") continue;
+      const link = document.createElement("a");
+      link.href = url.href;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      const image = document.createElement("img");
+      image.src = url.href;
+      image.alt = "Delivery photo " + slot;
+      link.append(image);
+      grid.append(link);
+    }
 
-  // Older snapshots may not contain their photo URLs, so keep the old RTDB
-  // lookup as a fallback.
-  if(!hasTaskPhoto){
-    const snap = await get(ref(db,`tasks/${id}`));
-    if(snap.exists()) t = { ...t, ...snap.val() };
+    button.textContent = grid.childElementCount ? "Photos loaded" : "No photos available";
+    if (grid.childElementCount) button.after(grid);
+  } catch (error) {
+    console.error("Delivery photos could not be loaded", error);
+    button.textContent = "Retry loading photos";
+    button.disabled = false;
   }
+}
 
-  const box=document.createElement("div");
-  box.style.display="grid";
-  box.style.gridTemplateColumns="repeat(3,1fr)";
-  box.style.gap="6px";
-  box.style.marginTop="10px";
-
-  [1,2,3].forEach(i=>{
-    const url=t[`photo${i}Url`];
-    if(!url) return;
-
-    const img=document.createElement("img");
-    img.src=url;
-    img.style.width="100%";
-    img.style.height="90px";
-    img.style.objectFit="cover";
-    img.onclick=()=>window.open(url);
-
-    box.appendChild(img);
-  });
-
-  if(!box.children.length){
-    btn.innerText="No photos";
-    return;
-  }
-
-  btn.after(box);
-  btn.innerText="Photos Loaded";
-};
 
 from.onchange = () => loadTasks();
 to.onchange = () => loadTasks();
