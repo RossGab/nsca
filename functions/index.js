@@ -1,5 +1,6 @@
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
+const {isManageTaskActive, projectManageTask} = require("./manage-task-data");
 
 admin.initializeApp();
 
@@ -388,7 +389,7 @@ async function refreshAssignedSnapshotForDate(db, date) {
     changes.forEach(document => {
       const raw = document.data() || {};
       if (raw.deleted === true || String(raw.assignedDate || "") !== date) tasksById.delete(document.id);
-      else tasksById.set(document.id, { _key: document.id, ...raw });
+      else tasksById.set(document.id, { ...raw, _key: document.id });
     });
 
     const tasks = [...tasksById.values()];
@@ -415,6 +416,7 @@ async function refreshAssignedSnapshotForDate(db, date) {
     return {
       date,
       source: "snapshot",
+      snapshotWatermark: checkStartedMillis,
       fullBuild,
       changedTasks: changes.size,
       estimatedDocumentReads: Math.max(1, changes.size) + 3,
@@ -447,10 +449,13 @@ async function loadAssignedAdminDate(db, date) {
   };
 }
 
-async function loadAssignedSnapshotTasks(date) {
+async function loadAssignedSnapshotTasks(date, expectedWatermark = null) {
   const file = admin.storage().bucket().file(`admin-assigned-snapshots/${date}.json.gz`);
   const [compressed] = await file.download({ decompress: false });
   const saved = JSON.parse(zlib.gunzipSync(compressed).toString("utf8"));
+  if (expectedWatermark !== null && Number(saved.watermarkMillis) !== Number(expectedWatermark)) {
+    throw new Error("The daily snapshot changed during loading. Retry Load Tasks to retrieve a consistent list.");
+  }
   return Array.isArray(saved.tasks) ? saved.tasks : [];
 }
 
@@ -1162,7 +1167,8 @@ exports.prepareAdminAssignedTasks = onRequest({
       .map(value => String(value).trim())
       .filter(Boolean)
   );
-  if (!requestedBAs.size) {
+  const manageTasks = req.body?.purpose === "manage-tasks-v1";
+  if (!manageTasks && !requestedBAs.size) {
     res.status(400).json({ error: "Select at least one BA in Admin BA Scope." });
     return;
   }
@@ -1170,8 +1176,8 @@ exports.prepareAdminAssignedTasks = onRequest({
   try {
     const db = getFirestore(REPORT_DATABASE_ID);
     const date = from;
-    const pageSize = Math.max(100, Math.min(5000, Number(req.body?.pageSize || 5000)));
-    const eligibleForSnapshot = snapshotDateIsEligible(date);
+    const pageSize = Math.max(100, Math.min(5000, Number(req.body?.pageSize || (manageTasks ? 1000 : 5000))));
+    const eligibleForSnapshot = manageTasks || snapshotDateIsEligible(date);
     let result;
     let pageTasks;
     let hasMore;
@@ -1182,10 +1188,11 @@ exports.prepareAdminAssignedTasks = onRequest({
       const offset = Math.max(0, Number(req.body?.offset || 0));
       const reuseSnapshot = req.body?.reuseSnapshot === true && offset > 0;
       if (reuseSnapshot) {
-        const tasks = await loadAssignedSnapshotTasks(date);
+        const tasks = await loadAssignedSnapshotTasks(date, manageTasks ? Number(req.body?.snapshotWatermark) : null);
         result = {
           date,
           source: "snapshot",
+          snapshotWatermark: manageTasks ? Number(req.body.snapshotWatermark) : 0,
           fullBuild: false,
           changedTasks: 0,
           estimatedDocumentReads: 0,
@@ -1196,11 +1203,13 @@ exports.prepareAdminAssignedTasks = onRequest({
         result = await refreshAssignedSnapshotForDate(db, date);
       }
       const matchingTasks = result.tasks.filter(task => {
+        if (manageTasks) return isManageTaskActive(task);
         if (task?.deleted === true) return false;
         const ba = String(task.ba ?? task.BA ?? "").trim();
         return requestedBAs.has(ba);
       });
       pageTasks = matchingTasks.slice(offset, offset + pageSize);
+      if (manageTasks) pageTasks = pageTasks.map(projectManageTask);
       nextOffset = offset + pageTasks.length;
       hasMore = nextOffset < matchingTasks.length;
     } else {
@@ -1231,6 +1240,8 @@ exports.prepareAdminAssignedTasks = onRequest({
     }
 
     res.json({
+      purpose: manageTasks ? "manage-tasks-v1" : "admin-assigned",
+      snapshotWatermark: result.snapshotWatermark || 0,
       dateBasis: "assignedDate",
       from,
       to,

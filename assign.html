@@ -194,7 +194,7 @@ select, input[type="date"] {
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Manage Tasks <span class="app-version">V.R.0.1.9</span></h1>
+      <h1 class="app-title">Manage Tasks <span class="app-version">V.R.0.1.10</span></h1>
     </div>
   </div>
   <div class="app-header-actions">
@@ -466,7 +466,8 @@ function renderAssignLoadStats() {
   const elapsed = Math.round(((stats.finishedAt || Date.now()) - stats.startedAt) / 1000);
   const element = document.getElementById("taskLoadDiagnostics");
   if (element) element.textContent = `${elapsed}s | ${stats.records} records received | ${stats.requests} task queries | ` +
-    `${stats.pending} queries waiting | ${Math.round(stats.renderMs)}ms preparing the list | ${stats.phase}`;
+    `${stats.pending} queries waiting | ${Math.round(stats.renderMs)}ms preparing the list | ` +
+    `${stats.serverReads || 0} estimated server reads | ${stats.phase}`;
 }
 async function measureAssignQuery(operation) {
   const stats = ASSIGN_LOAD_STATS;
@@ -528,7 +529,9 @@ let TASKS = [];
 window.__TASKS_DATA__ = [];
 
 const PAGE_SIZE = 100;
-const FIRESTORE_PAGE_SIZE = 500;
+const FIRESTORE_PAGE_SIZE = 1000;
+const ASSIGN_MANAGE_CACHE_SCOPE = "assign-manage-v1";
+const ASSIGN_SNAPSHOT_WATERMARKS = new Map();
 
 let CURRENT_PAGE = 0;
 let FILTERED_TASKS = [];
@@ -645,27 +648,63 @@ function toPHTime(ts) {
 }
 
 async function loadLiveTasksFromFirebase(dateKey, cursor = null) {
-  const firestoreDate =
-    `${dateKey.slice(0, 4)}-${dateKey.slice(4, 6)}-${dateKey.slice(6, 8)}`;
-  const constraints = [
-    where("assignedDate", "==", firestoreDate),
-    // IDs stay stable when tasks are edited and include tasks without createdAt.
-    orderBy(documentId())
-  ];
-  if (cursor !== null) constraints.push(startAfter(cursor));
-  constraints.push(limit(FIRESTORE_PAGE_SIZE));
-
-  const snapshot = await measureAssignQuery(() => getDocs(query(collection(db, "TASK"), ...constraints)));
-  const nextCursor = snapshot.docs.at(-1)?.id ?? null;
-  if (cursor !== null && nextCursor !== null && nextCursor <= cursor) {
-    throw new Error(`Task pagination did not advance for ${firestoreDate}`);
+  const date = `${dateKey.slice(0,4)}-${dateKey.slice(4,6)}-${dateKey.slice(6,8)}`;
+  const offset = Number(cursor || 0);
+  const response = await fetch("https://asia-southeast1-driva-pwa.cloudfunctions.net/prepareAdminAssignedTasks", {
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({from:date, to:date, purpose:"manage-tasks-v1", pageSize:FIRESTORE_PAGE_SIZE,
+      offset, reuseSnapshot:offset > 0, snapshotWatermark:ASSIGN_SNAPSHOT_WATERMARKS.get(date)})
+  });
+  const result = await response.json();
+  if (!response.ok || result.purpose !== "manage-tasks-v1" || !Array.isArray(result.tasks)) {
+    throw new Error(result.error || "The optimized Manage Tasks backend must be deployed before loading. No full-collection fallback was started.");
   }
+  if (offset === 0) ASSIGN_SNAPSHOT_WATERMARKS.set(date, result.snapshotWatermark);
+  const next = Number(result.nextOffset);
+  if (result.hasMore && (!Number.isFinite(next) || next <= offset)) throw new Error("Task pagination did not advance");
+  if (ASSIGN_LOAD_STATS) {
+    ASSIGN_LOAD_STATS.serverReads = (ASSIGN_LOAD_STATS.serverReads || 0) +
+      (result.dateStats || []).reduce((sum, stat) => sum + Number(stat.estimatedDocumentReads || 0), 0);
+  }
+  return {tasks:result.tasks, cursor:next, hasMore:result.hasMore};
+}
 
-  return {
-    tasks: snapshot.docs.map(docSnap => ({ ...docSnap.data(), _key: docSnap.id })),
-    cursor: nextCursor,
-    hasMore: snapshot.docs.length === FIRESTORE_PAGE_SIZE
-  };
+// Index only the arriving batch; existing task search strings and indexes are retained.
+function appendLoadedTaskBatch(batch) {
+  const started = Date.now();
+  const data = window.__TASKS_DATA__;
+  const selectors = [[filterDriver,"agentId"], [filterJob,"jobType"], [filterBA,"ba"],
+    [filterDMZ,"dmz"], [filterMRU,"mru"]];
+  const seenOptions = selectors.map(([select]) => new Set([...select.options].map(option => option.value)));
+  for (let task of batch) {
+    if (LOAD_TASK_OVERRIDES.has(task._key)) task = LOAD_TASK_OVERRIDES.get(task._key);
+    if (!task || task.deleted === true || String(task.status || "").trim().toUpperCase() === "COMPLETED" ||
+        String(task.workStatus || "").trim().toUpperCase() === "COMPLETED" || TASK_MAP[task._key]) continue;
+    task._date = normalizeDate(task.assignedDate) || normalizeDate(task.createdAt) || filterDateFrom.value;
+    task._search = Object.entries(task).filter(([key]) => !key.startsWith("_"))
+      .map(([,value]) => String(value ?? "").toLowerCase()).join(" ");
+    TASK_MAP[task._key] = task;
+    data.push(task);
+    for (const [index, value] of [[window.__TASKS_BY_DATE__,task._date],
+      [window.__TASKS_BY_DRIVER__,task.agentId], [window.__TASKS_BY_JOB__,task.jobType]]) {
+      if (!value) continue;
+      if (!Object.hasOwn(index,value)) index[value] = [];
+      index[value].push(task);
+    }
+    selectors.forEach(([select, field], index) => {
+      const value = String(task[field] || "");
+      if (value && !seenOptions[index].has(value)) {
+        select.add(new Option(value,value));
+        seenOptions[index].add(value);
+      }
+    });
+  }
+  applyFilters();
+  checkAll.disabled = TASK_ACTION_BUSY || data.length === 0;
+  if (ASSIGN_LOAD_STATS) {
+    ASSIGN_LOAD_STATS.renderMs += Date.now() - started;
+    renderAssignLoadStats();
+  }
 }
 
 // Publish partial results while retaining the current search and filters.
@@ -768,6 +807,7 @@ async function loadTasks() {
   TASK_LOAD_IN_PROGRESS = true;
   TASKS_VERIFIED = false;
   LOAD_TASK_OVERRIDES = new Map();
+  ASSIGN_SNAPSHOT_WATERMARKS.clear();
   SELECTED_IDS.clear();
   checkAll.checked = false;
   checkAll.disabled = true;
@@ -815,82 +855,38 @@ async function loadTasks() {
     }
 
     let allTasks = [];
-    let lastPublish = 0;
-    async function publishProgress(tasks) {
-      if (!lastPublish || Date.now() - lastPublish >= 200) {
-        publishLoadedTasks(tasks);
-        lastPublish = Date.now();
-        await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
-      }
-    }
-    const cached = await readTaskCache(from, to);
+    const cached = await readTaskCache(from, to, ASSIGN_MANAGE_CACHE_SCOPE);
     if (Array.isArray(cached?.tasks)) {
       publishLoadedTasks(cached.tasks);
       loadingText.innerText = "Showing saved tasks - checking updates...";
       await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
     }
 
-    if (!taskCacheNeedsFullRefresh(cached)) {
-      rangeTasks = cached.tasks || [];
-      const since = Math.max(
-        0,
-        (cached.syncedAt || 0) - TASK_CACHE_OVERLAP_MS
-      );
-      loadingText.innerText =
-        `Checking updates for ${rangeTasks.length} cached tasks...`;
-
-      // The assignedDate + updatedAt index is declared in firestore.indexes.json.
-      // Page each selected day, rather than downloading updates from every date.
-      let changed = 0;
-      await forEachTaskDate(dateKeys, async (dateKey, hasFailed) => {
-        const date = `${dateKey.slice(0,4)}-${dateKey.slice(4,6)}-${dateKey.slice(6,8)}`;
-        let cursor = null;
-        let more = true;
-        while (more && !hasFailed()) {
-          const constraints = [where("assignedDate", "==", date),
-            where("updatedAt", ">", Timestamp.fromMillis(since)), orderBy("updatedAt")];
-          if (cursor) constraints.push(startAfter(cursor));
-          constraints.push(limit(FIRESTORE_PAGE_SIZE));
-          const snapshot = await measureAssignQuery(() => getDocs(query(collection(db, "TASK"), ...constraints)));
-          const updates = snapshot.docs.map(docSnap => ({...docSnap.data(), _key: docSnap.id}));
-          changed += updates.length;
-          rangeTasks = mergeTaskUpdates(rangeTasks, updates, from, to);
-          await publishProgress(rangeTasks);
-          loadingText.innerText = `Checking selected dates - ${changed} updates loaded...`;
-          await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
-          cursor = snapshot.docs.at(-1);
-          more = snapshot.docs.length === FIRESTORE_PAGE_SIZE;
-        }
-      });
-      ASSIGN_LOAD_STATS.phase = "Saving loaded tasks on this browser";
-      renderAssignLoadStats();
-      await writeTaskCache(from, to, applyLoadOverrides(rangeTasks), {
-        previousFullSyncedAt: cached.fullSyncedAt,
-        previousWatermark: cached.watermarkMillis
-      });
-      loadingProgress.style.width = "100%";
-      loadingText.innerText = `Cache updated (${changed} change(s))`;
-    } else {
-
-      let datesFinished = 0;
-      await forEachTaskDate(dateKeys, async (dateKey, hasFailed) => {
-        let cursor = null;
-        let hasMore = true;
-        while (hasMore && !hasFailed()) {
-          const page = await loadLiveTasksFromFirebase(dateKey, cursor);
-          rangeTasks.push(...excludeDeletedTasks(page.tasks));
-          cursor = page.cursor;
-          hasMore = page.hasMore;
-          await publishProgress(rangeTasks);
-          loadingText.innerText = `Loading all selected dates - ${window.__TASKS_DATA__.length} available tasks shown...`;
-        }
-        datesFinished++;
-        loadingProgress.style.width = `${datesFinished / dateKeys.length * 100}%`;
-      });
-      ASSIGN_LOAD_STATS.phase = "Saving loaded tasks on this browser";
-      renderAssignLoadStats();
-      await writeTaskCache(from, to, applyLoadOverrides(rangeTasks), {full:true});
-    }
+    // Refresh through shared server snapshots, including legacy tasks without statuses.
+    let datesFinished = 0;
+    publishLoadedTasks([]);
+    await forEachTaskDate(dateKeys, async (dateKey, hasFailed) => {
+      let cursor = null;
+      let hasMore = true;
+      while (hasMore && !hasFailed()) {
+        const page = await measureAssignQuery(async () => {
+          const result = await loadLiveTasksFromFirebase(dateKey, cursor);
+          return {docs:result.tasks, page:result};
+        });
+        const result = page.page;
+        rangeTasks.push(...result.tasks);
+        cursor = result.cursor;
+        hasMore = result.hasMore;
+        appendLoadedTaskBatch(result.tasks);
+        loadingText.innerText = `Loading active tasks - ${window.__TASKS_DATA__.length} available...`;
+        await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
+      }
+      datesFinished++;
+      loadingProgress.style.width = `${datesFinished / dateKeys.length * 100}%`;
+    });
+    ASSIGN_LOAD_STATS.phase = "Saving active tasks on this browser";
+    renderAssignLoadStats();
+    await writeTaskCache(from, to, applyLoadOverrides(rangeTasks), {full:true, scope:ASSIGN_MANAGE_CACHE_SCOPE});
 
     allTasks = rangeTasks.filter(task =>
       task.status !== "COMPLETED" &&
@@ -900,8 +896,6 @@ async function loadTasks() {
     // 🔥 INIT INDEXES
     TASKS_VERIFIED = true;
     ASSIGN_LOAD_STATS.phase = "Complete";
-    publishLoadedTasks(rangeTasks);
-
     loadingProgress.style.width = "100%";
     loadingText.innerText =
       `Done (${window.__TASKS_DATA__.length} available tasks loaded)`;
