@@ -194,7 +194,7 @@ select, input[type="date"] {
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Manage Tasks <span class="app-version">V.R.0.1.11</span></h1>
+      <h1 class="app-title">Manage Tasks <span class="app-version">V.R.0.1.12</span></h1>
     </div>
   </div>
   <div class="app-header-actions">
@@ -467,7 +467,8 @@ function renderAssignLoadStats() {
   const element = document.getElementById("taskLoadDiagnostics");
   if (element) element.textContent = `${elapsed}s | ${stats.records} records received | ${stats.requests} task queries | ` +
     `${stats.pending} queries waiting | ${Math.round(stats.renderMs)}ms preparing the list | ` +
-    `${stats.serverReads || 0} estimated server reads | ${stats.phase}`;
+    `${stats.serverReads || 0} estimated server reads | ${stats.serverQueryMs || 0}ms server queries | ` +
+    `${stats.serverProcessingMs || 0}ms server processing | ${stats.phase}`;
 }
 async function measureAssignQuery(operation) {
   const stats = ASSIGN_LOAD_STATS;
@@ -530,8 +531,8 @@ window.__TASKS_DATA__ = [];
 
 const PAGE_SIZE = 100;
 const FIRESTORE_PAGE_SIZE = 1000;
-const ASSIGN_MANAGE_CACHE_SCOPE = "assign-manage-v2";
-const ASSIGN_SNAPSHOT_WATERMARKS = new Map();
+const ASSIGN_MANAGE_CACHE_SCOPE = "assign-manage-direct-v1";
+
 
 let CURRENT_PAGE = 0;
 let FILTERED_TASKS = [];
@@ -649,20 +650,19 @@ function toPHTime(ts) {
 
 async function loadLiveTasksFromFirebase(dateKey, cursor = null) {
   const date = `${dateKey.slice(0,4)}-${dateKey.slice(4,6)}-${dateKey.slice(6,8)}`;
-  const offset = Number(cursor || 0);
   const response = await fetch("https://asia-southeast1-driva-pwa.cloudfunctions.net/prepareAdminAssignedTasks", {
     method:"POST", headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({from:date, to:date, purpose:"manage-tasks-v1", pageSize:FIRESTORE_PAGE_SIZE,
-      offset, reuseSnapshot:offset > 0, snapshotWatermark:ASSIGN_SNAPSHOT_WATERMARKS.get(date)})
+    body: JSON.stringify({from:date, to:date, purpose:"manage-tasks-v2", pageSize:FIRESTORE_PAGE_SIZE, cursor:cursor || ""})
   });
   const result = await response.json();
-  if (!response.ok || result.purpose !== "manage-tasks-v1" || !Array.isArray(result.tasks)) {
+  if (!response.ok || result.purpose !== "manage-tasks-v2" || !Array.isArray(result.tasks)) {
     throw new Error(result.error || "The optimized Manage Tasks backend must be deployed before loading. No full-collection fallback was started.");
   }
-  if (offset === 0) ASSIGN_SNAPSHOT_WATERMARKS.set(date, result.snapshotWatermark);
-  const next = Number(result.nextOffset);
-  if (result.hasMore && (!Number.isFinite(next) || next <= offset)) throw new Error("Task pagination did not advance");
+  const next = String(result.nextCursor || "");
+  if (result.hasMore && (!next || (cursor && next <= cursor))) throw new Error("Task pagination did not advance");
   if (ASSIGN_LOAD_STATS) {
+    ASSIGN_LOAD_STATS.serverQueryMs = (ASSIGN_LOAD_STATS.serverQueryMs || 0) + Number(result.timings?.queryMs || 0);
+    ASSIGN_LOAD_STATS.serverProcessingMs = (ASSIGN_LOAD_STATS.serverProcessingMs || 0) + Number(result.timings?.processingMs || 0);
     ASSIGN_LOAD_STATS.serverReads = (ASSIGN_LOAD_STATS.serverReads || 0) +
       (result.dateStats || []).reduce((sum, stat) => sum + Number(stat.estimatedDocumentReads || 0), 0);
   }
@@ -813,7 +813,6 @@ async function loadTasks() {
   TASK_LOAD_IN_PROGRESS = true;
   TASKS_VERIFIED = false;
   LOAD_TASK_OVERRIDES = new Map();
-  ASSIGN_SNAPSHOT_WATERMARKS.clear();
   SELECTED_IDS.clear();
   checkAll.checked = false;
   checkAll.disabled = true;
@@ -868,7 +867,7 @@ async function loadTasks() {
       await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
     }
 
-    // Refresh through shared server snapshots, including legacy tasks without statuses.
+    // Query only active status candidates; legacy status-only pending tasks are included.
     let datesFinished = 0;
     publishLoadedTasks([]);
     await forEachTaskDate(dateKeys, async (dateKey, hasFailed) => {

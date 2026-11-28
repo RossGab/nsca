@@ -1,6 +1,6 @@
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
-const {isManageTaskActive, projectManageTask} = require("./manage-task-data");
+const {isManageTaskActive, projectManageTask, readManageTaskPage} = require("./manage-task-data");
 
 admin.initializeApp();
 
@@ -62,7 +62,7 @@ exports.createTaskViewerUser = functions.https.onCall(async (data, context) => {
 
 const { onRequest } = require("firebase-functions/v2/https");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
-const { getFirestore, Timestamp, FieldPath } = require("firebase-admin/firestore");
+const { getFirestore, Timestamp, FieldPath, Filter } = require("firebase-admin/firestore");
 const sharp = require("sharp");
 const ExcelJS = require("exceljs");
 const crypto = require("node:crypto");
@@ -1167,7 +1167,8 @@ exports.prepareAdminAssignedTasks = onRequest({
       .map(value => String(value).trim())
       .filter(Boolean)
   );
-  const manageTasks = req.body?.purpose === "manage-tasks-v1";
+  const directManageTasks = req.body?.purpose === "manage-tasks-v2";
+  const manageTasks = directManageTasks || req.body?.purpose === "manage-tasks-v1";
   if (!manageTasks && !requestedBAs.size) {
     res.status(400).json({ error: "Select at least one BA in Admin BA Scope." });
     return;
@@ -1175,6 +1176,18 @@ exports.prepareAdminAssignedTasks = onRequest({
 
   try {
     const db = getFirestore(REPORT_DATABASE_ID);
+    if (directManageTasks) {
+      const result = await readManageTaskPage(db, {
+        date:from, cursor:String(req.body?.cursor || ""), pageSize:req.body?.pageSize || 1000
+      }, {Filter, FieldPath});
+      res.set("Server-Timing", `firestore;dur=${result.timings.queryMs}, processing;dur=${result.timings.processingMs}`);
+      res.json({purpose:"manage-tasks-v2", dateBasis:"assignedDate", from, to,
+        tasks:result.tasks, hasMore:result.hasMore, nextCursor:result.nextCursor,
+        timings:result.timings,
+        dateStats:[{date:from, source:"direct", estimatedDocumentReads:result.estimatedDocumentReads,
+          tasksAvailable:result.tasks.length, snapshotFileReads:0}]});
+      return;
+    }
     const date = from;
     const pageSize = Math.max(100, Math.min(5000, Number(req.body?.pageSize || (manageTasks ? 1000 : 5000))));
     const eligibleForSnapshot = manageTasks || snapshotDateIsEligible(date);

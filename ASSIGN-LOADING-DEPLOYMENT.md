@@ -1,13 +1,24 @@
-# Manage Tasks V.R.0.1.11
+# Manage Tasks V.R.0.1.12
 
-Deploy the backend before publishing assign.html:
+The page now uses purpose manage-tasks-v2 on prepareAdminAssignedTasks. This path queries TASK directly by assignedDate plus an OR of workStatus/status pending and for-download values. It projects only Manage Tasks fields. The legacy manage-tasks-v1 snapshot path and existing admin BA-scope path remain available for older pages.
 
-    firebase deploy --only functions:prepareAdminAssignedTasks
+Deploy the backend and supporting indexes before publishing assign.html:
 
-Publish functions/manage-task-data.js with functions/index.js as part of that deployment. The page requires the response purpose manage-tasks-v1 and will not fall back to downloading every TASK document if an old backend responds.
+    firebase deploy --only firestore:indexes,functions:prepareAdminAssignedTasks --project driva-pwa --non-interactive
 
-The backend uses the existing assigned-date snapshot service and existing assignedDate/updatedAt index. It filters completed/deleted tasks and projects only Manage Tasks fields before responding, including legacy tasks with a pending status but no workStatus field. Tasks must be pending or fordownload, across all BAs; deleted/completed/other states are excluded. Each response has at most 1,000 active tasks. A watermark check prevents combining pages from different snapshot versions.
+The assignedDate/workStatus and assignedDate/status dedicated indexes were created on November 28, 2026 and were still CREATING at the final metadata check. A live pageSize=1 direct query succeeded using available indexes: one returned candidate, one estimated document read, queryMs=1007, processingMs=1. This is not a full-day performance benchmark. Wait for the dedicated indexes to be READY before a large comparison test. Index deployment acknowledgement alone does not mean an index has finished building. No full-date scan is used as a fallback.
 
-The first snapshot build for a date still reads that date's source documents. This is not a zero-read migration or a guarantee of immediate first load. Reused snapshots read changes rather than rereading every source document, and return only active task details to the browser. Existing admin mode and BA requirements remain unchanged. No production query or deployment was performed during implementation.
+All matching tasks load automatically, across all BAs, with up to 1,000 status candidates per request. Known case/separator formats and legacy status-only PENDING records are queried. Values outside the documented pending/for-download variants need normalization before they can match a direct equality query. Deleted records and conflicting completed/cancelled statuses are removed after candidate retrieval; therefore candidate reads can exceed returned records. Cursor advancement uses the last candidate, even for pages with zero visible tasks.
 
-Validation: node test-assign-optimized.mjs; node test-assign-progressive.mjs; node test-assign-loading.mjs. These use local mock data only. After deployment, start with one date and inspect browser-transfer counts, estimated backend reads, and preparation time before testing a larger range.
+Diagnostics separately show cumulative server query time and server processing time; times can overlap across concurrent date requests. Estimated server reads refer to document candidates, not a billing statement or index-entry read count. Actual speed must be measured after deployment rather than inferred from fewer records.
+
+Local validation:
+
+    node test-assign-direct-query.mjs
+    node test-assign-optimized.mjs
+    node test-assign-progressive.mjs
+    node test-assign-loading.mjs
+
+These tests use mock data and do not read production tasks. Page publishing through GitHub remains separate from Firebase deployment.
+
+Deployment status: prepareAdminAssignedTasks direct v2 backend deployed successfully to driva-pwa / asia-southeast1 on November 28, 2026. assign.html V.R.0.1.12 is saved locally and must be published separately to use the direct v2 route. Existing V.R.0.1.11 continues to use the snapshot route. No full-day task query was run during verification.

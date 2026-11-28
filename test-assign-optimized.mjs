@@ -26,15 +26,15 @@ const c={exports:{},onRequest:(_,fn)=>fn,setReportCors:()=>true,assignedDateBoun
  refreshAssignedSnapshotForDate:async()=>{refreshes++;return {tasks:rows,source:'snapshot',snapshotWatermark:123,estimatedDocumentReads:1004}},
  loadAssignedSnapshotTasks:async(date,watermark)=>{loads++;assert.equal(watermark,123);return rows},console};
 vm.runInNewContext(source.slice(start,end),c);
-async function request(body){const res={code:200,status(code){this.code=code;return this},json(data){this.data=data},end(){}};await c.exports.prepareAdminAssignedTasks({method:'POST',body:{from:'2026-11-28',to:'2026-11-28',...body}},res);return res}
+async function request(body){const res={code:200,headers:{},set(key,value){this.headers[key]=value;return this},status(code){this.code=code;return this},json(data){this.data=data},end(){}};await c.exports.prepareAdminAssignedTasks({method:'POST',body:{from:'2026-11-28',to:'2026-11-28',...body}},res);return res}
 let r=await request({purpose:'manage-tasks-v1',pageSize:1000});assert.equal(r.code,200);assert.equal(r.data.tasks.length,1000);assert.equal(r.data.hasMore,true);assert.equal(r.data.snapshotWatermark,123);
 r=await request({purpose:'manage-tasks-v1',pageSize:1000,offset:1000,reuseSnapshot:true,snapshotWatermark:123});assert.equal(r.data.tasks.length,2);assert.equal(r.data.hasMore,false);assert.equal(refreshes,1);assert.equal(loads,1);assert.equal(r.data.dateStats[0].estimatedDocumentReads,0);
 r=await request({});assert.equal(r.code,400); // Existing admin mode still requires BA scope.
 const html=readFileSync('assign.html','utf8');
 const loader=html.slice(html.indexOf('async function loadLiveTasksFromFirebase('),html.indexOf('// Index only the arriving batch'));
 let posted;
-const l={FIRESTORE_PAGE_SIZE:1000,ASSIGN_SNAPSHOT_WATERMARKS:new Map(),ASSIGN_LOAD_STATS:{},fetch:async(_,options)=>{posted=JSON.parse(options.body);return {ok:true,json:async()=>({purpose:'manage-tasks-v1',tasks:[{_key:'id'}],nextOffset:1,hasMore:false,snapshotWatermark:123,dateStats:[]})}}};
-vm.runInNewContext(loader,l);await l.loadLiveTasksFromFirebase('20261128');assert.equal(posted.pageSize,1000);assert.equal(posted.purpose,'manage-tasks-v1');
+const l={FIRESTORE_PAGE_SIZE:1000,ASSIGN_SNAPSHOT_WATERMARKS:new Map(),ASSIGN_LOAD_STATS:{},fetch:async(_,options)=>{posted=JSON.parse(options.body);return {ok:true,json:async()=>({purpose:'manage-tasks-v2',tasks:[{_key:'id'}],nextCursor:'id',hasMore:false,timings:{queryMs:5,processingMs:1},dateStats:[]})}}};
+vm.runInNewContext(loader,l);await l.loadLiveTasksFromFirebase('20261128');assert.equal(posted.pageSize,1000);assert.equal(posted.purpose,'manage-tasks-v2');
 l.fetch=async()=>({ok:false,json:async()=>({error:'deploy backend'})});await assert.rejects(l.loadLiveTasksFromFirebase('20261128'),/deploy backend/);
 const append=html.slice(html.indexOf('function appendLoadedTaskBatch('),html.indexOf('// Publish partial results'));
 const select=()=>({options:[],add(option){this.options.push(option)}});
@@ -45,3 +45,9 @@ Object.defineProperty(one,'_search',{get:()=>search,set:()=>{throw Error('Existi
 a.appendLoadedTaskBatch([{_key:'two',agentId:'B',workStatus:'fordownload'}]);assert.equal(a.window.__TASKS_DATA__.length,2);
 a.LOAD_TASK_OVERRIDES.set('deleted',null);a.appendLoadedTaskBatch([{_key:'deleted'}]);assert.equal(a.window.__TASKS_DATA__.length,2);
 console.log('Passed server active/legacy filtering, light projection, 1000-item paging, snapshot reuse, unchanged admin scope, no costly fallback, and indexing new tasks only.');
+
+c.Filter={};c.FieldPath={};let directCalls=0;
+c.readManageTaskPage=async(db,options)=>{directCalls++;assert.equal(options.date,'2026-11-28');assert.equal(options.pageSize,1000);return {tasks:[{_key:'direct',workStatus:'pending'}],hasMore:false,nextCursor:'direct',estimatedDocumentReads:1,timings:{queryMs:5,processingMs:1,totalMs:6}}};
+r=await request({purpose:'manage-tasks-v2',pageSize:1000});
+assert.equal(r.code,200);assert.equal(r.data.purpose,'manage-tasks-v2');assert.equal(directCalls,1);assert.equal(refreshes,1);assert.equal(loads,1);assert.match(r.headers['Server-Timing'],/firestore;dur=5/);
+console.log('Passed v2 endpoint routing, no snapshot dependency, no BA requirement and Server-Timing response.');
