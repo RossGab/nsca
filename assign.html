@@ -194,7 +194,7 @@ select, input[type="date"] {
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Manage Tasks <span class="app-version">V.R.0.1.10</span></h1>
+      <h1 class="app-title">Manage Tasks <span class="app-version">V.R.0.1.11</span></h1>
     </div>
   </div>
   <div class="app-header-actions">
@@ -530,7 +530,7 @@ window.__TASKS_DATA__ = [];
 
 const PAGE_SIZE = 100;
 const FIRESTORE_PAGE_SIZE = 1000;
-const ASSIGN_MANAGE_CACHE_SCOPE = "assign-manage-v1";
+const ASSIGN_MANAGE_CACHE_SCOPE = "assign-manage-v2";
 const ASSIGN_SNAPSHOT_WATERMARKS = new Map();
 
 let CURRENT_PAGE = 0;
@@ -669,6 +669,16 @@ async function loadLiveTasksFromFirebase(dateKey, cursor = null) {
   return {tasks:result.tasks, cursor:next, hasMore:result.hasMore};
 }
 
+function isManageTaskActive(task) {
+  if (!task || task.deleted === true) return false;
+  const normalize = value => String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
+  const status = normalize(task.status);
+  const workStatus = normalize(task.workStatus);
+  if (status === "completed" || workStatus === "completed") return false;
+  const state = workStatus || status;
+  return state === "pending" || state === "fordownload";
+}
+
 // Index only the arriving batch; existing task search strings and indexes are retained.
 function appendLoadedTaskBatch(batch) {
   const started = Date.now();
@@ -678,8 +688,7 @@ function appendLoadedTaskBatch(batch) {
   const seenOptions = selectors.map(([select]) => new Set([...select.options].map(option => option.value)));
   for (let task of batch) {
     if (LOAD_TASK_OVERRIDES.has(task._key)) task = LOAD_TASK_OVERRIDES.get(task._key);
-    if (!task || task.deleted === true || String(task.status || "").trim().toUpperCase() === "COMPLETED" ||
-        String(task.workStatus || "").trim().toUpperCase() === "COMPLETED" || TASK_MAP[task._key]) continue;
+    if (!isManageTaskActive(task) || TASK_MAP[task._key]) continue;
     task._date = normalizeDate(task.assignedDate) || normalizeDate(task.createdAt) || filterDateFrom.value;
     task._search = Object.entries(task).filter(([key]) => !key.startsWith("_"))
       .map(([,value]) => String(value ?? "").toLowerCase()).join(" ");
@@ -710,10 +719,7 @@ function appendLoadedTaskBatch(batch) {
 // Publish partial results while retaining the current search and filters.
 function publishLoadedTasks(rangeTasks) {
     const renderStarted = Date.now();
-    const allTasks = excludeDeletedTasks(applyLoadOverrides(rangeTasks)).filter(task =>
-      String(task.status || "").toUpperCase() !== "COMPLETED" &&
-      String(task.workStatus || "").toUpperCase() !== "COMPLETED"
-    );
+    const allTasks = applyLoadOverrides(rangeTasks).filter(isManageTaskActive);
 
     window.__TASKS_BY_DATE__ = {};
     window.__TASKS_BY_DRIVER__ = {};

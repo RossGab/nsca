@@ -3,8 +3,13 @@ const FIELDS = ["taskId", "accountNumber", "address", "agentId", "agentName", "d
   "assignedDate", "ba", "bg", "BG", "createdAt", "customerName", "deleted", "dmz", "jobType",
   "latitude", "longitude", "meterNumber", "mru", "sequence", "status", "workStatus", "updatedAt"];
 function isManageTaskActive(task) {
-  return task.deleted !== true && String(task.status || "").trim().toUpperCase() !== "COMPLETED" &&
-    String(task.workStatus || "").trim().toUpperCase() !== "COMPLETED";
+  if (!task || task.deleted === true) return false;
+  const normalize = value => String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
+  const status = normalize(task.status);
+  const workStatus = normalize(task.workStatus);
+  if (status === "completed" || workStatus === "completed") return false;
+  const state = workStatus || status;
+  return state === "pending" || state === "fordownload";
 }
 function projectManageTask(task) {
   const result = {_key: String(task._key || task.taskId || "")};

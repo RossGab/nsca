@@ -1,11 +1,13 @@
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
 import assert from 'node:assert/strict';
+import {createRequire} from 'node:module';
+const {isManageTaskActive}=createRequire(import.meta.url)('./functions/manage-task-data.js');
 const html=readFileSync('assign.html','utf8');
 const load=html.slice(html.indexOf('async function loadTasks()'),html.indexOf('checkAll.onchange ='));
 const overrides=html.slice(html.indexOf('function applyLoadOverrides('),html.indexOf('let SEARCH_TERM'));
 const action=html.slice(html.indexOf('window.openBulkActions ='),html.indexOf('async function bulkRedownload('));
-const row=(id,extras={})=>({_key:id,assignedDate:'2026-11-28',agentId:'A',...extras});
+const row=(id,extras={})=>({_key:id,assignedDate:'2026-11-28',agentId:'A',workStatus:'pending',...extras});
 async function scenario({cached=null,full=true,fail=false}={}) {
  const published=[], queries=[]; let pages=0;
  const field=value=>({value,disabled:false,style:{}});
@@ -26,7 +28,7 @@ r=await scenario({cached:{tasks:[row('saved')],syncedAt:1},full:false});assert.e
 const helper=html.slice(html.indexOf('function publishLoadedTasks('),html.indexOf('/* ===== LOAD TASKS - FIRESTORE ONLY'));
 const filter=()=>({value:'chosen',options:[],add(option){this.options.push(option)}});
 const filters=Array.from({length:5},filter);
-const c={ASSIGN_LOAD_STATS:null,window:{},excludeDeletedTasks:ts=>ts.filter(t=>!t.deleted),normalizeDate:v=>v,filterDateFrom:{value:'2026-11-28'},filterDateTo:{},filterDriver:filters[0],filterJob:filters[1],filterBA:filters[2],filterDMZ:filters[3],filterMRU:filters[4],TASK_MAP:{},TASK_ACTION_BUSY:false,TASK_LOAD_IN_PROGRESS:true,updateLoadMoreControls:()=>{},LOAD_TASK_OVERRIDES:new Map(),checkAll:{},loadBtn:{},buildFilterLists:()=>filters.forEach(f=>{f.value='';f.options=[]}),applyFilters:()=>{},Option:function(text,value){this.value=value}};
+const c={isManageTaskActive,ASSIGN_LOAD_STATS:null,window:{},excludeDeletedTasks:ts=>ts.filter(t=>!t.deleted),normalizeDate:v=>v,filterDateFrom:{value:'2026-11-28'},filterDateTo:{},filterDriver:filters[0],filterJob:filters[1],filterBA:filters[2],filterDMZ:filters[3],filterMRU:filters[4],TASK_MAP:{},TASK_ACTION_BUSY:false,TASK_LOAD_IN_PROGRESS:true,updateLoadMoreControls:()=>{},LOAD_TASK_OVERRIDES:new Map(),checkAll:{},loadBtn:{},buildFilterLists:()=>filters.forEach(f=>{f.value='';f.options=[]}),applyFilters:()=>{},Option:function(text,value){this.value=value}};
 vm.createContext(c);
 // Extract the two overlay functions without depending on neighbouring declarations.
 vm.runInContext(html.slice(html.indexOf('function applyLoadOverrides('),html.indexOf('\n}',html.indexOf('function rememberLoadedTaskChanges('))+2),c);

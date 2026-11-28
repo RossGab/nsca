@@ -1,10 +1,15 @@
-﻿import {createRequire} from 'node:module';
+import {createRequire} from 'node:module';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
 import assert from 'node:assert/strict';
 const require=createRequire(import.meta.url);
 const {isManageTaskActive,projectManageTask}=require('./functions/manage-task-data.js');
-assert.equal(isManageTaskActive({}),true);
+assert.equal(isManageTaskActive({}),false);
+assert.equal(isManageTaskActive({status:'PENDING'}),true);
+assert.equal(isManageTaskActive({workStatus:'for download'}),true);
+assert.equal(isManageTaskActive({workStatus:'fordownload',ba:'ANY BA'}),true);
+assert.equal(isManageTaskActive({status:'PENDING',workStatus:'cancelled'}),false);
+assert.equal(isManageTaskActive({status:'COMPLETED',workStatus:'pending'}),false);
 assert.equal(isManageTaskActive({workStatus:'pending'}),true);
 assert.equal(isManageTaskActive({status:' completed '}),false);
 assert.equal(isManageTaskActive({workStatus:'Completed'}),false);
@@ -14,7 +19,7 @@ assert.equal(projected.photo1Url,undefined);assert.equal(projected.deliveryData,
 const source=readFileSync('functions/index.js','utf8');
 const start=source.indexOf('exports.prepareAdminAssignedTasks =');const end=source.indexOf('function csvReportValue',start);
 let refreshes=0,loads=0;
-const rows=Array.from({length:1002},(_,i)=>({_key:String(i),assignedDate:'2026-11-28',customerName:'Customer'}));
+const rows=Array.from({length:1002},(_,i)=>({_key:String(i),assignedDate:'2026-11-28',customerName:'Customer',workStatus:i%2?'pending':'fordownload',ba:i%2?'BA1':'BA2'}));
 rows.push({_key:'completed',status:'COMPLETED'},{_key:'deleted',deleted:true});
 const c={exports:{},onRequest:(_,fn)=>fn,setReportCors:()=>true,assignedDateBounds:()=>true,ADMIN_ASSIGNED_MAX_DAYS:180,
  getFirestore:()=>({}),REPORT_DATABASE_ID:'test',snapshotDateIsEligible:()=>false,isManageTaskActive,projectManageTask,
@@ -33,10 +38,10 @@ vm.runInNewContext(loader,l);await l.loadLiveTasksFromFirebase('20261128');asser
 l.fetch=async()=>({ok:false,json:async()=>({error:'deploy backend'})});await assert.rejects(l.loadLiveTasksFromFirebase('20261128'),/deploy backend/);
 const append=html.slice(html.indexOf('function appendLoadedTaskBatch('),html.indexOf('// Publish partial results'));
 const select=()=>({options:[],add(option){this.options.push(option)}});
-const a={window:{__TASKS_DATA__:[],__TASKS_BY_DATE__:{},__TASKS_BY_DRIVER__:{},__TASKS_BY_JOB__:{}},TASK_MAP:{},LOAD_TASK_OVERRIDES:new Map(),TASK_ACTION_BUSY:false,ASSIGN_LOAD_STATS:null,normalizeDate:x=>x,filterDateFrom:{value:'2026-11-28'},filterDriver:select(),filterJob:select(),filterBA:select(),filterDMZ:select(),filterMRU:select(),checkAll:{},Option:function(text,value){this.value=value},applyFilters:()=>{}};
-vm.runInNewContext(append,a);const one={_key:'one',assignedDate:'2026-11-28',customerName:'One',agentId:'A'};
+const a={isManageTaskActive,window:{__TASKS_DATA__:[],__TASKS_BY_DATE__:{},__TASKS_BY_DRIVER__:{},__TASKS_BY_JOB__:{}},TASK_MAP:{},LOAD_TASK_OVERRIDES:new Map(),TASK_ACTION_BUSY:false,ASSIGN_LOAD_STATS:null,normalizeDate:x=>x,filterDateFrom:{value:'2026-11-28'},filterDriver:select(),filterJob:select(),filterBA:select(),filterDMZ:select(),filterMRU:select(),checkAll:{},Option:function(text,value){this.value=value},applyFilters:()=>{}};
+vm.runInNewContext(append,a);const one={_key:'one',assignedDate:'2026-11-28',customerName:'One',agentId:'A',workStatus:'pending'};
 a.appendLoadedTaskBatch([one]);const search=one._search;
 Object.defineProperty(one,'_search',{get:()=>search,set:()=>{throw Error('Existing task reindexed')}});
-a.appendLoadedTaskBatch([{_key:'two',agentId:'B'}]);assert.equal(a.window.__TASKS_DATA__.length,2);
+a.appendLoadedTaskBatch([{_key:'two',agentId:'B',workStatus:'fordownload'}]);assert.equal(a.window.__TASKS_DATA__.length,2);
 a.LOAD_TASK_OVERRIDES.set('deleted',null);a.appendLoadedTaskBatch([{_key:'deleted'}]);assert.equal(a.window.__TASKS_DATA__.length,2);
 console.log('Passed server active/legacy filtering, light projection, 1000-item paging, snapshot reuse, unchanged admin scope, no costly fallback, and indexing new tasks only.');
