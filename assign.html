@@ -194,7 +194,7 @@ select, input[type="date"] {
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Manage Tasks <span class="app-version">V.R.0.1.4</span></h1>
+      <h1 class="app-title">Manage Tasks <span class="app-version">V.R.0.1.5</span></h1>
     </div>
   </div>
   <div class="app-header-actions">
@@ -451,6 +451,7 @@ let VISIBLE_END = 0;
 
   
 let SELECTED_IDS = new Set();
+let TASKS_VERIFIED = false;
 
 let SEARCH_TIMER;
 
@@ -477,6 +478,7 @@ filterDateFrom.value = today;
 filterDateTo.value = today;
 
 function markDateRangeReadyToLoad() {
+  TASKS_VERIFIED = false;
   TASKS = [];
   FILTERED_TASKS = [];
   TASK_MAP = {};
@@ -606,12 +608,103 @@ async function loadLiveTasksFromFirebase(dateKey, cursor = null) {
   };
 }
 
+// Publish partial results while retaining the current search and filters.
+function publishLoadedTasks(rangeTasks) {
+    const allTasks = excludeDeletedTasks(rangeTasks).filter(task =>
+      String(task.status || "").toUpperCase() !== "COMPLETED" &&
+      String(task.workStatus || "").toUpperCase() !== "COMPLETED"
+    );
+
+    window.__TASKS_BY_DATE__ = {};
+    window.__TASKS_BY_DRIVER__ = {};
+    window.__TASKS_BY_JOB__ = {};
+
+    TASK_MAP = {};
+
+    // ===== BUILD INDEXES =====
+    allTasks.forEach(t => {
+
+      TASK_MAP[t._key] = t;
+
+      // Use the same date field as the Firestore query. createdAt is UTC
+      // and can fall on the previous date before 08:00 in Manila.
+      let d = normalizeDate(t.assignedDate);
+
+      if (!d) {
+        d = normalizeDate(t.createdAt);
+      }
+
+      // 🔥 fallback to filter date if missing
+      if (!d) {
+        d = filterDateFrom.value;
+      }
+
+      t._date = d;
+
+      if (!window.__TASKS_BY_DATE__[d]) {
+        window.__TASKS_BY_DATE__[d] = [];
+      }
+
+      window.__TASKS_BY_DATE__[d].push(t);
+
+      t._search = Object.entries(t).filter(([key]) => !key.startsWith("_")).map(([, value]) => value)
+        .map(v => (v || "").toString().toLowerCase())
+        .join(" ");
+
+      // ===== DRIVER INDEX =====
+      if (t.agentId) {
+
+        if (!window.__TASKS_BY_DRIVER__[t.agentId]) {
+          window.__TASKS_BY_DRIVER__[t.agentId] = [];
+        }
+
+        window.__TASKS_BY_DRIVER__[t.agentId].push(t);
+      }
+
+      // ===== JOB INDEX =====
+      if (t.jobType) {
+
+        if (!window.__TASKS_BY_JOB__[t.jobType]) {
+          window.__TASKS_BY_JOB__[t.jobType] = [];
+        }
+
+        window.__TASKS_BY_JOB__[t.jobType].push(t);
+      }
+
+    });
+
+    LAST_FILTER_HASH = "";
+
+    // Store the loaded Firestore tasks in the main dataset.
+    window.__TASKS_DATA__ = allTasks;
+
+    const filters = [filterDriver, filterJob, filterBA, filterDMZ, filterMRU];
+    const values = filters.map(filter => filter.value);
+    buildFilterLists();
+    filters.forEach((filter, index) => {
+      const value = values[index];
+      if (value && ![...filter.options].some(option => option.value === value)) {
+        filter.add(new Option(value, value));
+      }
+      filter.value = value;
+    });
+
+    applyFilters();
+
+    checkAll.disabled = !TASKS_VERIFIED;
+}
+
 /* ===== LOAD TASKS - FIRESTORE ONLY ===== */
 async function loadTasks() {
   if (loadBtn.disabled) {
     return;
   }
 
+  TASKS_VERIFIED = false;
+  SELECTED_IDS.clear();
+  checkAll.checked = false;
+  checkAll.disabled = true;
+  bulkBtn.disabled = true;
   loadBtn.disabled = true;
   loadBtn.innerText = "Loading...";
   filterDateFrom.disabled = true;
@@ -651,6 +744,11 @@ async function loadTasks() {
     let allTasks = [];
     let rangeTasks = [];
     const cached = await readTaskCache(from, to);
+    if (Array.isArray(cached?.tasks)) {
+      publishLoadedTasks(cached.tasks);
+      loadingText.innerText = "Showing saved tasks - checking updates...";
+      await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
+    }
 
     if (!taskCacheNeedsFullRefresh(cached)) {
       rangeTasks = cached.tasks || [];
@@ -697,6 +795,8 @@ async function loadTasks() {
             loadedIdsForDate.add(task._key);
           }
           rangeTasks.push(...excludeDeletedTasks(page.tasks));
+          publishLoadedTasks(rangeTasks);
+          await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
           loadedForDate += page.tasks.length;
           cursor = page.cursor;
           hasMore = page.hasMore;
@@ -716,77 +816,8 @@ async function loadTasks() {
     );
 
     // 🔥 INIT INDEXES
-    window.__TASKS_BY_DATE__ = {};
-    window.__TASKS_BY_DRIVER__ = {};
-    window.__TASKS_BY_JOB__ = {};
-
-    TASK_MAP = {};
-
-    // ===== BUILD INDEXES =====
-    allTasks.forEach(t => {
-
-      TASK_MAP[t._key] = t;
-
-      // Use the same date field as the Firestore query. createdAt is UTC
-      // and can fall on the previous date before 08:00 in Manila.
-      let d = normalizeDate(t.assignedDate);
-
-      if (!d) {
-        d = normalizeDate(t.createdAt);
-      }
-
-      // 🔥 fallback to filter date if missing
-      if (!d) {
-        d = filterDateFrom.value;
-      }
-
-      t._date = d;
-
-      if (!window.__TASKS_BY_DATE__[d]) {
-        window.__TASKS_BY_DATE__[d] = [];
-      }
-
-      window.__TASKS_BY_DATE__[d].push(t);
-
-      t._search = Object.values(t)
-        .map(v => (v || "").toString().toLowerCase())
-        .join(" ");
-
-      // ===== DRIVER INDEX =====
-      if (t.agentId) {
-
-        if (!window.__TASKS_BY_DRIVER__[t.agentId]) {
-          window.__TASKS_BY_DRIVER__[t.agentId] = [];
-        }
-
-        window.__TASKS_BY_DRIVER__[t.agentId].push(t);
-      }
-
-      // ===== JOB INDEX =====
-      if (t.jobType) {
-
-        if (!window.__TASKS_BY_JOB__[t.jobType]) {
-          window.__TASKS_BY_JOB__[t.jobType] = [];
-        }
-
-        window.__TASKS_BY_JOB__[t.jobType].push(t);
-      }
-
-    });
-
-    // 🔥 RESET SELECTION STATE
-    SELECTED_IDS.clear();
-    checkAll.checked = false;
-    checkAll.disabled = false;
-
-    LAST_FILTER_HASH = "";
-
-    // Store the loaded Firestore tasks in the main dataset.
-    window.__TASKS_DATA__ = allTasks;
-
-    buildFilterLists();
-
-    applyFilters();
+    TASKS_VERIFIED = true;
+    publishLoadedTasks(rangeTasks);
 
     loadingProgress.style.width = "100%";
     loadingText.innerText =
@@ -799,7 +830,7 @@ async function loadTasks() {
   } catch (err) {
 
     console.error("❌ loadTasks failed:", err);
-    loadingBar.style.display = "none";
+    loadingText.innerText = "Loading incomplete - displayed tasks are unverified. Bulk actions are disabled. Retry Load Tasks.";
     alert("Tasks could not be fully loaded. Please try again. " + err.message);
 
   } finally {
@@ -813,6 +844,7 @@ async function loadTasks() {
 
 
 checkAll.onchange = () => {
+  if (!TASKS_VERIFIED) return;
   const start = CURRENT_PAGE * PAGE_SIZE;
   const end = start + PAGE_SIZE;
 
@@ -1018,6 +1050,7 @@ for (let i = 0; i < base.length; i++) {
 }
 
 window.toggleSelect = function (el) {
+  if (!TASKS_VERIFIED) return;
   const id = el.dataset.id;
 
   if (el.checked) {
@@ -1065,6 +1098,7 @@ function renderTasks(data) {
         <input
           type="checkbox"
           data-id="${t._key}"
+          ${TASKS_VERIFIED ? "" : "disabled"}
           onchange="toggleSelect(this)"
         >
 
@@ -1225,7 +1259,7 @@ const selectedCountEl = document.getElementById("selectedCount");
 window.checkSelection = function () {
   const count = SELECTED_IDS.size;
 
-  bulkBtn.disabled = count === 0;
+  bulkBtn.disabled = !TASKS_VERIFIED || count === 0;
 
   selectedCountEl.innerText =
   count > 0 ? `${count} selected (ALL FILTERED)` : "";
@@ -1233,6 +1267,7 @@ window.checkSelection = function () {
 
 /* ===== BULK ACTION ===== */
 window.openBulkActions = async function () {
+  if (!TASKS_VERIFIED || loadBtn.disabled) return;
   
   const ids = [...SELECTED_IDS];
 
