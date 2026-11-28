@@ -167,6 +167,7 @@ window.goDashboard = function(){
 };
 
 window.logout = async function(){
+  try { sessionStorage.removeItem("nsca.taskviewer.pages.v1"); } catch {}
   await signOut(auth);
   window.location.href = "login-taskview.html";
 };

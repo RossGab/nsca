@@ -427,9 +427,12 @@ const auth = getAuth(app);
 
 onAuthStateChanged(auth, async (user) => {
   stopWatchingAssignment?.();
-  clearPageCache();
+  ACTIVE_REQUEST?.abort();
+  PAGE_CACHE.clear();
+  pageCacheScope = null;
   clearTaskPage();
   if (!user) {
+    clearPageCache();
     window.location.href = "login-taskview.html";
     return;
   }
@@ -463,6 +466,7 @@ onAuthStateChanged(auth, async (user) => {
 
   // ❌ NOT AUTHORIZED
   if (!role) {
+    clearPageCache();
     alert("Access denied");
     window.location.href = "login-taskview.html";
     return;
@@ -482,6 +486,7 @@ onAuthStateChanged(auth, async (user) => {
   
   // 🚀 LOAD DATA
   await loadConfig();
+  restorePageCache(user.uid);
 
   // Apply BA assignment changes even while this page remains open.
   if (userConfigKey) {
@@ -510,6 +515,7 @@ onAuthStateChanged(auth, async (user) => {
       window.USER_BA = updatedBAs;
       FILTER_BA.clear();
       await loadConfig();
+      restorePageCache(user.uid);
       await loadTasks();
     });
   }
@@ -522,6 +528,8 @@ const PAGE_SIZE = 100;
 const PAGE_CACHE_TTL = 3 * 24 * 60 * 60 * 1000;
 const PAGE_CACHE_LIMIT = 20;
 const PAGE_CACHE = new Map();
+const PAGE_CACHE_STORAGE_KEY = "nsca.taskviewer.pages.v1";
+let pageCacheScope = null;
 let stopWatchingAssignment;
 const FILTER_BA = new Set();
 let CONFIGURED_BAS = new Set();
@@ -614,7 +622,45 @@ function setDatabaseStatus(message, loading = false) {
   document.getElementById("databaseLoadingText").textContent = message;
 }
 
+function restorePageCache(uid) {
+  pageCacheScope = JSON.stringify([
+    uid, window.USER_ROLE, window.USER_BA.map(normalizeBAName).sort(),
+    [...CONFIGURED_BAS].sort()
+  ]);
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(PAGE_CACHE_STORAGE_KEY));
+    if (saved?.scope !== pageCacheScope) {
+      sessionStorage.removeItem(PAGE_CACHE_STORAGE_KEY);
+      return;
+    }
+    const now = Date.now();
+    for (const [key, entry] of saved.pages.slice(-PAGE_CACHE_LIMIT)) {
+      if (entry.expires > now) PAGE_CACHE.set(key, entry);
+    }
+    persistPageCache();
+  } catch {
+    // The in-memory cache remains available when tab storage is blocked.
+  }
+}
+
+function persistPageCache() {
+  if (!pageCacheScope) return;
+  const pages = [...PAGE_CACHE];
+  while (pages.length) {
+    try {
+      sessionStorage.setItem(PAGE_CACHE_STORAGE_KEY, JSON.stringify({ scope: pageCacheScope, pages }));
+      return;
+    } catch (error) {
+      if (error.name !== "QuotaExceededError") return;
+      pages.shift();
+    }
+  }
+  try { sessionStorage.removeItem(PAGE_CACHE_STORAGE_KEY); } catch {}
+}
+
 function clearPageCache() {
+  pageCacheScope = null;
+  try { sessionStorage.removeItem(PAGE_CACHE_STORAGE_KEY); } catch {}
   ACTIVE_REQUEST?.abort();
   PAGE_CACHE.clear();
   PAGE_CURSORS = [null];
@@ -664,7 +710,7 @@ async function loadTasks(page = 0) {
   }
 
   const user = auth.currentUser;
-  if (!user) return;
+  if (!user || !pageCacheScope) return;
 
   let cursor = PAGE_CURSORS[page];
   const key = JSON.stringify([user.uid, selection.from, selection.to,
@@ -678,6 +724,7 @@ async function loadTasks(page = 0) {
   if (cached) {
     PAGE_CACHE.delete(key);
     PAGE_CACHE.set(key, cached);
+    persistPageCache();
     showTaskPage(cached.tasks, cached.cursor, undefined, true);
     return;
   }
@@ -709,6 +756,7 @@ async function loadTasks(page = 0) {
     if (controller.signal.aborted) return;
     PAGE_CACHE.set(key, { tasks, cursor, expires: Date.now() + PAGE_CACHE_TTL });
     if (PAGE_CACHE.size > PAGE_CACHE_LIMIT) PAGE_CACHE.delete(PAGE_CACHE.keys().next().value);
+    persistPageCache();
     showTaskPage(tasks, cursor, hasReadEstimate ? estimatedReads : undefined);
   } catch (error) {
     if (controller.signal.aborted) return;
