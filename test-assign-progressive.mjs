@@ -9,7 +9,7 @@ const row=(id,extras={})=>({_key:id,assignedDate:'2026-11-28',agentId:'A',...ext
 async function scenario({cached=null,full=true,fail=false}={}) {
  const published=[], queries=[]; let pages=0;
  const field=value=>({value,disabled:false,style:{}});
- const c={loadBtn:field(''),filterDateFrom:field('2026-11-28'),filterDateTo:field('2026-11-28'),checkAll:field(''),bulkBtn:field(''),loadingBar:field(''),loadingProgress:field(''),loadingText:field(''),SELECTED_IDS:new Set(),TASKS_VERIFIED:true,TASK_ACTION_BUSY:false,TASK_LOAD_IN_PROGRESS:false,LOAD_TASK_OVERRIDES:new Map(),TASK_MAP:{},TASK_PAGE_STATE:null,ASSIGN_PAGE_CACHE_SCOPE:"assign-paged-v1",updateLoadMoreControls:()=>{},fetchNextTaskBatch:async()=>{},window:{},
+ const c={ASSIGN_LOAD_STATS:null,renderAssignLoadStats:()=>{},measureAssignQuery:fn=>fn(),setInterval:()=>0,clearInterval:()=>{},loadBtn:field(''),filterDateFrom:field('2026-11-28'),filterDateTo:field('2026-11-28'),checkAll:field(''),bulkBtn:field(''),loadingBar:field(''),loadingProgress:field(''),loadingText:field(''),SELECTED_IDS:new Set(),TASKS_VERIFIED:true,TASK_ACTION_BUSY:false,TASK_LOAD_IN_PROGRESS:false,LOAD_TASK_OVERRIDES:new Map(),TASK_MAP:{},TASK_PAGE_STATE:null,ASSIGN_PAGE_CACHE_SCOPE:"assign-paged-v1",updateLoadMoreControls:()=>{},fetchNextTaskBatch:async()=>{},window:{},
  document:{getElementById:()=>({innerHTML:''})},readTaskCache:async()=>cached,taskCacheNeedsFullRefresh:()=>full,
  publishLoadedTasks:tasks=>{c.window.__TASKS_DATA__=tasks;published.push({ids:tasks.map(t=>t._key),verified:c.TASKS_VERIFIED})},
  requestAnimationFrame:fn=>fn(),setTimeout:fn=>fn(),console:{error:()=>{}},alert:()=>{},
@@ -28,7 +28,7 @@ assert.ok(r.queries[0].some(x=>Array.isArray(x)&&x[0]==='limit'&&x[1]===500));
 const helper=html.slice(html.indexOf('function publishLoadedTasks('),html.indexOf('/* ===== LOAD TASKS - FIRESTORE ONLY'));
 const filter=()=>({value:'chosen',options:[],add(option){this.options.push(option)}});
 const filters=Array.from({length:5},filter);
-const c={window:{},excludeDeletedTasks:ts=>ts.filter(t=>!t.deleted),normalizeDate:v=>v,filterDateFrom:{value:'2026-11-28'},filterDateTo:{},filterDriver:filters[0],filterJob:filters[1],filterBA:filters[2],filterDMZ:filters[3],filterMRU:filters[4],TASK_MAP:{},TASK_ACTION_BUSY:false,TASK_LOAD_IN_PROGRESS:true,updateLoadMoreControls:()=>{},LOAD_TASK_OVERRIDES:new Map(),checkAll:{},loadBtn:{},buildFilterLists:()=>filters.forEach(f=>{f.value='';f.options=[]}),applyFilters:()=>{},Option:function(text,value){this.value=value}};
+const c={ASSIGN_LOAD_STATS:null,window:{},excludeDeletedTasks:ts=>ts.filter(t=>!t.deleted),normalizeDate:v=>v,filterDateFrom:{value:'2026-11-28'},filterDateTo:{},filterDriver:filters[0],filterJob:filters[1],filterBA:filters[2],filterDMZ:filters[3],filterMRU:filters[4],TASK_MAP:{},TASK_ACTION_BUSY:false,TASK_LOAD_IN_PROGRESS:true,updateLoadMoreControls:()=>{},LOAD_TASK_OVERRIDES:new Map(),checkAll:{},loadBtn:{},buildFilterLists:()=>filters.forEach(f=>{f.value='';f.options=[]}),applyFilters:()=>{},Option:function(text,value){this.value=value}};
 vm.createContext(c);
 // Extract the two overlay functions without depending on neighbouring declarations.
 vm.runInContext(html.slice(html.indexOf('function applyLoadOverrides('),html.indexOf('\n}',html.indexOf('function rememberLoadedTaskChanges('))+2),c);

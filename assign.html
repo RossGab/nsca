@@ -194,7 +194,7 @@ select, input[type="date"] {
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Manage Tasks <span class="app-version">V.R.0.1.8</span></h1>
+      <h1 class="app-title">Manage Tasks <span class="app-version">V.R.0.1.9</span></h1>
     </div>
   </div>
   <div class="app-header-actions">
@@ -231,6 +231,8 @@ select, input[type="date"] {
     <div id="uploadProgressBar" style="height:100%;width:0%;background:#007bff;transition:width .25s ease;"></div>
   </div>
 </div>
+
+<div id="taskLoadDiagnostics" role="status" aria-live="polite" style="font-size:12px;margin:8px 0;color:#64748b"></div>
 
 <!-- FILTERS + BULK ACTION -->
 <div class="panel blue">
@@ -456,6 +458,34 @@ let TASKS_VERIFIED = false;
 let TASK_ACTION_BUSY = false;
 let TASK_LOAD_IN_PROGRESS = false;
 let LOAD_TASK_OVERRIDES = new Map();
+// Local measurements only: no extra Firebase requests or telemetry writes.
+let ASSIGN_LOAD_STATS = null;
+function renderAssignLoadStats() {
+  const stats = ASSIGN_LOAD_STATS;
+  if (!stats) return;
+  const elapsed = Math.round(((stats.finishedAt || Date.now()) - stats.startedAt) / 1000);
+  const element = document.getElementById("taskLoadDiagnostics");
+  if (element) element.textContent = `${elapsed}s | ${stats.records} records received | ${stats.requests} task queries | ` +
+    `${stats.pending} queries waiting | ${Math.round(stats.renderMs)}ms preparing the list | ${stats.phase}`;
+}
+async function measureAssignQuery(operation) {
+  const stats = ASSIGN_LOAD_STATS;
+  if (!stats) return operation();
+  stats.requests++;
+  stats.pending++;
+  stats.phase = "Downloading tasks";
+  const started = Date.now();
+  renderAssignLoadStats();
+  try {
+    const snapshot = await operation();
+    stats.records += snapshot.docs.length;
+    return snapshot;
+  } finally {
+    stats.pending--;
+    stats.queryMs += Date.now() - started;
+    renderAssignLoadStats();
+  }
+}
 // Limit concurrent date queries; pages within each date keep a stable cursor.
 async function forEachTaskDate(dateKeys, visit, concurrency = 3) {
   let next = 0;
@@ -625,7 +655,7 @@ async function loadLiveTasksFromFirebase(dateKey, cursor = null) {
   if (cursor !== null) constraints.push(startAfter(cursor));
   constraints.push(limit(FIRESTORE_PAGE_SIZE));
 
-  const snapshot = await getDocs(query(collection(db, "TASK"), ...constraints));
+  const snapshot = await measureAssignQuery(() => getDocs(query(collection(db, "TASK"), ...constraints)));
   const nextCursor = snapshot.docs.at(-1)?.id ?? null;
   if (cursor !== null && nextCursor !== null && nextCursor <= cursor) {
     throw new Error(`Task pagination did not advance for ${firestoreDate}`);
@@ -640,6 +670,7 @@ async function loadLiveTasksFromFirebase(dateKey, cursor = null) {
 
 // Publish partial results while retaining the current search and filters.
 function publishLoadedTasks(rangeTasks) {
+    const renderStarted = Date.now();
     const allTasks = excludeDeletedTasks(applyLoadOverrides(rangeTasks)).filter(task =>
       String(task.status || "").toUpperCase() !== "COMPLETED" &&
       String(task.workStatus || "").toUpperCase() !== "COMPLETED"
@@ -722,6 +753,10 @@ function publishLoadedTasks(rangeTasks) {
     applyFilters();
 
     checkAll.disabled = TASK_ACTION_BUSY || allTasks.length === 0;
+    if (ASSIGN_LOAD_STATS) {
+      ASSIGN_LOAD_STATS.renderMs += Date.now() - renderStarted;
+      renderAssignLoadStats();
+    }
 }
 
 /* ===== LOAD TASKS - FIRESTORE ONLY ===== */
@@ -743,6 +778,11 @@ async function loadTasks() {
   filterDateTo.disabled = true;
 
   let rangeTasks = [];
+  ASSIGN_LOAD_STATS = {startedAt:Date.now(), records:0, requests:0, pending:0,
+    queryMs:0, renderMs:0, phase:"Reading saved tasks", finishedAt:null};
+  window.__ASSIGN_LOAD_STATS__ = ASSIGN_LOAD_STATS;
+  const diagnosticsTimer = setInterval(renderAssignLoadStats, 1000);
+  renderAssignLoadStats();
   try {
     const from = filterDateFrom.value;
     const to   = filterDateTo.value;
@@ -811,7 +851,7 @@ async function loadTasks() {
             where("updatedAt", ">", Timestamp.fromMillis(since)), orderBy("updatedAt")];
           if (cursor) constraints.push(startAfter(cursor));
           constraints.push(limit(FIRESTORE_PAGE_SIZE));
-          const snapshot = await getDocs(query(collection(db, "TASK"), ...constraints));
+          const snapshot = await measureAssignQuery(() => getDocs(query(collection(db, "TASK"), ...constraints)));
           const updates = snapshot.docs.map(docSnap => ({...docSnap.data(), _key: docSnap.id}));
           changed += updates.length;
           rangeTasks = mergeTaskUpdates(rangeTasks, updates, from, to);
@@ -822,6 +862,8 @@ async function loadTasks() {
           more = snapshot.docs.length === FIRESTORE_PAGE_SIZE;
         }
       });
+      ASSIGN_LOAD_STATS.phase = "Saving loaded tasks on this browser";
+      renderAssignLoadStats();
       await writeTaskCache(from, to, applyLoadOverrides(rangeTasks), {
         previousFullSyncedAt: cached.fullSyncedAt,
         previousWatermark: cached.watermarkMillis
@@ -845,6 +887,8 @@ async function loadTasks() {
         datesFinished++;
         loadingProgress.style.width = `${datesFinished / dateKeys.length * 100}%`;
       });
+      ASSIGN_LOAD_STATS.phase = "Saving loaded tasks on this browser";
+      renderAssignLoadStats();
       await writeTaskCache(from, to, applyLoadOverrides(rangeTasks), {full:true});
     }
 
@@ -855,6 +899,7 @@ async function loadTasks() {
 
     // 🔥 INIT INDEXES
     TASKS_VERIFIED = true;
+    ASSIGN_LOAD_STATS.phase = "Complete";
     publishLoadedTasks(rangeTasks);
 
     loadingProgress.style.width = "100%";
@@ -867,6 +912,7 @@ async function loadTasks() {
 
   } catch (err) {
 
+    ASSIGN_LOAD_STATS.phase = "Load failed - no further batches will start";
     if (rangeTasks.length) publishLoadedTasks(rangeTasks);
     console.error("❌ loadTasks failed:", err);
     loadingText.innerText = "Loading incomplete - showing available tasks. Selected tasks will be verified before changes. Retry Load Tasks for the full list.";
@@ -874,6 +920,9 @@ async function loadTasks() {
 
   } finally {
 
+    clearInterval(diagnosticsTimer);
+    ASSIGN_LOAD_STATS.finishedAt = Date.now();
+    renderAssignLoadStats();
     TASK_LOAD_IN_PROGRESS = false;
     loadBtn.disabled = TASK_ACTION_BUSY;
     filterDateFrom.disabled = TASK_ACTION_BUSY;
