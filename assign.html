@@ -194,7 +194,7 @@ select, input[type="date"] {
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Manage Tasks <span class="app-version">V.R.0.1.6</span></h1>
+      <h1 class="app-title">Manage Tasks <span class="app-version">V.R.0.1.7</span></h1>
     </div>
   </div>
   <div class="app-header-actions">
@@ -230,6 +230,12 @@ select, input[type="date"] {
   <div id="uploadProgressTrack" style="display:none;height:18px;background:#e5e7eb;border-radius:6px;overflow:hidden;margin-top:8px;">
     <div id="uploadProgressBar" style="height:100%;width:0%;background:#007bff;transition:width .25s ease;"></div>
   </div>
+</div>
+
+<div class="panel" id="taskLoadMorePanel" hidden>
+  <span id="taskLoadMoreStatus" role="status" aria-live="polite"></span>
+  <button id="loadMoreTasksBtn" type="button" onclick="loadMoreTasks()">Load more tasks</button>
+  <div style="font-size:12px;margin-top:6px">Search, filters and selection apply only to loaded tasks. Load more to include additional tasks.</div>
 </div>
 
 <!-- FILTERS + BULK ACTION -->
@@ -398,7 +404,7 @@ import {
   taskCacheNeedsFullRefresh,
   updateTasksInAllCaches,
   writeTaskCache
-} from "./task-cache.js?v=2";
+} from "./task-cache.js?v=3";
 
 const firebaseConfig = {
   apiKey: "AIzaSyDFW61pnwLvh6HGKWt10zLYNr860fI8vkg",
@@ -456,6 +462,57 @@ let TASKS_VERIFIED = false;
 let TASK_ACTION_BUSY = false;
 let TASK_LOAD_IN_PROGRESS = false;
 let LOAD_TASK_OVERRIDES = new Map();
+let TASK_PAGE_STATE = null;
+const ASSIGN_PAGE_CACHE_SCOPE = "assign-paged-v1";
+function updateLoadMoreControls() {
+  const panel = document.getElementById("taskLoadMorePanel");
+  const more = TASK_PAGE_STATE && TASK_PAGE_STATE.dateIndex < TASK_PAGE_STATE.dateKeys.length;
+  panel.hidden = !more;
+  document.getElementById("loadMoreTasksBtn").disabled = TASK_LOAD_IN_PROGRESS || TASK_ACTION_BUSY;
+  document.getElementById("taskLoadMoreStatus").textContent = more
+    ? `${(window.__TASKS_DATA__ || []).length} available tasks loaded. More tasks may remain in the selected dates.` : "";
+}
+async function fetchNextTaskBatch() {
+  const state = TASK_PAGE_STATE;
+  if (!state || state.dateIndex >= state.dateKeys.length) return;
+  const page = await loadLiveTasksFromFirebase(state.dateKeys[state.dateIndex], state.cursor);
+  const tasks = new Map(state.tasks.map(task => [task._key, task]));
+  page.tasks.forEach(task => tasks.set(task._key, task));
+  state.tasks = applyLoadOverrides([...tasks.values()]);
+  state.cursor = page.hasMore ? page.cursor : null;
+  if (!page.hasMore) state.dateIndex++;
+  publishLoadedTasks(state.tasks);
+  const complete = state.dateIndex >= state.dateKeys.length;
+  if (complete) {
+    await writeTaskCache(state.from, state.to, state.tasks, {full:true});
+  }
+  await writeTaskCache(state.from, state.to, state.tasks, {
+    scope: ASSIGN_PAGE_CACHE_SCOPE,
+    pagination: {dateKeys:state.dateKeys, dateIndex:state.dateIndex, cursor:state.cursor}
+  });
+  loadingText.innerText = complete ? `All tasks loaded (${window.__TASKS_DATA__.length} available)`
+    : `${window.__TASKS_DATA__.length} available tasks loaded. Use Load more tasks when needed.`;
+  updateLoadMoreControls();
+}
+window.loadMoreTasks = async function () {
+  if (TASK_LOAD_IN_PROGRESS || TASK_ACTION_BUSY || !TASK_PAGE_STATE) return;
+  TASK_LOAD_IN_PROGRESS = true;
+  loadBtn.disabled = true;
+  filterDateFrom.disabled = filterDateTo.disabled = true;
+  updateLoadMoreControls();
+  loadingBar.style.display = "block";
+  loadingText.innerText = "Loading next batch...";
+  try { await fetchNextTaskBatch(); }
+  catch (error) {
+    loadingText.innerText = "Could not load the next batch. Loaded tasks are still available. Try Load more tasks again.";
+    console.error("Next task batch failed", error);
+  } finally {
+    TASK_LOAD_IN_PROGRESS = false;
+    loadBtn.disabled = TASK_ACTION_BUSY;
+    filterDateFrom.disabled = filterDateTo.disabled = TASK_ACTION_BUSY;
+    updateLoadMoreControls();
+  }
+};
 function applyLoadOverrides(tasks) {
   const result = new Map(tasks.map(task => [task._key, task]));
   for (const [id, task] of LOAD_TASK_OVERRIDES) {
@@ -493,6 +550,8 @@ filterDateFrom.value = today;
 filterDateTo.value = today;
 
 function markDateRangeReadyToLoad() {
+  TASK_PAGE_STATE = null;
+  updateLoadMoreControls();
   TASKS_VERIFIED = false;
   TASKS = [];
   FILTERED_TASKS = [];
@@ -715,7 +774,9 @@ async function loadTasks() {
     return;
   }
 
+  TASK_PAGE_STATE = null;
   TASK_LOAD_IN_PROGRESS = true;
+  updateLoadMoreControls();
   TASKS_VERIFIED = false;
   LOAD_TASK_OVERRIDES = new Map();
   SELECTED_IDS.clear();
@@ -807,36 +868,24 @@ async function loadTasks() {
       loadingText.innerText = `Cache updated (${changed} change(s))`;
     } else {
 
-      for (let i = 0; i < dateKeys.length; i++) {
-        let cursor = null;
-        let loadedForDate = 0;
-        let hasMore = true;
-        const loadedIdsForDate = new Set();
-
-        while (hasMore) {
-          loadingText.innerText =
-            `Loading date ${i + 1}/${dateKeys.length} (${loadedForDate} tasks)...`;
-          const page = await loadLiveTasksFromFirebase(dateKeys[i], cursor);
-          for (const task of page.tasks) {
-            if (loadedIdsForDate.has(task._key)) {
-              throw new Error(`Task pagination repeated a task for ${dateKeys[i]}`);
-            }
-            loadedIdsForDate.add(task._key);
-          }
-          rangeTasks.push(...excludeDeletedTasks(page.tasks));
-          publishLoadedTasks(rangeTasks);
-          await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
-          loadedForDate += page.tasks.length;
-          cursor = page.cursor;
-          hasMore = page.hasMore;
-          loadingText.innerText =
-            `Loading date ${i + 1}/${dateKeys.length} (${loadedForDate} tasks loaded)...`;
-          loadingProgress.style.width =
-            ((i + (hasMore ? 0.5 : 1)) / dateKeys.length * 100) + "%";
-        }
+      const partial = await readTaskCache(from, to, ASSIGN_PAGE_CACHE_SCOPE);
+      const saved = partial?.pagination;
+      const canResume = saved && Array.isArray(partial.tasks) &&
+        JSON.stringify(saved.dateKeys) === JSON.stringify(dateKeys) &&
+        Number.isInteger(saved.dateIndex) && saved.dateIndex >= 0 && saved.dateIndex < dateKeys.length &&
+        Date.now() - partial.syncedAt < 6 * 60 * 60 * 1000;
+      TASK_PAGE_STATE = {from, to, dateKeys,
+        dateIndex: canResume ? saved.dateIndex : 0,
+        cursor: canResume ? saved.cursor : null,
+        tasks: canResume ? partial.tasks : []};
+      if (canResume) {
+        publishLoadedTasks(TASK_PAGE_STATE.tasks);
+        loadingText.innerText = "Showing saved tasks. Use Load more tasks when needed.";
+      } else {
+        await fetchNextTaskBatch();
       }
-
-      await writeTaskCache(from, to, applyLoadOverrides(rangeTasks), { full: true });
+      updateLoadMoreControls();
+      return;
     }
 
     allTasks = rangeTasks.filter(task =>
@@ -869,6 +918,7 @@ async function loadTasks() {
     filterDateFrom.disabled = TASK_ACTION_BUSY;
     filterDateTo.disabled = TASK_ACTION_BUSY;
     loadBtn.innerText = "🔄 Load Tasks";
+    updateLoadMoreControls();
   }
 }
 
@@ -1321,6 +1371,7 @@ window.openBulkActions = async function () {
   }
   if (TASK_ACTION_BUSY) return;
   TASK_ACTION_BUSY = true;
+  updateLoadMoreControls();
   loadBtn.disabled = true;
   filterDateFrom.disabled = true;
   filterDateTo.disabled = true;
@@ -1358,6 +1409,7 @@ window.openBulkActions = async function () {
     alert("Could not verify selected tasks online. No action was started. Please try again.");
   } finally {
     TASK_ACTION_BUSY = false;
+    updateLoadMoreControls();
     loadBtn.disabled = TASK_LOAD_IN_PROGRESS;
     filterDateFrom.disabled = TASK_LOAD_IN_PROGRESS;
     filterDateTo.disabled = TASK_LOAD_IN_PROGRESS;

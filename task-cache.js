@@ -106,6 +106,7 @@ export async function writeTaskCache(from, to, tasks, options = {}) {
     const entry = {
       key: cacheKey(from, to, options.scope),
       schemaVersion: CACHE_SCHEMA_VERSION,
+      ...(options.pagination ? { pagination: toStorable(options.pagination) } : {}),
       from,
       to,
       tasks: toStorable(tasks),
