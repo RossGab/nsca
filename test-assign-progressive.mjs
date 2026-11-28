@@ -11,14 +11,16 @@ async function scenario({cached=null,full=true,fail=false}={}) {
  const field=value=>({value,disabled:false,style:{}});
  const c={loadBtn:field(''),filterDateFrom:field('2026-11-28'),filterDateTo:field('2026-11-28'),checkAll:field(''),bulkBtn:field(''),loadingBar:field(''),loadingProgress:field(''),loadingText:field(''),SELECTED_IDS:new Set(),TASKS_VERIFIED:true,TASK_ACTION_BUSY:false,TASK_LOAD_IN_PROGRESS:false,LOAD_TASK_OVERRIDES:new Map(),TASK_MAP:{},TASK_PAGE_STATE:null,ASSIGN_PAGE_CACHE_SCOPE:"assign-paged-v1",updateLoadMoreControls:()=>{},fetchNextTaskBatch:async()=>{},window:{},
  document:{getElementById:()=>({innerHTML:''})},readTaskCache:async()=>cached,taskCacheNeedsFullRefresh:()=>full,
- publishLoadedTasks:tasks=>published.push({ids:tasks.map(t=>t._key),verified:c.TASKS_VERIFIED}),
+ publishLoadedTasks:tasks=>{c.window.__TASKS_DATA__=tasks;published.push({ids:tasks.map(t=>t._key),verified:c.TASKS_VERIFIED})},
  requestAnimationFrame:fn=>fn(),setTimeout:fn=>fn(),console:{error:()=>{}},alert:()=>{},
  excludeDeletedTasks:tasks=>tasks.filter(t=>!t.deleted),writeTaskCache:async()=>{},applyLoadOverrides:ts=>ts,
  loadLiveTasksFromFirebase:async()=>{pages++;if(fail&&pages===2)throw Error('network');return {tasks:[row(String(pages))],cursor:String(pages),hasMore:pages===1}},
  TASK_CACHE_OVERLAP_MS:0,FIRESTORE_PAGE_SIZE:500,Timestamp:{fromMillis:v=>v},getDocs:async()=>({docs:[{id:'updated',data:()=>row('updated')}]}),query:(...args)=>queries.push(args),collection:()=>{},where:(...args)=>args,orderBy:(...args)=>args,limit:n=>['limit',n],startAfter:v=>['cursor',v],db:{},mergeTaskUpdates:()=>[row('updated')]};
+ vm.runInNewContext(html.slice(html.indexOf("async function forEachTaskDate("), html.indexOf("function applyLoadOverrides(")), c);
  vm.runInNewContext(load,c);await c.loadTasks();return {c,published,queries};
 }
-let r=await scenario();assert.equal(r.c.TASK_PAGE_STATE.dateIndex,0);
+let r=await scenario();assert.equal(r.published.at(-1).ids.length,2);assert.equal(r.c.TASK_LOAD_IN_PROGRESS,false);
+r=await scenario({fail:true});assert.match(r.c.loadingText.innerText,/incomplete/);assert.equal(r.c.loadBtn.disabled,false);
 r=await scenario({cached:{tasks:[row('saved')],syncedAt:1},full:false});assert.equal(r.published[0].ids[0],'saved');assert.equal(r.published.at(-1).ids[0],'updated');
 assert.ok(r.queries[0].some(x=>Array.isArray(x)&&x[0]==='assignedDate'&&x[2]==='2026-11-28'));
 assert.ok(r.queries[0].some(x=>Array.isArray(x)&&x[0]==='limit'&&x[1]===500));

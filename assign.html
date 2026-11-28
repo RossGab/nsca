@@ -194,7 +194,7 @@ select, input[type="date"] {
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Manage Tasks <span class="app-version">V.R.0.1.7</span></h1>
+      <h1 class="app-title">Manage Tasks <span class="app-version">V.R.0.1.8</span></h1>
     </div>
   </div>
   <div class="app-header-actions">
@@ -230,12 +230,6 @@ select, input[type="date"] {
   <div id="uploadProgressTrack" style="display:none;height:18px;background:#e5e7eb;border-radius:6px;overflow:hidden;margin-top:8px;">
     <div id="uploadProgressBar" style="height:100%;width:0%;background:#007bff;transition:width .25s ease;"></div>
   </div>
-</div>
-
-<div class="panel" id="taskLoadMorePanel" hidden>
-  <span id="taskLoadMoreStatus" role="status" aria-live="polite"></span>
-  <button id="loadMoreTasksBtn" type="button" onclick="loadMoreTasks()">Load more tasks</button>
-  <div style="font-size:12px;margin-top:6px">Search, filters and selection apply only to loaded tasks. Load more to include additional tasks.</div>
 </div>
 
 <!-- FILTERS + BULK ACTION -->
@@ -462,57 +456,21 @@ let TASKS_VERIFIED = false;
 let TASK_ACTION_BUSY = false;
 let TASK_LOAD_IN_PROGRESS = false;
 let LOAD_TASK_OVERRIDES = new Map();
-let TASK_PAGE_STATE = null;
-const ASSIGN_PAGE_CACHE_SCOPE = "assign-paged-v1";
-function updateLoadMoreControls() {
-  const panel = document.getElementById("taskLoadMorePanel");
-  const more = TASK_PAGE_STATE && TASK_PAGE_STATE.dateIndex < TASK_PAGE_STATE.dateKeys.length;
-  panel.hidden = !more;
-  document.getElementById("loadMoreTasksBtn").disabled = TASK_LOAD_IN_PROGRESS || TASK_ACTION_BUSY;
-  document.getElementById("taskLoadMoreStatus").textContent = more
-    ? `${(window.__TASKS_DATA__ || []).length} available tasks loaded. More tasks may remain in the selected dates.` : "";
-}
-async function fetchNextTaskBatch() {
-  const state = TASK_PAGE_STATE;
-  if (!state || state.dateIndex >= state.dateKeys.length) return;
-  const page = await loadLiveTasksFromFirebase(state.dateKeys[state.dateIndex], state.cursor);
-  const tasks = new Map(state.tasks.map(task => [task._key, task]));
-  page.tasks.forEach(task => tasks.set(task._key, task));
-  state.tasks = applyLoadOverrides([...tasks.values()]);
-  state.cursor = page.hasMore ? page.cursor : null;
-  if (!page.hasMore) state.dateIndex++;
-  publishLoadedTasks(state.tasks);
-  const complete = state.dateIndex >= state.dateKeys.length;
-  if (complete) {
-    await writeTaskCache(state.from, state.to, state.tasks, {full:true});
-  }
-  await writeTaskCache(state.from, state.to, state.tasks, {
-    scope: ASSIGN_PAGE_CACHE_SCOPE,
-    pagination: {dateKeys:state.dateKeys, dateIndex:state.dateIndex, cursor:state.cursor}
+// Limit concurrent date queries; pages within each date keep a stable cursor.
+async function forEachTaskDate(dateKeys, visit, concurrency = 3) {
+  let next = 0;
+  let failure = null;
+  const workers = Array.from({length: Math.min(concurrency, dateKeys.length)}, async () => {
+    while (!failure && next < dateKeys.length) {
+      const dateKey = dateKeys[next++];
+      try { await visit(dateKey, () => Boolean(failure)); }
+      catch (error) { failure ||= error; }
+    }
   });
-  loadingText.innerText = complete ? `All tasks loaded (${window.__TASKS_DATA__.length} available)`
-    : `${window.__TASKS_DATA__.length} available tasks loaded. Use Load more tasks when needed.`;
-  updateLoadMoreControls();
+  await Promise.all(workers);
+  if (failure) throw failure;
 }
-window.loadMoreTasks = async function () {
-  if (TASK_LOAD_IN_PROGRESS || TASK_ACTION_BUSY || !TASK_PAGE_STATE) return;
-  TASK_LOAD_IN_PROGRESS = true;
-  loadBtn.disabled = true;
-  filterDateFrom.disabled = filterDateTo.disabled = true;
-  updateLoadMoreControls();
-  loadingBar.style.display = "block";
-  loadingText.innerText = "Loading next batch...";
-  try { await fetchNextTaskBatch(); }
-  catch (error) {
-    loadingText.innerText = "Could not load the next batch. Loaded tasks are still available. Try Load more tasks again.";
-    console.error("Next task batch failed", error);
-  } finally {
-    TASK_LOAD_IN_PROGRESS = false;
-    loadBtn.disabled = TASK_ACTION_BUSY;
-    filterDateFrom.disabled = filterDateTo.disabled = TASK_ACTION_BUSY;
-    updateLoadMoreControls();
-  }
-};
+
 function applyLoadOverrides(tasks) {
   const result = new Map(tasks.map(task => [task._key, task]));
   for (const [id, task] of LOAD_TASK_OVERRIDES) {
@@ -550,8 +508,6 @@ filterDateFrom.value = today;
 filterDateTo.value = today;
 
 function markDateRangeReadyToLoad() {
-  TASK_PAGE_STATE = null;
-  updateLoadMoreControls();
   TASKS_VERIFIED = false;
   TASKS = [];
   FILTERED_TASKS = [];
@@ -774,9 +730,7 @@ async function loadTasks() {
     return;
   }
 
-  TASK_PAGE_STATE = null;
   TASK_LOAD_IN_PROGRESS = true;
-  updateLoadMoreControls();
   TASKS_VERIFIED = false;
   LOAD_TASK_OVERRIDES = new Map();
   SELECTED_IDS.clear();
@@ -788,6 +742,7 @@ async function loadTasks() {
   filterDateFrom.disabled = true;
   filterDateTo.disabled = true;
 
+  let rangeTasks = [];
   try {
     const from = filterDateFrom.value;
     const to   = filterDateTo.value;
@@ -820,7 +775,14 @@ async function loadTasks() {
     }
 
     let allTasks = [];
-    let rangeTasks = [];
+    let lastPublish = 0;
+    async function publishProgress(tasks) {
+      if (!lastPublish || Date.now() - lastPublish >= 200) {
+        publishLoadedTasks(tasks);
+        lastPublish = Date.now();
+        await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
+      }
+    }
     const cached = await readTaskCache(from, to);
     if (Array.isArray(cached?.tasks)) {
       publishLoadedTasks(cached.tasks);
@@ -840,11 +802,11 @@ async function loadTasks() {
       // The assignedDate + updatedAt index is declared in firestore.indexes.json.
       // Page each selected day, rather than downloading updates from every date.
       let changed = 0;
-      for (const dateKey of dateKeys) {
+      await forEachTaskDate(dateKeys, async (dateKey, hasFailed) => {
         const date = `${dateKey.slice(0,4)}-${dateKey.slice(4,6)}-${dateKey.slice(6,8)}`;
         let cursor = null;
         let more = true;
-        while (more) {
+        while (more && !hasFailed()) {
           const constraints = [where("assignedDate", "==", date),
             where("updatedAt", ">", Timestamp.fromMillis(since)), orderBy("updatedAt")];
           if (cursor) constraints.push(startAfter(cursor));
@@ -853,13 +815,13 @@ async function loadTasks() {
           const updates = snapshot.docs.map(docSnap => ({...docSnap.data(), _key: docSnap.id}));
           changed += updates.length;
           rangeTasks = mergeTaskUpdates(rangeTasks, updates, from, to);
-          publishLoadedTasks(rangeTasks);
+          await publishProgress(rangeTasks);
           loadingText.innerText = `Checking selected dates - ${changed} updates loaded...`;
           await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
           cursor = snapshot.docs.at(-1);
           more = snapshot.docs.length === FIRESTORE_PAGE_SIZE;
         }
-      }
+      });
       await writeTaskCache(from, to, applyLoadOverrides(rangeTasks), {
         previousFullSyncedAt: cached.fullSyncedAt,
         previousWatermark: cached.watermarkMillis
@@ -868,24 +830,22 @@ async function loadTasks() {
       loadingText.innerText = `Cache updated (${changed} change(s))`;
     } else {
 
-      const partial = await readTaskCache(from, to, ASSIGN_PAGE_CACHE_SCOPE);
-      const saved = partial?.pagination;
-      const canResume = saved && Array.isArray(partial.tasks) &&
-        JSON.stringify(saved.dateKeys) === JSON.stringify(dateKeys) &&
-        Number.isInteger(saved.dateIndex) && saved.dateIndex >= 0 && saved.dateIndex < dateKeys.length &&
-        Date.now() - partial.syncedAt < 6 * 60 * 60 * 1000;
-      TASK_PAGE_STATE = {from, to, dateKeys,
-        dateIndex: canResume ? saved.dateIndex : 0,
-        cursor: canResume ? saved.cursor : null,
-        tasks: canResume ? partial.tasks : []};
-      if (canResume) {
-        publishLoadedTasks(TASK_PAGE_STATE.tasks);
-        loadingText.innerText = "Showing saved tasks. Use Load more tasks when needed.";
-      } else {
-        await fetchNextTaskBatch();
-      }
-      updateLoadMoreControls();
-      return;
+      let datesFinished = 0;
+      await forEachTaskDate(dateKeys, async (dateKey, hasFailed) => {
+        let cursor = null;
+        let hasMore = true;
+        while (hasMore && !hasFailed()) {
+          const page = await loadLiveTasksFromFirebase(dateKey, cursor);
+          rangeTasks.push(...excludeDeletedTasks(page.tasks));
+          cursor = page.cursor;
+          hasMore = page.hasMore;
+          await publishProgress(rangeTasks);
+          loadingText.innerText = `Loading all selected dates - ${window.__TASKS_DATA__.length} available tasks shown...`;
+        }
+        datesFinished++;
+        loadingProgress.style.width = `${datesFinished / dateKeys.length * 100}%`;
+      });
+      await writeTaskCache(from, to, applyLoadOverrides(rangeTasks), {full:true});
     }
 
     allTasks = rangeTasks.filter(task =>
@@ -899,7 +859,7 @@ async function loadTasks() {
 
     loadingProgress.style.width = "100%";
     loadingText.innerText =
-      `Done (${allTasks.length} tasks loaded)`;
+      `Done (${window.__TASKS_DATA__.length} available tasks loaded)`;
 
     setTimeout(() => {
       loadingBar.style.display = "none";
@@ -907,6 +867,7 @@ async function loadTasks() {
 
   } catch (err) {
 
+    if (rangeTasks.length) publishLoadedTasks(rangeTasks);
     console.error("❌ loadTasks failed:", err);
     loadingText.innerText = "Loading incomplete - showing available tasks. Selected tasks will be verified before changes. Retry Load Tasks for the full list.";
     alert("Tasks could not be fully loaded. Please try again. " + err.message);
@@ -918,7 +879,6 @@ async function loadTasks() {
     filterDateFrom.disabled = TASK_ACTION_BUSY;
     filterDateTo.disabled = TASK_ACTION_BUSY;
     loadBtn.innerText = "🔄 Load Tasks";
-    updateLoadMoreControls();
   }
 }
 
@@ -970,17 +930,15 @@ function buildFilterLists() {
   }
 
   // ✅ populate dropdowns
-  filterDriver.innerHTML = `<option value="">All Drivers</option>`;
-  filterJob.innerHTML = `<option value="">All Job Types</option>`;
-  filterBA.innerHTML = `<option value="">All BA</option>`;
-  filterDMZ.innerHTML = `<option value="">All DMZ</option>`;
-  filterMRU.innerHTML = `<option value="">All MRU</option>`;
-
-  drivers.forEach(v => filterDriver.innerHTML += `<option>${v}</option>`);
-  jobs.forEach(v => filterJob.innerHTML += `<option>${v}</option>`);
-  bas.forEach(v => filterBA.innerHTML += `<option>${v}</option>`);
-  dmzs.forEach(v => filterDMZ.innerHTML += `<option>${v}</option>`);
-  mrus.forEach(v => filterMRU.innerHTML += `<option>${v}</option>`);
+  for (const [select, label, values] of [
+    [filterDriver, "All Drivers", drivers], [filterJob, "All Job Types", jobs],
+    [filterBA, "All BA", bas], [filterDMZ, "All DMZ", dmzs], [filterMRU, "All MRU", mrus]
+  ]) {
+    const options = document.createDocumentFragment();
+    options.appendChild(new Option(label, ""));
+    values.forEach(value => options.appendChild(new Option(value, value)));
+    select.replaceChildren(options);
+  }
 }
 
 function renderPaginationControls() {
@@ -1371,7 +1329,6 @@ window.openBulkActions = async function () {
   }
   if (TASK_ACTION_BUSY) return;
   TASK_ACTION_BUSY = true;
-  updateLoadMoreControls();
   loadBtn.disabled = true;
   filterDateFrom.disabled = true;
   filterDateTo.disabled = true;
@@ -1409,8 +1366,7 @@ window.openBulkActions = async function () {
     alert("Could not verify selected tasks online. No action was started. Please try again.");
   } finally {
     TASK_ACTION_BUSY = false;
-    updateLoadMoreControls();
-    loadBtn.disabled = TASK_LOAD_IN_PROGRESS;
+      loadBtn.disabled = TASK_LOAD_IN_PROGRESS;
     filterDateFrom.disabled = TASK_LOAD_IN_PROGRESS;
     filterDateTo.disabled = TASK_LOAD_IN_PROGRESS;
     publishLoadedTasks(window.__TASKS_DATA__ || []);
