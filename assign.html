@@ -194,7 +194,7 @@ select, input[type="date"] {
     <img src="./logo.jpg" class="app-logo" alt="Company Logo">
     <div class="app-brand-copy">
       <div class="app-eyebrow">NSCA Task Administration</div>
-      <h1 class="app-title">Manage Tasks <span class="app-version">V.R.0.1.5</span></h1>
+      <h1 class="app-title">Manage Tasks <span class="app-version">V.R.0.1.6</span></h1>
     </div>
   </div>
   <div class="app-header-actions">
@@ -365,6 +365,7 @@ import {
   collection,
   doc,
   getDoc,
+  getDocFromServer,
   getDocs,
   query,
   where,
@@ -452,6 +453,20 @@ let VISIBLE_END = 0;
   
 let SELECTED_IDS = new Set();
 let TASKS_VERIFIED = false;
+let TASK_ACTION_BUSY = false;
+let TASK_LOAD_IN_PROGRESS = false;
+let LOAD_TASK_OVERRIDES = new Map();
+function applyLoadOverrides(tasks) {
+  const result = new Map(tasks.map(task => [task._key, task]));
+  for (const [id, task] of LOAD_TASK_OVERRIDES) {
+    if (task === null) result.delete(id);
+    else result.set(id, task);
+  }
+  return [...result.values()];
+}
+function rememberLoadedTaskChanges(ids, deleted = false) {
+  ids.forEach(id => LOAD_TASK_OVERRIDES.set(id, deleted ? null : {...TASK_MAP[id]}));
+}
 
 let SEARCH_TIMER;
 
@@ -610,7 +625,7 @@ async function loadLiveTasksFromFirebase(dateKey, cursor = null) {
 
 // Publish partial results while retaining the current search and filters.
 function publishLoadedTasks(rangeTasks) {
-    const allTasks = excludeDeletedTasks(rangeTasks).filter(task =>
+    const allTasks = excludeDeletedTasks(applyLoadOverrides(rangeTasks)).filter(task =>
       String(task.status || "").toUpperCase() !== "COMPLETED" &&
       String(task.workStatus || "").toUpperCase() !== "COMPLETED"
     );
@@ -691,16 +706,18 @@ function publishLoadedTasks(rangeTasks) {
 
     applyFilters();
 
-    checkAll.disabled = !TASKS_VERIFIED;
+    checkAll.disabled = TASK_ACTION_BUSY || allTasks.length === 0;
 }
 
 /* ===== LOAD TASKS - FIRESTORE ONLY ===== */
 async function loadTasks() {
-  if (loadBtn.disabled) {
+  if (loadBtn.disabled || TASK_ACTION_BUSY) {
     return;
   }
 
+  TASK_LOAD_IN_PROGRESS = true;
   TASKS_VERIFIED = false;
+  LOAD_TASK_OVERRIDES = new Map();
   SELECTED_IDS.clear();
   checkAll.checked = false;
   checkAll.disabled = true;
@@ -759,23 +776,35 @@ async function loadTasks() {
       loadingText.innerText =
         `Checking updates for ${rangeTasks.length} cached tasks...`;
 
-      const snapshot = await getDocs(query(
-        collection(db, "TASK"),
-        where("updatedAt", ">", Timestamp.fromMillis(since)),
-        orderBy("updatedAt")
-      ));
-      const updates = [];
-      snapshot.forEach(docSnap => {
-        updates.push({ ...docSnap.data(), _key: docSnap.id });
-      });
-
-      rangeTasks = mergeTaskUpdates(rangeTasks, updates, from, to);
-      await writeTaskCache(from, to, rangeTasks, {
+      // The assignedDate + updatedAt index is declared in firestore.indexes.json.
+      // Page each selected day, rather than downloading updates from every date.
+      let changed = 0;
+      for (const dateKey of dateKeys) {
+        const date = `${dateKey.slice(0,4)}-${dateKey.slice(4,6)}-${dateKey.slice(6,8)}`;
+        let cursor = null;
+        let more = true;
+        while (more) {
+          const constraints = [where("assignedDate", "==", date),
+            where("updatedAt", ">", Timestamp.fromMillis(since)), orderBy("updatedAt")];
+          if (cursor) constraints.push(startAfter(cursor));
+          constraints.push(limit(FIRESTORE_PAGE_SIZE));
+          const snapshot = await getDocs(query(collection(db, "TASK"), ...constraints));
+          const updates = snapshot.docs.map(docSnap => ({...docSnap.data(), _key: docSnap.id}));
+          changed += updates.length;
+          rangeTasks = mergeTaskUpdates(rangeTasks, updates, from, to);
+          publishLoadedTasks(rangeTasks);
+          loadingText.innerText = `Checking selected dates - ${changed} updates loaded...`;
+          await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
+          cursor = snapshot.docs.at(-1);
+          more = snapshot.docs.length === FIRESTORE_PAGE_SIZE;
+        }
+      }
+      await writeTaskCache(from, to, applyLoadOverrides(rangeTasks), {
         previousFullSyncedAt: cached.fullSyncedAt,
         previousWatermark: cached.watermarkMillis
       });
       loadingProgress.style.width = "100%";
-      loadingText.innerText = `Cache updated (${updates.length} change(s))`;
+      loadingText.innerText = `Cache updated (${changed} change(s))`;
     } else {
 
       for (let i = 0; i < dateKeys.length; i++) {
@@ -807,7 +836,7 @@ async function loadTasks() {
         }
       }
 
-      await writeTaskCache(from, to, rangeTasks, { full: true });
+      await writeTaskCache(from, to, applyLoadOverrides(rangeTasks), { full: true });
     }
 
     allTasks = rangeTasks.filter(task =>
@@ -830,21 +859,22 @@ async function loadTasks() {
   } catch (err) {
 
     console.error("❌ loadTasks failed:", err);
-    loadingText.innerText = "Loading incomplete - displayed tasks are unverified. Bulk actions are disabled. Retry Load Tasks.";
+    loadingText.innerText = "Loading incomplete - showing available tasks. Selected tasks will be verified before changes. Retry Load Tasks for the full list.";
     alert("Tasks could not be fully loaded. Please try again. " + err.message);
 
   } finally {
 
-    loadBtn.disabled = false;
-    filterDateFrom.disabled = false;
-    filterDateTo.disabled = false;
+    TASK_LOAD_IN_PROGRESS = false;
+    loadBtn.disabled = TASK_ACTION_BUSY;
+    filterDateFrom.disabled = TASK_ACTION_BUSY;
+    filterDateTo.disabled = TASK_ACTION_BUSY;
     loadBtn.innerText = "🔄 Load Tasks";
   }
 }
 
 
 checkAll.onchange = () => {
-  if (!TASKS_VERIFIED) return;
+  if (TASK_ACTION_BUSY) return;
   const start = CURRENT_PAGE * PAGE_SIZE;
   const end = start + PAGE_SIZE;
 
@@ -1050,7 +1080,7 @@ for (let i = 0; i < base.length; i++) {
 }
 
 window.toggleSelect = function (el) {
-  if (!TASKS_VERIFIED) return;
+  if (TASK_ACTION_BUSY) return;
   const id = el.dataset.id;
 
   if (el.checked) {
@@ -1098,7 +1128,7 @@ function renderTasks(data) {
         <input
           type="checkbox"
           data-id="${t._key}"
-          ${TASKS_VERIFIED ? "" : "disabled"}
+          ${TASK_ACTION_BUSY ? "disabled" : ""}
           onchange="toggleSelect(this)"
         >
 
@@ -1259,15 +1289,15 @@ const selectedCountEl = document.getElementById("selectedCount");
 window.checkSelection = function () {
   const count = SELECTED_IDS.size;
 
-  bulkBtn.disabled = !TASKS_VERIFIED || count === 0;
+  bulkBtn.disabled = TASK_ACTION_BUSY || count === 0;
 
   selectedCountEl.innerText =
-  count > 0 ? `${count} selected (ALL FILTERED)` : "";
+  count > 0 ? `${count} loaded task(s) selected` : "";
 };
 
 /* ===== BULK ACTION ===== */
 window.openBulkActions = async function () {
-  if (!TASKS_VERIFIED || loadBtn.disabled) return;
+  if (TASK_ACTION_BUSY) return;
   
   const ids = [...SELECTED_IDS];
 
@@ -1285,11 +1315,55 @@ window.openBulkActions = async function () {
   if (!action) return;
 
   const cmd = action.toUpperCase().trim();
-
-  if (cmd === "DELETE") await bulkDelete(ids);
-  else if (cmd === "TRANSFER") await bulkTransfer(ids);
-  else if (cmd === "REDOWNLOAD") await bulkRedownload(ids);
-  else alert("Invalid action. Use TRANSFER, DELETE or REDOWNLOAD.");
+  if (!["DELETE", "TRANSFER", "REDOWNLOAD"].includes(cmd)) {
+    alert("Invalid action. Use TRANSFER, DELETE or REDOWNLOAD.");
+    return;
+  }
+  if (TASK_ACTION_BUSY) return;
+  TASK_ACTION_BUSY = true;
+  loadBtn.disabled = true;
+  filterDateFrom.disabled = true;
+  filterDateTo.disabled = true;
+  checkSelection();
+  checkAll.disabled = true;
+  try {
+    const eligible = [];
+    for (let offset = 0; offset < ids.length; offset += 20) {
+      const chunk = ids.slice(offset, offset + 20);
+      const snapshots = await Promise.all(chunk.map(id => getDocFromServer(doc(db, "TASK", id))));
+      snapshots.forEach((snapshot, index) => {
+        const id = chunk[index];
+        const previous = TASK_MAP[id];
+        const fresh = snapshot.exists() ? {...snapshot.data(), _key:id} : null;
+        const isCompleted = fresh && (String(fresh.status || "").toUpperCase() === "COMPLETED" ||
+          String(fresh.workStatus || "").toUpperCase() === "COMPLETED");
+        if (fresh) {
+          TASK_MAP[id] = fresh;
+          LOAD_TASK_OVERRIDES.set(id, fresh);
+        } else LOAD_TASK_OVERRIDES.set(id, null);
+        const owner = task => String(task?.agentId || task?.driverId || "").trim().toUpperCase();
+        if (fresh && !fresh.deleted && !isCompleted && previous && owner(previous) === owner(fresh) && previous.assignedDate === fresh.assignedDate) eligible.push(id);
+      });
+    }
+    if (eligible.length !== ids.length) {
+      alert("Some selected tasks changed assignment, were completed, deleted, or no longer exist. The list has been updated. Review your selection and try again.");
+      SELECTED_IDS.clear();
+      return;
+    }
+    if (cmd === "DELETE") await bulkDelete(eligible);
+    else if (cmd === "TRANSFER") await bulkTransfer(eligible);
+    else await bulkRedownload(eligible);
+  } catch (error) {
+    console.error("Could not verify selected tasks", error);
+    alert("Could not verify selected tasks online. No action was started. Please try again.");
+  } finally {
+    TASK_ACTION_BUSY = false;
+    loadBtn.disabled = TASK_LOAD_IN_PROGRESS;
+    filterDateFrom.disabled = TASK_LOAD_IN_PROGRESS;
+    filterDateTo.disabled = TASK_LOAD_IN_PROGRESS;
+    publishLoadedTasks(window.__TASKS_DATA__ || []);
+    checkSelection();
+  }
 };
 
 async function bulkRedownload(ids) {
@@ -1381,6 +1455,7 @@ async function bulkRedownload(ids) {
         updatedAt: localUpdatedAt
       });
     });
+    rememberLoadedTaskChanges([...cacheUpdates.keys()]);
     await updateTasksInAllCaches(cacheUpdates);
 
     SELECTED_IDS.clear();
@@ -1401,20 +1476,18 @@ async function bulkDelete(ids) {
 
   try {
 
-    const batch = writeBatch(db);
-
-    ids.forEach(id => {
-
-      const taskRef = doc(db, "TASK", id);
-
-      batch.update(taskRef, {
-        deleted: true,
-        deletedAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
+    for (let offset = 0; offset < ids.length; offset += 450) {
+      const batch = writeBatch(db);
+      ids.slice(offset, offset + 450).forEach(id => {
+        batch.update(doc(db, "TASK", id), {
+          deleted: true,
+          deletedAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        });
       });
-    });
-
-    await batch.commit();
+      await batch.commit();
+    }
+    rememberLoadedTaskChanges(ids, true);
     await removeTasksFromAllCaches(ids);
 
     // Remove from local UI
@@ -1536,6 +1609,7 @@ async function bulkTransfer(ids) {
       }
     });
 
+    rememberLoadedTaskChanges([...cacheUpdates.keys()]);
     await updateTasksInAllCaches(cacheUpdates);
 
     // Rebuild indexes because transferred tasks belong under a new driver.
