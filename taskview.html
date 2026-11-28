@@ -606,8 +606,11 @@ async function loadTasks(page = 0) {
         body: JSON.stringify({ ...selection, cursor, pageSize: PAGE_SIZE - tasks.length }),
         signal: controller.signal
       });
+      if (!response.ok) {
+        const error = await response.json().catch(() => null);
+        throw new Error(error?.error || "Task request failed (HTTP " + response.status + ").");
+      }
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "Could not load completed tasks.");
       tasks.push(...result.tasks);
       cursor = result.cursor;
     } while (cursor && tasks.length < PAGE_SIZE && !controller.signal.aborted);

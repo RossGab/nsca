@@ -1467,6 +1467,8 @@ function viewerTaskMatches(task, term) {
 exports.listCompletedViewerTasks = onRequest({
   region: "asia-southeast1",
   timeoutSeconds: 120,
+  memory: "1GiB",
+  concurrency: 1,
   cors: false
 }, async (req, res) => {
   const allowedOrigin = setReportCors(req, res);
